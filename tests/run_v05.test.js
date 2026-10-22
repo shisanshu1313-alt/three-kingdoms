@@ -244,9 +244,13 @@ test('删档：死亡时先删 run 存档再写局外数据（两个键互不影
   assert.equal(loadMeta(st, META_KEY).runs, 1); assert.equal(hasSave(st), false);
 });
 
-test('gacha_v05：卡池权重 38/12/25/10/5/6/3/1；item_source 规范化；抽卡价 min(30+3n, 90)', async () => {
+test('gacha_v05：卡池权重 44/13/22/10/5/0/5/1（= 策划 weights）；item_source 规范化；抽卡价 min(30+3n, 90)（= gacha_v05.cost）', async () => {
   const { oddsTable, pullCost } = await import('../src/systems/gacha.js');
-  assert.deepEqual(balance.gacha.pool.map(e => [e.type, e.weight]), [['attr_small', 38], ['attr_big', 12], ['item', 25], ['unit_order', 10], ['drill', 5], ['general_B', 6], ['general_A', 3], ['general_S', 1]]);
+  assert.deepEqual(balance.gacha.pool.map(e => [e.type, e.weight]), [['attr_small', 44], ['attr_big', 13], ['item', 22], ['unit_order', 10], ['drill', 5], ['general_B', 0], ['general_A', 5], ['general_S', 1]]);
+  assert.deepEqual(Object.fromEntries(balance.gacha.pool.map(e => [e.type, e.weight])), design.gacha_v05.weights);
+  assert.equal(design.gacha_v05.cost.replace(/\s/g, ''), `min(${balance.gacha.cost_base}+${balance.gacha.cost_step}n,${balance.gacha.cost_cap})`);
+  assert.deepEqual([balance.gacha.cost_base, balance.gacha.cost_step, balance.gacha.cost_cap], [30, 3, 90]);
+  assert.deepEqual(balance.gacha.pool.filter(e => e.attr_amount).map(e => e.attr_amount), [2, 5]);
   assert.equal(balance.gacha.pool.find(e => e.type === 'item').item_source, 'items_all_uniform');
   assert.ok(Math.abs(oddsTable(balance.gacha).reduce((s, e) => s + e.p, 0) - 1) < 1e-12);
   assert.deepEqual([0, 1, 10, 20, 30].map(n => pullCost(n, balance.gacha)), [30, 33, 60, 90, 90]);
@@ -300,3 +304,30 @@ test('输入：同一个原生键盘事件被 Phaser 重复派发时只算一次
   handlers[0](e1); handlers[0](e1); handlers[0](e2); handlers[0](e1);
   assert.equal(n, 2, '两个不同的按键事件 → 2 次');
 });
+
+test('策划定稿清单 ↔ 程序配置：地图 / 密度 / 脱离 / 保护 / 背击 / 士气 / 弓兵 / HP / 城池 / 侦察 / 局外解锁', () => {
+  assert.equal(balance.map.width_px, 1600); assert.equal(balance.map.height_px, 1600);
+  assert.equal(balance.spawn.max_ai_teams, 10); assert.equal(balance.spawn.respawn_interval_s, 12);
+  assert.equal(cj.move.escape_gap_px, 150); assert.equal(cj.move.escape_s, 2);
+  assert.equal(cj.cooldown.protect_s, 8); assert.equal(cj.move.rear_mult, 1.3);
+  assert.equal(cj.move.morale_rout, 30); assert.equal(cj.confirmed.player_rout_once_per_battle, true);
+  assert.equal(cj.move.units.arc.range_px, 120); assert.equal(cj.move.units.arc.ammo_s, 12);
+  const F = cfg.failure;
+  assert.deepEqual([F.hero_hp_max, F.hero_hp_per_dead, F.hero_hp_rout, F.regen_out_of_battle_per_min, F.regen_in_city_per_s, F.recruit_floor, F.city_radius_px], [100, 35, 20, 10, 2, 40, 200]);
+  assert.deepEqual([balance.v05.units.scouting.vision_px, balance.v05.units.scouting.scout_px], [300, 500]);
+  assert.equal(cfg.named_reinforce.per_min, 3);
+  assert.equal(balance.rewards.capture_rules.generic_capturable, false, '黄巾头目不可俘获');
+  assert.equal(balance.ai.chase_max_ratio, 3);
+  const u = Object.fromEntries(cfg.meta.unlocks.map(x => [x.id, x]));
+  assert.deepEqual(['start_spr', 'start_arc', 'start_cav', 'start_liaohua', 'start_item', 'hard_mode'].map(k => !!u[k]), [true, true, true, true, true, true]);
+  assert.deepEqual(u.hard_mode.cond, { cleared: true });
+  assert.equal(u.start_liaohua.general, 'liaohua');
+});
+
+test('黄巾头目不可俘获（polish_merged.1）；名将照常可俘', async () => {
+  const { isCapturable } = await import('../src/systems/combat.js');
+  assert.equal(isCapturable({ id: 'b_gen', generic: true, lead: 30, str: 30, int: 30, cha: 30 }, balance), false);
+  assert.equal(isCapturable(balance.generals.find(g => g.id === 'xiahoudun'), balance), true);
+  assert.equal(isCapturable({ id: 'hero' }, balance), false);
+});
+

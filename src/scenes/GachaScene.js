@@ -192,7 +192,7 @@ export default class GachaScene extends Phaser.Scene {
     add(text(this, x0, y0 + 24, `下一抽价格：${cost} 点`, 16, st.points >= cost ? '#aaffaa' : '#ff8888'));
     add(text(this, x0, y0 + 48, `已抽次数：${st.gachaDraws}`, 14, '#cccccc'));
     add(text(this, x0, y0 + 80, '概率表', 15, '#f1c40f'));
-    oddsTable(balance.gacha).forEach((r, i) => {
+    oddsTable(balance.gacha).filter(r => r.weight > 0).forEach((r, i) => { // 权重 0（v0.5 B 级武将）不显示
       const y = y0 + 104 + i * 24;
       const e = poolEntry(balance, r.type);
       add(this.add.rectangle(x0, y + 2, 14, 14, TIER_COLORS[e.tier] ?? TIER_COLORS[r.type]).setOrigin(0));

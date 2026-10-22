@@ -310,37 +310,37 @@
   "gacha_pool": [
     {
       "type": "attr_small",
-      "weight": 38,
+      "weight": 44,
       "attr_amount": 2
     },
     {
       "type": "attr_big",
-      "weight": 12,
+      "weight": 13,
       "attr_amount": 5
     },
     {
       "type": "item",
-      "weight": 25,
-      "item_source": "items_all_uniform（物品表 5 → 9 件，含 3 件克制物品和斥候旗）"
+      "weight": 22,
+      "item_source": "items_all_uniform（物品表 9 件等概率（含拒马/藤甲/重铠/斥候旗））"
     },
     {
       "type": "unit_order",
       "weight": 10,
-      "effect": "兵种令：全队改为任选兵种；不改则返还 25 点"
+      "effect": "兵种令：全队改为任选兵种；不改返还 25 点"
     },
     {
       "type": "drill",
       "weight": 5,
-      "effect": "操练：本队对被克兵种的克制倍率 +0.05（每局最多 3 次，换兵种后清零）"
+      "effect": "操练：克制倍率 +0.05，每局最多 3 次，换兵种清零"
     },
     {
       "type": "general_B",
-      "weight": 6,
+      "weight": 0,
       "tier": "B"
     },
     {
       "type": "general_A",
-      "weight": 3,
+      "weight": 5,
       "tier": "A"
     },
     {
@@ -348,5 +348,29 @@
       "weight": 1,
       "tier": "S"
     }
-  ]
+  ],
+  "capture": {
+    "generic_capturable": false
+  },
+  "faction_refill": {
+    "enabled": true,
+    "lead_str": [
+      60,
+      80
+    ],
+    "int_cha": [
+      40,
+      70
+    ],
+    "power_floor": 120,
+    "power_rand": [
+      0.8,
+      1.2
+    ],
+    "counts_when_named_lost": true
+  },
+  "named_reinforce": {
+    "per_min": 3,
+    "ref_duration_min": 20
+  }
 }

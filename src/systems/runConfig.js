@@ -41,7 +41,9 @@ export function applyRunConfig(b, run) {
   // gacha_v05.pool：属性 50 / 物品 25 / 兵种令 10 / 操练 5 / 武将 10（item_source 说明文字 → 规则名）
   const pool = (run.gacha_pool ?? b.gacha.pool).map(e => (e.type === 'item' ? { ...e, item_source: 'items_all_uniform' } : { ...e }));
   out.gacha = { ...b.gacha, pool, cost_base: g.gacha_cost.base, cost_step: g.gacha_cost.step, cost_cap: g.gacha_cost.cap };
-  out.rewards = { ...b.rewards, points_base: g.points.base, points_per_enemy_power: g.points.per_power, recruit_base: g.recruit_base };
+  out.rewards = { ...b.rewards, points_base: g.points.base, points_per_enemy_power: g.points.per_power, recruit_base: g.recruit_base,
+    // polish_merged.1：黄巾头目不可俘获（generic_capturable = false）
+    capture_rules: { ...b.rewards.capture_rules, ...(run.capture ?? {}) } };
   // 克制物品（units.counter_items）并入物品表；效果 dmg_taken_from / scout_px 由战斗、显示读取
   const have = new Set(b.items.map(i => i.id));
   out.items = [...b.items, ...run.units.counter_items.filter(i => !have.has(i.id)).map(i => ({ id: i.id, name: i.name, effect: i.effect }))];

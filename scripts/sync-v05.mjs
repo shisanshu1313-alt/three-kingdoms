@@ -42,6 +42,23 @@ const combat = {
   answers: ca.answers
 };
 
+// ---------- 抽卡（gacha_v05：唯一来源；cost 是公式文字 "min(30 + 3n, 90)"，weights / pool_notes 生成卡池） ----------
+function parseNum(text, re) { const m = re.exec(text ?? ''); if (!m) throw new Error(`balance_v0.5.json 解析失败：${re} 不匹配 "${text}"`); return Number(m[1]); }
+const gv = d.gacha_v05;
+const costM = /min\(\s*(\d+)\s*\+\s*(\d+)\s*n\s*,\s*(\d+)\s*\)/.exec(gv.cost ?? '');
+if (!costM) throw new Error(`gacha_v05.cost 无法解析："${gv.cost}"（期望 min(a + bn, cap)）`);
+const gachaCost = { base: +costM[1], step: +costM[2], cap: +costM[3] };
+const notes = gv.pool_notes ?? {};
+const gachaPool = Object.entries(gv.weights).map(([type, weight]) => {
+  const e = { type, weight };
+  if (type.startsWith('attr_')) e.attr_amount = parseNum(notes[type], /attr_amount\s*(\d+)/);
+  else if (type === 'item') e.item_source = `items_all_uniform（${notes.item ?? ''}）`;
+  else if (type.startsWith('general_')) e.tier = type.slice('general_'.length);
+  else if (notes[type]) e.effect = notes[type];
+  return e;
+});
+const pm = d.polish_merged;
+
 // ---------- 一局的规则 ----------
 const fp = d.fast_pace, rb = d.failure.rules_B, sf = rb.soldier_floor_redesign, gt = fp.growth_tuning;
 const dur = fp.duration_options.find(o => o.min === fp.recommend);
@@ -64,7 +81,7 @@ const run = {
   density: fp.density,
   first_battle: { at_s: 20, power_vs_player: [0.6, 0.8], dist_px: [350, 450], ignores_grace: true }, // 【解读】fast_pace.first_battle.rule
   grace_s: 90, // fast_pace.grace.rule
-  growth: { gacha_cost: { base: 30, step: 3, cap: 90 }, points: { base: 8, per_power: 0.45 }, recruit_base: gt.recruit_base }, // 【解读】growth_tuning 公式
+  growth: { gacha_cost: gachaCost, points: { base: 8, per_power: 0.45 }, recruit_base: gt.recruit_base }, // gacha_cost ← gacha_v05.cost；points【解读】growth_tuning 公式
   failure: {
     hero_hp_max: rb.hero_hp_max, hero_hp_per_dead: rb.hero_hp_per_dead, hero_hp_rout: rb.hero_hp_rout, hero_hp_esc_fail: rb.hero_hp_esc_fail,
     regen_out_of_battle_per_min: rb.hp_regen.out_of_battle_per_min, regen_in_city_per_s: rb.hp_regen.in_city_per_s,
@@ -93,7 +110,16 @@ const run = {
     drill: { add: 0.05, max: 3 },
     scouting: { vision_px: d.units.scouting.vision_px, scout_px: d.units.scouting.scout_px }
   },
-  gacha_pool: d.gacha_v05.pool
+  gacha_pool: gachaPool,
+  // polish_merged（随 v0.5 一起定）
+  capture: { generic_capturable: false }, // 1_bandit_head_no_capture：factions.bandit.generic_capturable = false
+  faction_refill: { // 3_faction_refill【解读】文字 → 数值
+    enabled: true, lead_str: [60, 80], int_cha: [40, 70], power_floor: 120, power_rand: [0.8, 1.2],
+    // 【假设，待策划确认】名将军被别的 AI 打掉（玩家没有份额，不算讨伐）后，该势力只剩校尉军；这时击败该势力的校尉军也算讨伐，
+    // 否则这一局永远无法通关（模拟 sim_v05_world.py 里校尉军 main=True，击败即讨伐）
+    counts_when_named_lost: true
+  },
+  named_reinforce: { per_min: parseNum(pm['4_named_reinforce'].rule, /每分钟\s*\+\s*(\d+)\s*兵/), ref_duration_min: 20 } // 4_named_reinforce：按 20/时长 缩放
 };
 writeFileSync(new URL('../src/data/combat_v05.json', import.meta.url), JSON.stringify(combat, null, 2) + '\n');
 writeFileSync(new URL('../src/data/run_v05.json', import.meta.url), JSON.stringify(run, null, 2) + '\n');
