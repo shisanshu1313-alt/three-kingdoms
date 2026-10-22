@@ -383,12 +383,11 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
     if (mx2 === X.x && my2 === X.y && sp > 0) X.v = Math.min(X.v, vm * 0.3);
     X.x = mx2; X.y = my2;
   }
-  // ---- 11) 【假设】敌对的两圆最多重叠 max_overlap_px（保持接触，但不会叠在一起看不见）；各退一半，地形不允许就不退
+  // ---- 11) 【假设】任意两圆最多重叠 max_overlap_px（敌对的保持接触，但谁都不会叠在一起看不见）；各退一半，地形不允许就不退
   const OV = AS.max_overlap_px ?? 4;
   const live = Object.keys(B).sort();
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const a = B[live[i]], b = B[live[j]];
-    if (!E.hostile(a, b)) continue;
     const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), want = radiusOf(soldiersOf(a), cfg) + radiusOf(soldiersOf(b), cfg) - OV;
     if (d >= want) continue;
     const ux = d > 1e-6 ? dx / d : 1, uy = d > 1e-6 ? dy / d : 0, push = (want - d) / 2;
