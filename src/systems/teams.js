@@ -6,6 +6,7 @@
  * 初始队伍来自 balance.initial_teams；generals 写法："hero" / 名将 id / "generic"（按阵营 generic_general 随机）。
  */
 import { randInt } from './rng.js';
+import { mainGeneral, roundHalfUp } from './combat.js';
 
 const ATTRS = ['lead', 'str', 'int', 'cha'];
 
@@ -33,7 +34,7 @@ export function createNameAllocator(balance, rng) {
 export function teamName(team, balance, idx) {
   if (team.is_player) return balance.player_faction?.team_name ?? '主角军';
   const rule = idx.factionsById[team.faction]?.team_name_rule ?? '{主将名}军';
-  const main = team.generals[balance.team_rules.main_general_index] ?? team.generals[0];
+  const main = mainGeneral(team, balance);
   return rule.replace('{主将名}', main?.name ?? team.id).replace('{头目名}', main?.name ?? team.id);
 }
 
@@ -100,10 +101,10 @@ export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx 
   const target = playerPower * (lo + rng() * (hi - lo));
   const p = balance.power, g = team.generals;
   const sumStr = g.reduce((s, x) => s + x.str, 0);
-  const lead = g[balance.team_rules.main_general_index].lead;
+  const lead = mainGeneral(team, balance).lead;
   const M = 1 + p.k_lead * lead + p.k_str * sumStr;
   const cap = balance.team_rules.soldier_cap_base + balance.team_rules.soldier_cap_per_lead * g.reduce((s, x) => s + x.lead, 0);
-  team.soldiers = Math.min(cap, Math.max(sp.min_soldiers, Math.round((target - p.k_gen * sumStr) / M)));
+  team.soldiers = Math.min(cap, Math.max(sp.min_soldiers, roundHalfUp((target - p.k_gen * sumStr) / M)));
   team.targetPower = target;
   return team;
 }

@@ -19,8 +19,15 @@ test('attitude 按性格阈值（我/敌）', () => {
   assert.equal(attitude(100, 100, P.cautious), 'flee');  // 谨慎：势均力敌也跑
 });
 
+test('chase_max_ratio：r ≥ 3 不追（碰上照常开战），配置缺省时不限', () => {
+  assert.equal(attitude(299, 100, P.normal, cfg.chase_max_ratio), 'chase');
+  assert.equal(attitude(300, 100, P.normal, cfg.chase_max_ratio), 'ignore');
+  assert.equal(attitude(300, 100, P.normal), 'chase');
+  assert.equal(run({ self: self({ power: 1000 }), others: [enemy()] }).state, 'wander');
+});
+
 test('视野内弱敌 → 追击；视野外 → 游荡', () => {
-  assert.deepEqual([run({ self: self({ power: 200 }), others: [enemy()] }).state], ['chase']);
+  assert.equal(run({ self: self({ power: 200 }), others: [enemy()] }).state, 'chase');
   assert.equal(run({ self: self({ power: 200 }), others: [enemy({ x: cfg.vision_px + 1 })] }).state, 'wander');
 });
 
@@ -30,7 +37,7 @@ test('强敌 → 逃跑，逃跑优先于追击', () => {
 });
 
 test('同阵营、战斗中、无敌玩家 不作为目标', () => {
-  const s = self({ power: 999 });
+  const s = self({ power: 200 });
   assert.equal(run({ self: s, others: [enemy({ faction: 'wei' })] }).state, 'wander');
   assert.equal(run({ self: s, others: [enemy({ inBattle: true })] }).state, 'wander');
   assert.equal(run({ self: s, others: [enemy({ id: 'player', isPlayer: true, invincible: true })] }).state, 'wander');
@@ -39,21 +46,21 @@ test('同阵营、战斗中、无敌玩家 不作为目标', () => {
 
 test('追击超距 / 超时 → 放弃并忽略目标 ignore_target_s', () => {
   const mem = { state: 'chase', targetId: 'e', since: 0, ignore: {} };
-  const far = run({ self: self({ power: 999 }), others: [enemy({ x: cfg.chase_give_up_px + 1 })], mem, now: 1 });
+  const far = run({ self: self({ power: 200 }), others: [enemy({ x: cfg.chase_give_up_px + 1 })], mem, now: 1 });
   assert.notEqual(far.state, 'chase');
   assert.equal(far.ignore.e, 1 + cfg.ignore_target_s);
-  const slow = run({ self: self({ power: 999 }), others: [enemy({ x: 50 })], mem, now: cfg.chase_max_s });
+  const slow = run({ self: self({ power: 200 }), others: [enemy({ x: 50 })], mem, now: cfg.chase_max_s });
   assert.notEqual(slow.state, 'chase');
   // 忽略期内即使在视野里也不再追
-  const again = run({ self: self({ power: 999 }), others: [enemy({ x: 50 })], mem: { ...mem0, ignore: slow.ignore }, now: cfg.chase_max_s + 1 });
+  const again = run({ self: self({ power: 200 }), others: [enemy({ x: 50 })], mem: { ...mem0, ignore: slow.ignore }, now: cfg.chase_max_s + 1 });
   assert.equal(again.state, 'wander');
-  const after = run({ self: self({ power: 999 }), others: [enemy({ x: 50 })], mem: { ...mem0, ignore: slow.ignore }, now: cfg.chase_max_s + cfg.ignore_target_s + 1 });
+  const after = run({ self: self({ power: 200 }), others: [enemy({ x: 50 })], mem: { ...mem0, ignore: slow.ignore }, now: cfg.chase_max_s + cfg.ignore_target_s + 1 });
   assert.equal(after.state, 'chase');
 });
 
 test('追击中保持目标 & since 不重置', () => {
   const mem = { state: 'chase', targetId: 'e', since: 3, ignore: {} };
-  const r = run({ self: self({ power: 999 }), others: [enemy({ x: 200 })], mem, now: 5 });
+  const r = run({ self: self({ power: 200 }), others: [enemy({ x: 200 })], mem, now: 5 });
   assert.equal(r.state, 'chase'); assert.equal(r.since, 3);
 });
 

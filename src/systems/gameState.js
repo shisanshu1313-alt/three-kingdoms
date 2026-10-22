@@ -4,7 +4,7 @@ export function createGameState(balance) {
     points: 0,
     freePool: [...(balance?.initial_free_pool || [])], // 不在任何队伍中的名将 id（抽卡只从这里出）
     captured: [],        // 玩家俘获并已入队的武将（记录）
-    pendingCaptives: [], // 玩家满编时俘获、等待“替换/释放”选择的武将（选择 UI 待 M3）
+    pendingGenerals: [], // 满编时获得（俘获/抽卡）待“替换/释放”的武将队列 [{general, source:'capture'|'gacha', from}]
     battleLog: [],       // 最新在前 [{time, text}]
     battles: 0,
     gachaDraws: 0

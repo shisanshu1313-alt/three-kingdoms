@@ -1,11 +1,7 @@
 {
-  "_comment": "程序侧【假设】：balance v0.2 仍未明确的点。每项附说明，策划确认后改这里或并入 balance。",
-  "battle": {
-    "player_full_team_capture": "pending",
-    "_player_full_team_capture": "玩家队伍已满 3 将时俘获的武将：v0.2 规则是“玩家选择替换或释放”，选择 UI 在 M3；M2 先放入 state.pendingCaptives 待处理名单",
-    "generic_to_full_ai": "vanish",
-    "_generic_to_full_ai": "黄巾头目被已满编的 AI 俘获时：v0.2 说“改回自由池”，但头目不进抽卡池，按消失处理",
-    "zero_soldier_team": "keep",
-    "_zero_soldier_team": "平局/胜方损兵后兵数为 0 的队伍：v0.2 未定义，暂时保留（战力只剩武将部分）"
+  "_comment": "程序侧【假设】：当前 balance（v0.3）未明确的点。v0.3 已回答之前所有战斗/抽卡/名册假设，目前只剩表现层细节。",
+  "gacha": {
+    "roll_anim": "flash",
+    "_roll_anim": "gacha_ui.roll_anim_s 只给了时长与可跳过；动画样式未定义 → 结果卡在 6 档颜色间闪烁，按任意键/点击跳过"
   }
 }

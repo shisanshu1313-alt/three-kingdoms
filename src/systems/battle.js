@@ -7,20 +7,32 @@ import { resolveCombat } from './combat.js';
 
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
+/** ai_loser = disband：整队移除，物品消失；未被俘名将回自由池，黄巾头目消失 */
+function disband(team, out, exclude = []) {
+  if (!out.removeIds.includes(team.id)) out.removeIds.push(team.id);
+  for (const g of team.generals) if (!g.generic && !exclude.includes(g)) out.toFreePool.push(g.id);
+}
+
+/** battle.zero_soldier_rule：AI 兵数 0 → 按 ai_loser 移除（无额外点数）；玩家兵数不低于 player_defeat.min_soldiers */
+function applyZeroSoldierRule(team, out, balance) {
+  if (team.is_player) team.soldiers = Math.max(team.soldiers, balance.battle.player_defeat.min_soldiers);
+  else if (team.soldiers <= 0) disband(team, out);
+}
+
 /**
  * @param a,b  team（会被修改）
  * @param r    resolveCombat(a,b) 结果
- * @param asm  assumptions.battle
- * @returns { outcome, winnerId, loserId, removeIds, captured:[{general, to}], toFreePool:[id], pendingCaptives:[general],
+ * @returns { outcome, winnerId, loserId, removeIds, captured:[{general, to}], toFreePool:[id], pendingGenerals:[{general,source,from}],
  *            recruited, points, playerDefeat, pushback_px, pair_cooldown_s, text }
  */
-export function applyBattleResult(a, b, r, balance, asm, rng = Math.random) {
-  const out = { outcome: r.outcome, removeIds: [], captured: [], toFreePool: [], pendingCaptives: [], recruited: 0, points: 0, ratio: r.ratio };
+export function applyBattleResult(a, b, r, balance, rng = Math.random) {
+  const out = { outcome: r.outcome, removeIds: [], captured: [], toFreePool: [], pendingGenerals: [], recruited: 0, points: 0, ratio: r.ratio };
   const nameOf = t => t.name || t.id;
 
   if (r.outcome === 'draw') {
     a.soldiers -= r.a.losses;
     b.soldiers -= r.b.losses;
+    applyZeroSoldierRule(a, out, balance); applyZeroSoldierRule(b, out, balance);
     Object.assign(out, { pushback_px: r.pushback_px, pair_cooldown_s: r.pair_cooldown_s, lossA: r.a.losses, lossB: r.b.losses });
     out.text = `${nameOf(a)} 与 ${nameOf(b)} 平局（-${r.a.losses} / -${r.b.losses}）`;
     return out;
@@ -40,21 +52,21 @@ export function applyBattleResult(a, b, r, balance, asm, rng = Math.random) {
     L.generals = free; // 被俘随从离队，主角保留
     out.playerDefeat = r.playerDefeat;
   } else {
-    out.removeIds.push(L.id); // ai_loser = disband；物品消失
-    for (const g of free) if (!g.generic) out.toFreePool.push(g.id); // 未被俘名将回自由池，头目消失
+    disband(L, out, caught); // ai_loser = disband
   }
 
   // 3) 俘获去向（保留当前属性）
   for (const g of caught) {
     const copy = { ...g };
     if (W.generals.length < maxGen) { W.generals.push(copy); out.captured.push({ general: copy, to: W.id }); continue; }
-    if (W.is_player) { out.pendingCaptives.push(copy); out.captured.push({ general: copy, to: 'pending' }); } // [假设] 选择 UI 待 M3
+    if (W.is_player) { out.pendingGenerals.push({ general: copy, source: 'capture', from: nameOf(L) }); out.captured.push({ general: copy, to: 'pending' }); } // 满编 → 替换/释放弹窗
     else if (!g.generic) { out.toFreePool.push(g.id); out.captured.push({ general: copy, to: 'free_pool' }); }  // ai_full_team
-    else out.captured.push({ general: copy, to: 'vanish' }); // [假设] 头目不进自由池
+    else out.captured.push({ general: copy, to: 'vanish' }); // capture_rules.ai_full_team：被俘黄巾头目直接消失
   }
 
   // 4) 胜方兵数 = min(兵力上限, N_w − 损兵 + 收编)（上限按战前武将计算，见 resolveCombat）
   W.soldiers = r.winnerSoldiersAfter;
+  applyZeroSoldierRule(W, out, balance);
   out.recruited = r.recruited;
   out.points = r.points;
   out.winnerLosses = r.winnerLosses; out.loserLosses = r.loserDead;
@@ -71,8 +83,8 @@ export function applyBattleResult(a, b, r, balance, asm, rng = Math.random) {
 
 export default class BattleSystem {
   /** world 需提供：onBattleStart(battle)、onBattleEnd(battle, outcome) */
-  constructor(world, balance, asm, state, rng = Math.random) {
-    this.world = world; this.balance = balance; this.asm = asm; this.state = state; this.rng = rng;
+  constructor(world, balance, state, rng = Math.random) {
+    this.world = world; this.balance = balance; this.state = state; this.rng = rng;
     this.battles = [];
     this.pairCooldown = new Map(); // pairKey -> until(ms)
   }
@@ -117,13 +129,13 @@ export default class BattleSystem {
     a.inBattle = b.inBattle = null;
     a.graceUntil = b.graceUntil = now + this.balance.battle.post_battle_grace_s * 1000;
     const before = { ...battle.startSoldiers };
-    const outcome = applyBattleResult(a.team, b.team, result, this.balance, this.asm, this.rng);
+    const outcome = applyBattleResult(a.team, b.team, result, this.balance, this.rng);
     outcome.before = before;
     outcome.after = { [a.id]: a.team.soldiers, [b.id]: b.team.soldiers };
     if (outcome.outcome === 'draw') this.pairCooldown.set(pairKey(a.id, b.id), now + outcome.pair_cooldown_s * 1000);
     this.state.points += outcome.points;
     this.state.freePool.push(...outcome.toFreePool);
-    this.state.pendingCaptives.push(...outcome.pendingCaptives);
+    this.state.pendingGenerals.push(...outcome.pendingGenerals);
     for (const c of outcome.captured) if (c.to === 'player') this.state.captured.push(c.general);
     this.state.battles++;
     console.log(`[battle-end] ${outcome.text}`, outcome);

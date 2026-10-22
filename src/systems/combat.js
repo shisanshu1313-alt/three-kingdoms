@@ -1,7 +1,12 @@
 /**
  * 战斗/队伍数值公式（纯函数，无 Phaser；单测见 tests/combat.test.js 与 tests/worked_examples.test.js）。
- * 全部按 balance v0.2 的公式/取整规则实现，系数从 balance 读取。
+ * 全部按 balance v0.3 的公式与 battle.numeric_rules 实现，系数从 balance 读取：
+ *   中间值全程浮点；士兵数与点数在最后一步取整：
+ *   roundHalfUp(x) = floor(x + 0.5 + 1e-9)（损兵/阵亡/平局损兵/点数/刷新兵数），floorEps(x) = floor(x + 1e-9)（收编/玩家保留）
  */
+const EPS = 1e-9;
+export const roundHalfUp = x => Math.floor(x + 0.5 + EPS);
+export const floorEps = x => Math.floor(x + EPS);
 
 const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
 const max = (arr, f) => arr.reduce((m, x) => Math.max(m, f(x)), 0);
@@ -12,8 +17,25 @@ export function itemEffect(team, balance, key) {
   return sum(team.items || [], id => balance.items.find(i => i.id === id)?.effect?.[key] ?? 0);
 }
 
+/**
+ * 主将（team_rules.main_general_rule，decisions.main_general）：
+ *   A（默认）：队内统率最高的武将，并列取 generals 数组中靠前者；每次武将/属性变动后自动重算
+ *   B：玩家手动指定（team.main_general_id），未指定或不在队中时回落到 A
+ *   兼容 v0.2：若配置了 team_rules.main_general_index 则按下标
+ */
 export function mainGeneral(team, balance) {
-  return team.generals[balance.team_rules.main_general_index] ?? team.generals[0];
+  const gs = team.generals;
+  if (!gs.length) return undefined;
+  const idx = balance.team_rules.main_general_index;
+  if (Number.isInteger(idx)) return gs[idx] ?? gs[0];
+  const mode = balance.decisions?.find(d => d.id === 'main_general')?.chosen ?? 'A';
+  if (mode.startsWith('B') && team.main_general_id) {
+    const m = gs.find(g => g.id === team.main_general_id);
+    if (m) return m;
+  }
+  let best = gs[0];
+  for (const g of gs) if (g.lead > best.lead) best = g;
+  return best;
 }
 
 /** 面板战力：P = N × (1 + k_lead×主将统率 + k_str×Σ武力 + 物品战力%) + k_gen×Σ武力 */
@@ -75,7 +97,8 @@ export function resolveCombat(a, b, balance, rng = Math.random, opts = {}) {
   const Pa = basePa * rollA, Pb = basePb * rollB;
   const R = Math.max(Pa, Pb) / Math.max(1e-9, Math.min(Pa, Pb));
   const duration = clamp(bt.duration_base_s + bt.duration_k_s / R, bt.duration_min_s, bt.duration_max_s);
-  const dead = (team, frac) => clamp(Math.round(team.soldiers * frac * (1 - lossReduction(team, balance))), 0, team.soldiers);
+  const rawDead = (team, frac) => team.soldiers * frac * (1 - lossReduction(team, balance));
+  const dead = (team, frac) => clamp(roundHalfUp(rawDead(team, frac)), 0, team.soldiers);
 
   const base = {
     a: { id: a.id, power: basePa, rolled: Pa, roll: rollA },
@@ -95,34 +118,40 @@ export function resolveCombat(a, b, balance, rng = Math.random, opts = {}) {
 
   const aWins = Pa > Pb;
   const W = aWins ? a : b, L = aWins ? b : a;
-  const winnerLosses = dead(W, bt.winner_loss_base * Math.pow(1 / R, bt.winner_loss_exp));
-  const loserDead = dead(L, Math.min(bt.loser_loss_max, bt.loser_loss_base + bt.loser_loss_per_ratio * (R - 1)));
+  const wFrac = bt.winner_loss_base * Math.pow(1 / R, bt.winner_loss_exp);
+  const lFrac = Math.min(bt.loser_loss_max, bt.loser_loss_base + bt.loser_loss_per_ratio * (R - 1));
+  const winnerLossesRaw = rawDead(W, wFrac), loserDeadRaw = rawDead(L, lFrac);
+  const winnerLosses = dead(W, wFrac);
+  const loserDead = dead(L, lFrac);
   const loserSurvivors = L.soldiers - loserDead;
 
   // 玩家战败：先保留 max(min_soldiers, floor(溃兵 × keep_survivor_ratio))，剩余溃兵供 AI 收编
   let playerKept = null, recruitBase = loserSurvivors;
   if (L.is_player) {
     const pd = bt.player_defeat;
-    playerKept = Math.max(pd.min_soldiers, Math.floor(loserSurvivors * pd.keep_survivor_ratio));
+    playerKept = Math.max(pd.min_soldiers, floorEps(loserSurvivors * pd.keep_survivor_ratio));
     recruitBase = Math.max(0, loserSurvivors - playerKept);
   }
   const canRecruit = W.is_player || rw.ai_also_recruits;
   const recruitRate = canRecruit
     ? Math.min(rw.recruit_max, rw.recruit_base + rw.recruit_per_cha * max(W.generals, g => g.cha) + itemEffect(W, balance, 'recruit_pct'))
     : 0;
-  const recruited = Math.floor(recruitBase * recruitRate);
-  const winnerSoldiersAfter = Math.min(soldierCap(W, balance), W.soldiers - winnerLosses + recruited);
+  const recruited = floorEps(recruitBase * recruitRate);
+  // soldier_cap_timing：上限按战斗开始时的武将和物品计算，本场俘获入队的武将下一场才生效
+  const winnerSoldierCap = soldierCap(W, balance);
+  const winnerSoldiersAfter = Math.min(winnerSoldierCap, W.soldiers - winnerLosses + recruited);
 
   const bully = R >= rw.bully_ratio;
   const loserPanel = aWins ? basePb : basePa; // 战前面板战力，不乘随机
-  const points = W.is_player ? Math.round((rw.points_base + rw.points_per_enemy_power * loserPanel) * (bully ? rw.bully_mult : 1)) : 0;
+  const points = W.is_player ? roundHalfUp((rw.points_base + rw.points_per_enemy_power * loserPanel) * (bully ? rw.bully_mult : 1)) : 0;
 
   const capture = {};
   for (const g of L.generals) capture[g.id] = isCapturable(g, balance) ? captureChance(W, g, R, balance) : 0;
 
   const result = {
     ...base, outcome: aWins ? 'a_wins' : 'b_wins', winner: W.id, loser: L.id, bully,
-    winnerLosses, loserDead, loserLosses: loserDead, loserSurvivors,
+    winnerLosses, loserDead, loserLosses: loserDead, loserSurvivors, winnerLossesRaw, loserDeadRaw,
+    reductionWinner: lossReduction(W, balance), reductionLoser: lossReduction(L, balance), winnerSoldierCap,
     playerKept, recruitBase, recruitRate, recruited, winnerSoldiersAfter, points, capture
   };
   if (L.is_player) {

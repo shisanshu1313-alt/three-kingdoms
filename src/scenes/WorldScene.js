@@ -52,7 +52,7 @@ export default class WorldScene extends Phaser.Scene {
     teams.ai.forEach(t => this.addParty(t));
     this.collisions = new CollisionSystem();
     this.aiSystem = new AISystem(balance);
-    this.battleSystem = new BattleSystem(this, balance, assumptions.battle, this.state);
+    this.battleSystem = new BattleSystem(this, balance, this.state);
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s 检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
     this.time.addEvent({ delay: balance.spawn.respawn_interval_s * 1000, loop: true, callback: () => this.respawn() });
@@ -69,7 +69,7 @@ export default class WorldScene extends Phaser.Scene {
     this.pointerWorld = { x: -1e9, y: -1e9 };
 
     this.input.on('pointerdown', (pointer) => {
-      if (!pointer.leftButtonDown() || this.isOverMinimap(pointer)) return;
+      if (!pointer.leftButtonDown() || this.isOverMinimap(pointer) || this.scene.get('UI')?.hitsHud?.(pointer)) return;
       const wp = cam.getWorldPoint(pointer.x, pointer.y);
       this.setPlayerTarget(wp.x, wp.y);
     });
@@ -258,6 +258,13 @@ export default class WorldScene extends Phaser.Scene {
 
   // ================= 小地图 / 调试 =================
   positionMinimap() { this.minimap.setPosition(this.scale.width - MINIMAP_SIZE - 10, 10); }
+
+  /** 调试 / 冒烟测试用：直接加点数（F2 也会调用） */
+  debugGrantPoints(n) {
+    this.state.points += n;
+    pushLog(this.state, `【调试】点数 +${n}`, this.time.now);
+    return this.state.points;
+  }
 
   isOverMinimap(pointer) {
     const m = this.minimap;

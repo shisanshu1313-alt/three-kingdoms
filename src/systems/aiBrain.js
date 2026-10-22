@@ -5,12 +5,16 @@
  *   ignore_target_s、wander_radius_px、return_home_radius_mult；规则见 ratio_rule / valid_target / return_rule。
  */
 
-/** 对单个目标的态度（ratio_rule）：r = 我方面板战力/对方面板战力；r ≤ flee_ratio → flee（优先）；r ≥ chase_ratio → chase */
-export function attitude(myPower, enemyPower, personality) {
+/**
+ * 对单个目标的态度（ai.ratio_rule）：r = 我方面板战力/对方面板战力
+ *   r ≤ flee_ratio → flee（优先）；chase_ratio ≤ r < chase_max_ratio → chase；
+ *   r ≥ chase_max_ratio → 不追（防碾压，碰上照常开战；chaseMax 不配置则不限）；否则忽略
+ */
+export function attitude(myPower, enemyPower, personality, chaseMax = Infinity) {
   const { chase_ratio, flee_ratio } = personality;
   const r = myPower / Math.max(1e-9, enemyPower);
   if (r <= flee_ratio) return 'flee';
-  if (r >= chase_ratio) return 'chase';
+  if (r >= chase_ratio && r < chaseMax) return 'chase';
   return 'ignore';
 }
 
@@ -35,7 +39,7 @@ export function decide({ self, others, mem, cfg, personality, now }) {
   const valid = o => o.id !== self.id && !o.inBattle && o.faction !== self.faction && !(o.isPlayer && o.invincible);
   const visible = others.filter(o => valid(o) && !ignore[o.id] && dist(self, o) <= cfg.vision_px)
     .sort((a, b) => dist(self, a) - dist(self, b));
-  const att = o => attitude(self.power, o.power, personality);
+  const att = o => attitude(self.power, o.power, personality, cfg.chase_max_ratio ?? Infinity);
   const threat = visible.find(o => att(o) === 'flee');
   const prey = visible.find(o => att(o) === 'chase');
   const homeDist = self.home ? dist(self, self.home) : 0;
