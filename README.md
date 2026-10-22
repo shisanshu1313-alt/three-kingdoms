@@ -7,12 +7,17 @@
 ```bash
 npm install
 npm run dev            # 开发服务器 http://localhost:5173/
-npm run build          # 产出 dist/
+npm run build          # 产出 dist/（正式构建：没有调试钩子、没有 F2）
 npm run preview        # 预览 dist/
-npm test               # 单测：公式 / worked_examples / A* / AI 决策 / 战斗结算 / 抽卡 / 名册
+npm run build:smoke    # 产出 dist-smoke/：同正式构建，但带 window.__game / __balance（给冒烟测试用）
+npm run preview:smoke  # 预览 dist-smoke/（端口 4175）
+npm test               # 单测：公式 / worked_examples / A* / AI 决策 / 战斗结算 / 抽卡 / 名册 / 存档 / 输入 / 纯 Node 加载
 npm run sync:balance   # 从 ../design/balance_v0.4.json 同步策划配置
-node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 playwright-core + Chrome）
+node tests/smoke.cjs http://localhost:5173/        # 完整冒烟（开发服务器或 dist-smoke；需 playwright-core + Chrome）
+node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist：确认没有调试钩子，只看键盘 + 存档内容）
 ```
+
+**调试钩子**（`src/debug.js`）：`window.__game`、`window.__balance` 只在 `npm run dev` 和 `build:smoke`（`.env.smoke` 里 `VITE_DEBUG_HOOKS=1`）里有；正式 `dist/` 里被常量折叠删除（`grep __game dist/assets/*.js` 为空），F2 调试加点同理。
 
 ## 策划配置（balance.json）
 
@@ -33,7 +38,7 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 | 抽卡界面 | 空格 或 点「抽一次」；抽取动画任意键/点击跳过；结果先展示，需要选择时按 Enter/Esc 或点「确定」进入选择；1~3 选武将（属性）或丢弃旧物品；0/R 放弃新物品 |
 | 抽卡 Esc（v0.4 esc_rule） | 待机：关闭界面；抽取动画：跳过；结果：确认（回待机或进入选择）；选武将 / 物品栏满 / 队伍满：忽略（抽卡已扣点，必须选） |
 | 名册窗口（满编） | 1/2 或 点按钮 替换对应随从；R 或 点按钮 释放新武将（+20 点）；必须当场选择，不能关闭 |
-| F5 / F9 | 手动存档 / 读档（带提示；战斗中按 F5 会在战斗结束后自动存） |
+| F5 / F9 | 手动存档 / 读档（带提示；战斗中也能存，读档后战斗按原结果继续；抽卡/名册窗口打开时先关窗口） |
 | 标题菜单（有存档时） | Enter/1 或点「继续游戏」；N/2 或点「新游戏」→ 确认 Y / 取消 N（会删除存档）；存档损坏时只显示原因和「新游戏」 |
 | F2 | 调试：点数 +200（**只在 `npm run dev` 开发模式**，生产构建里没有这个按键） |
 | F1 | 调试：视野圈（vision_px）、游荡范围、所有路径（红=追击 蓝=逃跑 白=回家/游荡 黄=玩家） |
@@ -60,6 +65,7 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 
 - `storage.js`：存储接口 `get / set / remove`。现在用 `LocalStorageAdapter`（localStorage 不可用时退回内存）；小游戏换 `WxStorageAdapter(wx | tt)`。**除这里以外不许直接用 localStorage。**
 - `lifecycle.js`：`onHide(cb)`。网页 = visibilitychange / pagehide / beforeunload；小游戏换 `WxLifecycleAdapter`（wx.onHide）。
+- `screen.js`：屏幕尺寸。网页 = `window.innerWidth/innerHeight` + Phaser RESIZE（与以前相同）；小游戏换 `WxScreenAdapter(wx | tt)`（getSystemInfoSync）。入口 `main.js` 只通过 `scaleConfig()` 取尺寸。
 - `input.js`：输入动作层。场景只监听动作（`move` 向量、`moveTo` 点地面、`confirm`/`cancel`/`primary`/`choose N`/`release`/`yes`/`no`、`openGacha`、`save`/`load`、`debugVision`/`debugPoints`、`zoom`、`tap`、`any`），不碰原始按键。现在有 `KeyboardSource`（键位与以前完全一样，见 `DEFAULT_BINDINGS`）和 `PointerSource`（鼠标/触屏点按、滚轮）；触摸摇杆以后实现 `{ moveVector(), attach(emit), detach() }` 再 `actions.addSource()` 即可。
 - `systems/save.js` 是纯逻辑，存储由调用方传入（单测用 `MemoryStorageAdapter`）。
 
@@ -107,7 +113,7 @@ src/
   entities/PartyView.js          表现：队伍色块/标签/小地图点，每帧从 PartyModel 同步
   scenes/ BootScene / TitleScene / WorldScene / UIScene / GachaScene / RosterScene
   ui/widgets.js                  按钮/文字/档位颜色等占位 UI 组件
-tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save / reload / gameClock / input / pureLogic（node:test）+ smoke.cjs
+tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save / reload / gameClock / input / screen / pureLogic（node:test）+ smoke.cjs（完整）/ smoke-dist.cjs（黑盒，正式构建）
 ```
 
 ## 已决定（PM / 用户确认 2026-10-22，balance decisions）

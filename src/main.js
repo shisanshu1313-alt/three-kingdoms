@@ -6,17 +6,19 @@ import UIScene from './scenes/UIScene.js';
 import TitleScene from './scenes/TitleScene.js';
 import GachaScene from './scenes/GachaScene.js';
 import RosterScene from './scenes/RosterScene.js';
+import { scaleConfig } from './platform/screen.js';
+import { DEBUG_HOOKS, installDebugHooks } from './debug.js';
 
+// 屏幕尺寸走平台接口（platform/screen.js）：网页铺满窗口并跟随缩放，小游戏用屏幕尺寸
+const sc = scaleConfig();
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#111111',
   pixelArt: true,
-  scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
+  scale: { mode: Phaser.Scale[sc.mode], width: sc.width, height: sc.height },
   scene: [BootScene, TitleScene, WorldScene, UIScene, GachaScene, RosterScene]
 });
 
-
-// 便于调试 / 自动化测试
-window.__game = game;
-window.__balance = balance;
+// 调试 / 自动化测试钩子：只在开发模式和冒烟测试构建里有（正式构建整段移除）
+if (DEBUG_HOOKS) installDebugHooks(game, balance);
