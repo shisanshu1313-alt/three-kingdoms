@@ -20,7 +20,7 @@ import { mulberry32 } from '../systems/rng.js';
 import { makeSave, writeSave, clearSave, memFromSave, restoreGameState, META_KEY } from '../systems/save.js';
 import { createRun, runTick, checkFail, onPlayerBattleEnd, onNamedDefeated, runSummary, recordUnit, targetUnitFor } from '../systems/run.js';
 import { spawnPowerRange, counterAddOf } from '../systems/runConfig.js';
-import { namedReinforce, factionToRefill, factionUnit, buildRefillTeam, conquestTarget } from '../systems/factions.js';
+import { namedReinforce, factionToRefill, factionUnit, buildRefillTeam, conquestTarget, onNamedLost } from '../systems/factions.js';
 import { applyRunResult, loadMeta, saveMeta } from '../systems/meta.js';
 import { DEBUG_HOOKS } from '../debug.js';
 import { changeUnit } from '../systems/gacha.js';
@@ -327,8 +327,8 @@ export default class WorldScene extends Phaser.Scene {
     const tS = this.clock.now / 1000;
     recordUnit(r, tS, pl.team.unit);
     const ev = runTick(r, tS, dt, { soldiers: pl.team.soldiers, cap: pl.cap, power: pl.power, inBattle: pl.inBattle, inCity: this.inCity(pl) }, runCfg);
-    // polish_merged.4：名将军每分钟补兵（战斗中不补，脱战后补上）
-    for (const { id, add } of namedReinforce(r, tS, this.aiParties.map(p => ({ id: p.id, soldiers: p.team.soldiers, cap: p.cap, inBattle: !!p.inBattle })), runCfg)) {
+    // polish_merged.4：名将军每累计 60 s（不在交战中）补兵；交战中计时暂停，战后不补算
+    for (const { id, add } of namedReinforce(r, dt, this.aiParties.map(p => ({ id: p.id, soldiers: p.team.soldiers, cap: p.cap, inBattle: !!p.inBattle })), runCfg)) {
       const p = this.aiParties.find(x => x.id === id);
       if (p) { p.team.soldiers += add; p.refresh(); this.field.refresh(p); }
     }
@@ -418,8 +418,8 @@ export default class WorldScene extends Phaser.Scene {
         EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
         // 名将军被击败（玩家有伤害份额）→ 讨伐进度 / 胜利
         const L = battle.b;
-        // 讨伐目标：名将军；名将军已被别的 AI 打掉时，该势力的校尉军（factions.conquestTarget）
-        const ct = L && conquestTarget(L.team, this.run, id => this.aiParties.some(p => p.id === id), balance, runCfg);
+        // 讨伐目标：名将军；名将军被其他 AI 打掉过时，该势力的校尉军（factions.conquestTarget）
+        const ct = L && conquestTarget(L.team, this.run, balance, runCfg);
         if (ct) {
           const share = e?.shares?.[this.player.id] ?? 0;
           const ev = onNamedDefeated(this.run, ct.namedId, share, this.clock.now / 1000, runCfg);
@@ -427,6 +427,9 @@ export default class WorldScene extends Phaser.Scene {
             pushLog(this.state, ev.type === 'victory' ? '四路名将尽数讨平！' : `讨平 ${L.name}（还剩 ${ev.left} 路）`, this.gameTime());
             this.game.events.emit('run-event', { ...ev, name: L.name });
             if (ev.type === 'victory') { this.endRun(); return; }
+          } else if (ct.namedId === L.id && !(share > 0) && outcome.removeIds.includes(L.id) && onNamedLost(this.run, L.id, runCfg)) {
+            // 名将军被其他 AI 打掉（不是玩家）：之后该势力的校尉军可算讨伐（faction_refill.counts_when_named_lost）
+            pushLog(this.state, `${L.name} 被别的势力击溃，击败其校尉军也算讨平`, this.gameTime());
           }
         }
         this.requestSave('battle');

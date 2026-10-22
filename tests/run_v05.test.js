@@ -331,23 +331,34 @@ test('黄巾头目不可俘获（polish_merged.1）；名将照常可俘', async
   assert.equal(isCapturable({ id: 'hero' }, balance), false);
 });
 
-test('名将军补兵（polish_merged.4）：每满 1 分钟 +3，≤ 兵力上限；战斗中不补、脱战补上；旧存档不补发', async () => {
+test('名将军补兵（polish_merged.4）：不在交战中每累计 60 s +3，≤ 上限；交战中计时暂停、战后不补算；计时随存档保留', async () => {
   const F = await import('../src/systems/factions.js');
+  assert.equal(cfg.named_reinforce.pause_in_battle, true); assert.equal(cfg.named_reinforce.catch_up, false);
+  assert.match(design.polish_merged['4_named_reinforce'].in_battle, /暂停/);
   const r = createRun({ runId: 'x', runSeed: 1, cfg });
   const teams = [{ id: 'wei_caocao', soldiers: 100, cap: 200, inBattle: false }, { id: 'spawn_1', soldiers: 20, cap: 200, inBattle: false }];
-  assert.deepEqual(F.namedReinforce(r, 59.9, teams, cfg), []);
-  assert.deepEqual(F.namedReinforce(r, 60, teams, cfg), [{ id: 'wei_caocao', add: 3 }], '只补名将军');
-  assert.deepEqual(F.namedReinforce(r, 61, teams, cfg), [], '同一分钟只补一次');
+  const run = (sec, dt = 0.1) => { const out = []; for (let i = 0; i < Math.round(sec / dt); i++) out.push(...F.namedReinforce(r, dt, teams, cfg)); return out; };
+  assert.deepEqual(run(59.9), []);
+  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 3 }], '满 60 s，只补名将军');
+  assert.deepEqual(run(30), []);
   teams[0].inBattle = true;
-  assert.deepEqual(F.namedReinforce(r, 180, teams, cfg), [], '战斗中不补');
+  assert.deepEqual(run(300), [], '交战中不补');
+  assert.ok(Math.abs(r.reinforceT.wei_caocao - 30) < 1e-6, '交战中计时暂停在 30 s');
   teams[0].inBattle = false;
-  assert.deepEqual(F.namedReinforce(r, 185, teams, cfg), [{ id: 'wei_caocao', add: 6 }], '脱战后补上欠的 2 分钟');
+  assert.deepEqual(run(29.9), [], '战后不补算错过的 5 分钟');
+  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 3 }], '接着暂停前的 30 s 再计 30 s');
+  // 存档往返：计时保留
+  run(45);
+  const loaded = JSON.parse(JSON.stringify(r));
+  assert.ok(Math.abs(loaded.reinforceT.wei_caocao - 45) < 1e-6);
+  assert.deepEqual((() => { const o = []; for (let i = 0; i < 150; i++) o.push(...F.namedReinforce(loaded, 0.1, teams, cfg)); return o; })(), [{ id: 'wei_caocao', add: 3 }], '读档后再 15 s 补兵');
   teams[0].soldiers = 199;
-  assert.deepEqual(F.namedReinforce(r, 240, teams, cfg), [{ id: 'wei_caocao', add: 1 }], '不超过上限');
+  const r2 = createRun({ runId: 'z', runSeed: 1, cfg });
+  assert.deepEqual(F.namedReinforce(r2, 60, teams, cfg), [{ id: 'wei_caocao', add: 1 }], '不超过上限');
   assert.equal(F.reinforcePerMin({ ...cfg, duration_min: 30 }), 2, '按 20/时长 缩放');
-  const old = createRun({ runId: 'y', runSeed: 1, cfg }); delete old.reinforceMin;
-  assert.deepEqual(F.namedReinforce(old, 600, teams, cfg), [], '旧存档：从现在开始计');
-  assert.deepEqual(F.namedReinforce(old, 660, teams, cfg), [{ id: 'wei_caocao', add: 1 }]);
+  const old = createRun({ runId: 'y', runSeed: 1, cfg }); delete old.reinforceT; old.reinforceMin = { wei_caocao: 9 };
+  assert.deepEqual(F.namedReinforce(old, 1, teams, cfg), [], '旧存档：计时从 0 开始，不补发');
+  assert.equal(old.reinforceT.wei_caocao, 1);
 });
 
 test('势力补队（polish_merged.3）：没被讨伐 + 场上没有该势力 → 大本营校尉军；统武 60–80、智魅 40–70；战力 max(120, 玩家) × U(0.8,1.2)；兵种 = 势力兵种', async () => {
@@ -372,15 +383,44 @@ test('势力补队（polish_merged.3）：没被讨伐 + 场上没有该势力 �
   }
 });
 
-test('讨伐：名将军算；名将军被别的 AI 打掉后，该势力校尉军也算【假设】；名将军还在时校尉军不算', async () => {
+test('讨伐：名将军算；只有名将军被其他 AI 打掉（不是玩家）后，该势力校尉军才算；名将军还在 / 被玩家打掉时不算', async () => {
   const F = await import('../src/systems/factions.js');
+  assert.equal(cfg.faction_refill.counts_when_named_lost, true);
+  assert.equal(design.polish_merged['3_faction_refill'].counts_when_named_lost, true);
   const r = createRun({ runId: 'x', runSeed: 1, cfg });
-  assert.deepEqual(F.conquestTarget({ id: 'wei_caocao', faction: 'wei' }, r, () => true, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' });
+  assert.deepEqual(F.conquestTarget({ id: 'wei_caocao', faction: 'wei' }, r, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' });
   const refill = { id: 'refill_3', faction: 'wei', refill: true };
-  assert.equal(F.conquestTarget(refill, r, () => true, balance, cfg), null, '名将军还在');
-  assert.deepEqual(F.conquestTarget(refill, r, () => false, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' }, '名将军已不在');
-  assert.equal(F.conquestTarget({ id: 'spawn_1', faction: 'bandit' }, r, () => false, balance, cfg), null);
-  assert.equal(F.conquestTarget(refill, r, () => false, balance, { ...cfg, faction_refill: { ...cfg.faction_refill, counts_when_named_lost: false } }), null);
+  assert.equal(F.conquestTarget(refill, r, balance, cfg), null, '名将军还在（没被 AI 打掉）');
+  // 玩家打掉曹操军 → 已讨伐，不记为“被 AI 打掉”，魏也不再补校尉军
+  const r1 = createRun({ runId: 'p', runSeed: 1, cfg });
+  onNamedDefeated(r1, 'wei_caocao', 0.6, 300, cfg);
+  assert.equal(F.onNamedLost(r1, 'wei_caocao', cfg), false);
+  assert.equal(F.conquestTarget(refill, r1, balance, cfg), null);
+  // 其他 AI 打掉曹操军 → 之后玩家击败魏校尉军 = 讨伐魏
+  assert.equal(F.onNamedLost(r, 'wei_caocao', cfg), true);
+  assert.deepEqual(r.namedLostToAI, ['wei_caocao']);
+  assert.equal(F.factionToRefill(r, [], balance, cfg) !== null, true);
+  assert.deepEqual(F.conquestTarget(refill, r, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' });
+  assert.equal(F.conquestTarget({ id: 'refill_4', faction: 'shu', refill: true }, r, balance, cfg), null, '别的势力的校尉军不算');
+  const ev = onNamedDefeated(r, 'wei_caocao', 0.5, 400, cfg);
+  assert.equal(ev.type, 'named');
+  assert.equal(F.conquestTarget(refill, r, balance, cfg), null, '已讨伐后再打魏校尉军不再算');
+  assert.equal(F.conquestTarget({ id: 'spawn_1', faction: 'bandit' }, r, balance, cfg), null);
+  const off = { ...cfg, faction_refill: { ...cfg.faction_refill, counts_when_named_lost: false } };
+  const r3 = createRun({ runId: 'q', runSeed: 1, cfg }); F.onNamedLost(r3, 'wei_caocao', off);
+  assert.equal(F.conquestTarget(refill, r3, balance, off), null, '开关关掉时不算');
+});
+
+test('局外解锁“开局枪兵”= 进入第 2 章（与策划配置文字一致）', () => {
+  const t = design.meta_progression.options.find(o => o.id === 'B').unlocks.find(u => u.item === '开局兵种：枪兵').cond;
+  assert.match(t, /进入第\s*2\s*章/);
+  const u = cfg.meta.unlocks.find(x => x.id === 'start_spr');
+  assert.deepEqual(u.cond, { chapter_reached: 2 });
+  const r = createRun({ runId: 'x', runSeed: 1, cfg });
+  runTick(r, 239.9, 0.1, { soldiers: 50, cap: 200, power: 100, inBattle: false, inCity: false }, cfg);
+  assert.equal(applyRunResult(createMeta(), runSummary(r, 239.9, cfg), cfg).newUnlocks.some(x => x.id === 'start_spr'), false, '第 1 章结束前不解锁');
+  runTick(r, 240, 0.1, { soldiers: 50, cap: 200, power: 100, inBattle: false, inCity: false }, cfg);
+  assert.equal(applyRunResult(createMeta(), runSummary(r, 240, cfg), cfg).newUnlocks.some(x => x.id === 'start_spr'), true, '第 4 分钟进入第 2 章即解锁');
 });
 
 test('第 3–4 章刷新针对玩家 60 s 前的兵种：克制它的兵种占 35% / 50%；第 1–2 章不针对', () => {

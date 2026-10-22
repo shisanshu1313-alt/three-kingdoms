@@ -1,10 +1,10 @@
 /**
  * v0.5 势力相关的一局规则（纯函数，无 Phaser；配置 run_v05.json ← balance_v0.5.json polish_merged）：
- *   - 名将军补兵（4_named_reinforce）：名将军每满 1 分钟 +per_min 兵（按 20/时长 缩放），不超过兵力上限；
- *     【解读】战斗中不补（实时战斗里改兵数会打乱伤害计算），脱战后把欠下的整分钟一次补上
+ *   - 名将军补兵（4_named_reinforce）：名将军不在交战中每累计 60 s +per_min 兵（按 20/时长 缩放），不超过兵力上限；
+ *     交战中计时暂停，战斗结束后不补算错过的时间（策划确认）
  *   - 势力补队（3_faction_refill）：魏蜀吴群没被讨伐、且场上没有该势力的队伍 → 下一次刷新改为在其大本营刷一支「校尉军」：
  *     武将统武 60–80、智魅 40–70，兵种 = 势力兵种（名将军的兵种），战力 = max(120, 玩家战力) × U(0.8, 1.2)
- *   - 讨伐：击败名将军（玩家有伤害份额）才算；【假设】名将军被别的 AI 打掉后，击败该势力的校尉军也算（否则无法通关）
+ *   - 讨伐：击败名将军（玩家有伤害份额）才算；名将军被其他 AI 打掉（玩家没有份额）后，玩家击败该势力的校尉军也算（策划确认）
  */
 import { randInt } from './rng.js';
 import { mainGeneral, roundHalfUp } from './combat.js';
@@ -26,26 +26,33 @@ export function conqueredFactions(runState, balance, run) {
 export const reinforcePerMin = run => (run.named_reinforce?.per_min ?? 0) * (run.named_reinforce?.ref_duration_min ?? run.duration_min) / run.duration_min;
 
 /**
- * 名将军补兵。teams = [{ id, soldiers, cap, inBattle }]；runState.reinforceMin[id] = 已补到第几分钟。
- * 返回 [{ id, add }]（调用方改兵数）。
+ * 名将军补兵（每个名将军一个计时器，存在 runState.reinforceT[id]，随 run 存档）：
+ *   不在交战中时计时 += dt，满 60 s 补 per_min 兵（≤ 上限）；交战中计时暂停（pause_in_battle），战后不补算错过的时间。
+ * teams = [{ id, soldiers, cap, inBattle }]；返回 [{ id, add }]（调用方改兵数）。
  */
-export function namedReinforce(runState, tS, teams, run) {
-  const per = reinforcePerMin(run), out = [];
+export function namedReinforce(runState, dt, teams, run) {
+  const R = run.named_reinforce, per = reinforcePerMin(run), out = [];
   if (!(per > 0)) return out;
-  const m = Math.floor(tS / 60 + 1e-9);
-  if (!runState.reinforceMin) { // 旧存档（没有这个字段）：从现在开始计，不一次补发之前的分钟
-    runState.reinforceMin = Object.fromEntries(teams.filter(t => run.run_goal.named.includes(t.id)).map(t => [t.id, m]));
-    return out;
-  }
+  runState.reinforceT ??= {}; // 旧存档（只有 reinforceMin 或都没有）：从 0 开始计
   for (const t of teams) {
     if (!run.run_goal.named.includes(t.id)) continue;
-    const last = runState.reinforceMin[t.id] ?? 0;
-    if (m <= last || t.inBattle) continue;
-    runState.reinforceMin[t.id] = m;
-    const add = Math.min(Math.max(0, t.cap - t.soldiers), Math.round(per * (m - last)));
+    if (t.inBattle && R.pause_in_battle !== false) continue;
+    let acc = (runState.reinforceT[t.id] ?? 0) + dt;
+    let add = 0;
+    while (acc + 1e-9 >= 60) { acc -= 60; add += per; }
+    runState.reinforceT[t.id] = +acc.toFixed(6);
+    add = Math.min(Math.max(0, t.cap - t.soldiers), Math.round(add));
     if (add > 0) out.push({ id: t.id, add });
   }
   return out;
+}
+
+/** 名将军被击败但不是玩家讨伐的（玩家没有伤害份额 = 被其他 AI 打掉）→ 记下来，之后该势力的校尉军可算讨伐 */
+export function onNamedLost(runState, id, run) {
+  if (!run.run_goal.named.includes(id) || (runState.namedDefeated ?? []).includes(id)) return false;
+  runState.namedLostToAI ??= [];
+  if (!runState.namedLostToAI.includes(id)) runState.namedLostToAI.push(id);
+  return true;
 }
 
 /** 该补校尉军的势力（按 named 顺序取第一个）；没有返回 null。aiTeams = [{ faction }] */
@@ -82,12 +89,12 @@ export function buildRefillTeam({ id, faction, home, playerPower, balance, run, 
   return team;
 }
 
-/** 讨伐判定：名将军；或（counts_when_named_lost）名将军已不在场且未被玩家讨伐时，该势力的校尉军 */
-export function conquestTarget(team, runState, namedAlive, balance, run) {
+/** 讨伐判定：名将军；或（counts_when_named_lost）名将军是被其他 AI 打掉的（namedLostToAI）且势力未被讨伐时，该势力的校尉军 */
+export function conquestTarget(team, runState, balance, run) {
   if (run.run_goal.named.includes(team.id)) return { faction: namedFactions(balance, run)[team.id], namedId: team.id };
   if (team.refill && run.faction_refill?.counts_when_named_lost) {
     const id = Object.entries(namedFactions(balance, run)).find(([, f]) => f === team.faction)?.[0];
-    if (id && !namedAlive(id) && !conqueredFactions(runState, balance, run).has(team.faction)) return { faction: team.faction, namedId: id };
+    if (id && (runState.namedLostToAI ?? []).includes(id) && !conqueredFactions(runState, balance, run).has(team.faction)) return { faction: team.faction, namedId: id };
   }
   return null;
 }

@@ -60,16 +60,17 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   const fac = await W(() => {
     const w = __game.scene.getScene('World'), cc = w.aiParties.find(a => a.id === 'wei_caocao');
     cc.team.soldiers = 60; cc.refresh(); w.field.refresh(cc);
-    const n0 = cc.team.soldiers, t0 = w.clock.now / 1000;
-    for (let i = 0; i < 400 && Math.floor(w.clock.now / 60000) === Math.floor(t0 / 60) && !w.pendingEnd; i++) w.debugAdvance(0.1);
-    w.debugAdvance(0.2);
-    const n1 = cc.team.soldiers, inBattle = !!cc.inBattle;
+    const n0 = cc.team.soldiers, T = () => w.run.reinforceT?.wei_caocao ?? 0;
+    // 补兵计时（交战中暂停）满 60 s 时回绕：推进到回绕那一刻
+    let prev = T(), wrapped = false;
+    for (let i = 0; i < 900 && !w.pendingEnd && !wrapped; i++) { w.debugAdvance(0.1); const t = T(); wrapped = t < prev; prev = t; }
+    const n1 = cc.team.soldiers, inBattle = !!cc.inBattle, timerSaved = JSON.parse(localStorage.getItem('sanguo-run-v1') || '{}').run?.reinforceT;
     const zy = w.aiParties.find(a => a.id === 'wu_zhouyu'); if (zy) w.removeParty(zy); // 模拟周瑜军被别的 AI 打掉
     if (w.aiParties.length >= __balance.spawn.max_ai_teams) w.removeParty(w.aiParties.find(a => a.faction === 'bandit' && a.id !== w.run.raidId));
     const r = w.respawn();
-    return { n0, n1, inBattle, refill: r && { id: r.id, name: r.name, faction: r.faction, unit: r.team.unit, gen: r.team.generals[0], power: Math.round(r.power), playerPower: Math.round(w.player.power) } };
+    return { n0, n1, inBattle, wrapped, timerSaved: !!timerSaved, refill: r && { id: r.id, name: r.name, faction: r.faction, unit: r.team.unit, gen: r.team.generals[0], power: Math.round(r.power), playerPower: Math.round(w.player.power) } };
   });
-  await ok(fac.inBattle || fac.n1 === fac.n0 + 3, `名将军每分钟补 3 兵（${fac.n0} → ${fac.n1}）`);
+  await ok(fac.wrapped && fac.n1 === fac.n0 + 3 && fac.timerSaved, `名将军不交战累计 60 s 补 3 兵，计时在存档里（${fac.n0} → ${fac.n1}）`);
   await ok(fac.refill && fac.refill.faction === 'wu' && fac.refill.unit === 'arc' && /校尉军/.test(fac.refill.name) && fac.refill.gen.lead >= 60, `周瑜军不在场 → 吴校尉军在建业补出（${JSON.stringify(fac.refill)}）`);
 
   // 死亡：主角 HP 归零 → 下一 tick 失败 → 删档 → 局外数据 → 结算画面

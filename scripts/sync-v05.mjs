@@ -58,6 +58,7 @@ const gachaPool = Object.entries(gv.weights).map(([type, weight]) => {
   return e;
 });
 const pm = d.polish_merged;
+const unlockText = item => d.meta_progression.options.find(o => o.id === 'B').unlocks.find(u => u.item === item)?.cond;
 
 // ---------- 一局的规则 ----------
 const fp = d.fast_pace, rb = d.failure.rules_B, sf = rb.soldier_floor_redesign, gt = fp.growth_tuning;
@@ -92,7 +93,7 @@ const run = {
   meta: {
     fame: { per_min: 2, per_named: 50, power_div: 10 }, // 【解读】fame 公式
     unlocks: [ // 【解读】meta_progression B 的 unlocks 文字 → 条件
-      { id: 'start_spr', kind: 'start_unit', unit: 'spr', name: '开局兵种：枪兵', cond: { chapter_reached: 2 } },
+      { id: 'start_spr', kind: 'start_unit', unit: 'spr', name: '开局兵种：枪兵', cond: { chapter_reached: parseNum(unlockText('开局兵种：枪兵'), /进入第\s*(\d+)\s*章/) } },
       { id: 'start_arc', kind: 'start_unit', unit: 'arc', name: '开局兵种：弓兵', cond: { defeated: 'wu_zhouyu' } },
       { id: 'start_cav', kind: 'start_unit', unit: 'cav', name: '开局兵种：骑兵', cond: { defeated: 'qun_lvbu' } },
       { id: 'start_liaohua', kind: 'start_general', general: 'liaohua', name: '开局随从：廖化（B）', cond: { fame_total: 300 } },
@@ -115,11 +116,14 @@ const run = {
   capture: { generic_capturable: false }, // 1_bandit_head_no_capture：factions.bandit.generic_capturable = false
   faction_refill: { // 3_faction_refill【解读】文字 → 数值
     enabled: true, lead_str: [60, 80], int_cha: [40, 70], power_floor: 120, power_rand: [0.8, 1.2],
-    // 【假设，待策划确认】名将军被别的 AI 打掉（玩家没有份额，不算讨伐）后，该势力只剩校尉军；这时击败该势力的校尉军也算讨伐，
-    // 否则这一局永远无法通关（模拟 sim_v05_world.py 里校尉军 main=True，击败即讨伐）
-    counts_when_named_lost: true
+    // 策划确认（counts_note）：只有名将军被其他 AI 打掉（不是玩家打的）时，玩家击败该势力之后的校尉军才算讨伐
+    counts_when_named_lost: pm['3_faction_refill'].counts_when_named_lost === true
   },
-  named_reinforce: { per_min: parseNum(pm['4_named_reinforce'].rule, /每分钟\s*\+\s*(\d+)\s*兵/), ref_duration_min: 20 } // 4_named_reinforce：按 20/时长 缩放
+  named_reinforce: { // 4_named_reinforce：按 20/时长 缩放；in_battle：交战中暂停计时，战后不补算
+    per_min: parseNum(pm['4_named_reinforce'].rule, /每分钟\s*\+\s*(\d+)\s*兵/), ref_duration_min: 20,
+    pause_in_battle: /暂停/.test(pm['4_named_reinforce'].in_battle ?? ''),
+    catch_up: !/不补算/.test(pm['4_named_reinforce'].in_battle ?? '')
+  }
 };
 writeFileSync(new URL('../src/data/combat_v05.json', import.meta.url), JSON.stringify(combat, null, 2) + '\n');
 writeFileSync(new URL('../src/data/run_v05.json', import.meta.url), JSON.stringify(run, null, 2) + '\n');

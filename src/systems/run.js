@@ -16,7 +16,8 @@ export function createRun({ runId, runSeed, hard = false, startUnit = 'inf', cfg
     chapter: 0, maxChapter: 0, raidDone: false, raidId: null,
     heroHp: cfg.failure.hero_hp_max, lastBattleEndS: -1e9, recruitAcc: 0,
     unitHistory: [{ t: 0, unit: startUnit }],
-    reinforceMin: {}, // 名将军补兵：已补到第几分钟（systems/factions.js）
+    reinforceT: {}, // 名将军补兵计时（秒，交战中暂停；systems/factions.js）
+    namedLostToAI: [], // 被其他 AI 打掉的名将军（之后该势力的校尉军可算讨伐）
     namedDefeated: [], maxPower: 0, battlesWon: 0, battles: 0,
     over: null // { result: 'defeat' | 'victory', reason, atS }
   };
