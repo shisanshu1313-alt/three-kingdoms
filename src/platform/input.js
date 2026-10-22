@@ -96,7 +96,14 @@ export class KeyboardSource {
       this.moveKeys = {};
       for (const [dir, names] of Object.entries(this.bindings.move)) this.moveKeys[dir] = names.map(n => kb.addKey(n, true));
     }
-    this.handler = e => dispatch(actionsForKey(e.key, this.bindings, e.keyCode, !!e.repeat));
+    // Phaser 3.90 KeyboardManager 每来一个 DOM 键盘事件就把本帧队列整个重新处理一遍（队列到 POST_STEP 才清空，
+    // 去重只比较上一个事件）→ 一帧内 ≥ 3 个键盘事件时，前面的按键会被重复派发（例如 F1 切换两次、空格抽两次）。
+    // 按原生事件对象去重：同一个 KeyboardEvent 只派发一次。
+    const seen = new WeakSet();
+    this.handler = e => {
+      if (e && typeof e === 'object') { if (seen.has(e)) return; seen.add(e); }
+      dispatch(actionsForKey(e.key, this.bindings, e.keyCode, !!e.repeat));
+    };
     kb.on('keydown', this.handler);
   }
   moveVector() {

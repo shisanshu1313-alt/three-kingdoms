@@ -289,3 +289,14 @@ test('侦察：≤300 精确兵数 + 对比色 + 克制箭头；≤500（斥候�
   assert.equal(scoutInfo({ me, them, dist: 600, range, counters }).showUnit, false);
   assert.equal(scoutInfo({ me, them, dist: 600, range: flag, counters }).tier, 'scout');
 });
+
+test('输入：同一个原生键盘事件被 Phaser 重复派发时只算一次（Phaser 3.90 队列重处理）', async () => {
+  const { KeyboardSource, InputActions, ACTIONS } = await import('../src/platform/input.js');
+  const handlers = [];
+  const scene = { input: { keyboard: { addCapture() {}, addKey() { return { isDown: false }; }, on(ev, fn) { handlers.push(fn); }, off() {} } } };
+  const acts = new InputActions(); acts.addSource(new KeyboardSource(scene));
+  let n = 0; acts.on(ACTIONS.DEBUG_VISION, () => { n++; });
+  const e1 = { key: 'F1', keyCode: 112, repeat: false }, e2 = { key: 'F1', keyCode: 112, repeat: false };
+  handlers[0](e1); handlers[0](e1); handlers[0](e2); handlers[0](e1);
+  assert.equal(n, 2, '两个不同的按键事件 → 2 次');
+});

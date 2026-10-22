@@ -47,8 +47,10 @@ const OUT = ART + '/screenshot.png';
     const a1 = await pos();
     const vis = () => ev(() => window.__game.scene.getScene('World').debugVision);
     const v0 = await vis();
-    await page.keyboard.press('F1'); const v1 = await vis();
+    // Phaser 的键盘事件在下一次游戏循环里处理：按完稍等再读状态
+    await page.keyboard.press('F1'); await page.waitForTimeout(150); const v1 = await vis();
     await page.keyboard.down('F1'); await page.keyboard.down('F1', { repeat: true }); await page.keyboard.down('F1', { repeat: true }); await page.keyboard.up('F1');
+    await page.waitForTimeout(150);
     const v2 = await vis();
     const zoom = () => ev(() => window.__game.scene.getScene('World').cameras.main.zoom);
     const z0 = await zoom();
@@ -101,10 +103,13 @@ const OUT = ART + '/screenshot.png';
   await ev(() => {
     const w = window.__game.scene.getScene('World'), pl = w.player, T = w.tileSize;
     pl.invincibleUntil = 0; pl.clearPath();
-    w.aiSystem.rules.namedLeashPx = 1e9; // v0.5 名将军 1–2 章坐镇；这一步测 v0.4 的追击决策，临时放开
+    w.aiSystem.rules.namedIds.delete('wu_zhouyu'); // v0.5 名将军 1–2 章坐镇；这一步测 v0.4 的追击决策，只放开周瑜军
     const home = w.findPassableNear(Math.floor(w.mapData.grid[0].length * 0.37), Math.floor(w.mapData.grid.length * 0.28)); pl.setPosition(home.x, home.y); // 回到地图中部开阔处
     // 其他 AI 暂时移开，保证是曹操军来追
-    w.aiParties.filter(p => p.id !== 'wu_zhouyu').forEach(p => { if (Math.hypot(p.x - pl.x, p.y - pl.y) < 700) { const f = w.findPassableNear(Math.floor(w.mapData.grid[0].length * 0.8), Math.floor(w.mapData.grid.length * 0.85)); p.setPosition(f.x, f.y); p.clearPath(); } });
+    // v0.5 地图只有 1600 px：分散到不同的远处（叠在一起会互相开战）
+    const spots = [[0.1, 0.9], [0.9, 0.9], [0.9, 0.1], [0.1, 0.1], [0.5, 0.95], [0.95, 0.5], [0.05, 0.5], [0.5, 0.05], [0.75, 0.75], [0.25, 0.75], [0.75, 0.25]];
+    const GW = w.mapData.grid[0].length, GH = w.mapData.grid.length;
+    w.aiParties.filter(p => p.id !== 'wu_zhouyu').forEach((p, i) => { if (Math.hypot(p.x - pl.x, p.y - pl.y) < 700) { const [fx, fy] = spots[i % spots.length]; const f = w.findPassableNear(Math.floor(GW * fx), Math.floor(GH * fy)); if (f) { w.field.teleport(p, f.x, f.y); p.clearPath(); } } });
     const c = w.aiParties.find(p => p.id === 'wu_zhouyu');
     for (const ang of [0, 1.57, 3.14, 4.71, 0.78, 2.35, 3.92, 5.49]) {
       const x = pl.x + Math.cos(ang) * 220, y = pl.y + Math.sin(ang) * 220;
@@ -113,6 +118,8 @@ const OUT = ART + '/screenshot.png';
       const path = w.pathfinder.findPath(Math.floor(s.x / T), Math.floor(s.y / T), Math.floor(pl.x / T), Math.floor(pl.y / T));
       if (d > 180 && path && !path.partial) { c.setPosition(s.x, s.y); break; }
     }
+    // v0.5 武将偏好兵种（周瑜 = 弓）让周瑜军战力更高：把玩家兵数调到战力比 ≈ 2（< chase_max_ratio 3，仍会追）
+    for (let k = 0; k < 5; k++) { const r = c.power / pl.power; pl.team.soldiers = Math.max(5, Math.min(pl.cap, Math.round(pl.team.soldiers * r / 2))); pl.refresh(); w.field.refresh(pl); }
     c.clearPath(); Object.assign(c.ai, { state: 'wander', targetId: null, ignore: {} });
     w.toggleVision(true);
   });
@@ -151,6 +158,10 @@ const OUT = ART + '/screenshot.png';
     if (best) w.field.teleport(pl, best.x, best.y);
   });
   await page.waitForFunction(() => { const w = window.__game.scene.getScene('World'); return !w.player.inBattle && !Object.keys(w.field.state.pairs).length; }, null, { timeout: 15000 }).catch(() => {});
+  // 还在交战（v0.5 小地图上更容易遇敌）：移走玩家的对手，保证下面抽卡测试不被“战斗中不能抽卡”挡住
+  await ev(() => { const w = window.__game.scene.getScene('World'), b = w.field.body(w.player.id);
+    for (const id of b?.foes ?? []) { const p = w.parties.find(x => x.id === id); if (p) w.removeParty(p); } });
+  await page.waitForTimeout(300);
   await ev(() => { const w = window.__game.scene.getScene('World'); w.player.invincibleUntil = w.clock.now + 600000; w.state.points = 10; });
   const gs = () => ev(() => { const g = window.__game; const ga = g.scene.getScene('Gacha'); const w = g.scene.getScene('World');
     return { gacha: g.scene.isActive('Gacha'), gachaPaused: g.scene.isPaused('Gacha'), roster: g.scene.isActive('Roster'), worldPaused: g.scene.isPaused('World'), ui: ga?.uiState,
@@ -182,12 +193,13 @@ const OUT = ART + '/screenshot.png';
   if (afterPull.ui === 'RESULT' && afterPull.result?.next) { await page.keyboard.press('Enter'); await page.waitForTimeout(300); afterPull = await gs(); }
   if (afterPull.ui === 'CHOOSE_GENERAL') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
   if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('0'); await page.waitForTimeout(200); }
+  if (afterPull.ui === 'CHOOSE_UNIT') { await page.keyboard.press('0'); await page.waitForTimeout(200); } // v0.5 兵种令：不改
   if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); }
   afterPull = await gs();
   await page.screenshot({ path: ART + '/screenshot-gacha.png' });
-  const costBase = await ev(() => window.__balance.gacha.cost_base);
+  const costBase = await ev(() => window.__balance.gacha.cost_base), refundPts = await ev(() => window.__balance.gacha.duplicate_item_refund_points); // 抽到已有物品：立即返还
   result.gachaPull = { openedByMouse: open.gacha, rollingState: rolling.ui, pointsBefore: open.points, pointsAfter: afterPull.points, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
-    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && rolling.points === 1000 - costBase && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
+    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && (rolling.points === 1000 - costBase || rolling.points === 1000 - costBase + refundPts) && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
   // 满编替换：队伍补到 3 将，强制下一抽 = S 级武将（诸葛亮），弹出名册窗口，按 1 替换第一名随从
   await ev(() => { const w = window.__game.scene.getScene('World'); const t = w.player.team; const lib = (id) => { const g = window.__balance.generals.find(x => x.id === id); return { id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }; };
     t.generals = t.generals.filter(g => g.id === 'hero');
@@ -218,11 +230,16 @@ const OUT = ART + '/screenshot.png';
   const freeze = () => ev(() => { const w = window.__game.scene.getScene('World'); const now = w.clock.now; const f = w.field;
     return { now, battleT: f.state.t, raw: Object.values(f.state.bodies).map(b => b.raw.toFixed(6)).join(' '), battles: Object.keys(f.state.pairs).length, inv: w.player.invincibleUntil - now,
       respawn: w.clock.remaining('respawn'), autosave: w.clock.remaining('autosave'), pos: w.aiParties.map(p => Math.round(p.x) + ',' + Math.round(p.y)).join(' ') }; });
-  await ev(() => { const w = window.__game.scene.getScene('World');
-    // 手动让两支不同阵营的 AI 开战，检验“别处的 AI 战斗计时”也被冻结
-    const x = w.aiParties.find(p => !p.inBattle), y = w.aiParties.find(p => !p.inBattle && p.faction !== x.faction);
-    w.field.teleport(y, x.x + w.views.get(x).radius + w.views.get(y).radius - 2, x.y); });
-  await page.waitForTimeout(300);
+  // 手动让两支不同阵营的 AI 开战，检验“别处的 AI 战斗计时”也被冻结（贴不上 / 有保护就换一对，最多试 6 对）
+  for (let k = 0; k < 6; k++) {
+    await ev((k) => { const w = window.__game.scene.getScene('World'), now = w.clock.now;
+      const free = w.aiParties.filter(p => !p.inBattle && !p.isInvincible(now));
+      const pairs = []; for (const x of free) for (const y of free) if (x.faction !== y.faction && x.id < y.id) pairs.push([x, y]);
+      const [x, y] = pairs[k % Math.max(1, pairs.length)] ?? [];
+      if (x && y) w.field.teleport(y, x.x + w.views.get(x).radius + w.views.get(y).radius - 2, x.y); }, k);
+    await page.waitForTimeout(300);
+    if (await ev(() => Object.keys(window.__game.scene.getScene('World').field.state.pairs).length > 0)) break;
+  }
   await page.keyboard.press('g'); await page.waitForTimeout(200);
   const f0 = await freeze();
   await page.waitForTimeout(2000);
@@ -238,7 +255,7 @@ const OUT = ART + '/screenshot.png';
     const t = w.player.team; if (t.generals.length < 2) t.generals.push({ id: 'smoke_gen2', name: '张曼成', generic: true, lead: 30, str: 30, int: 30, cha: 30 });
     w.player.refresh(); });
   await page.keyboard.press('g'); await page.waitForTimeout(300);
-  await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.5]; // 0.5 → 属性 +5（权重 45/10/…），多人可选 → 待选择
+  await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.45]; // 0.45 → 属性 +5（gacha_v05 权重 38/12/…：0.38–0.50 = attr_big），多人可选 → 待选择
     w.rngs.gacha = Object.assign(() => (seq.length ? seq.shift() : window.__realGachaRng()), { getState: () => window.__realGachaRng.getState(), setState: v => window.__realGachaRng.setState(v) }); });
   await page.keyboard.press('Space'); await page.waitForTimeout(1300);
   const pendBefore = await ev(() => { const w = window.__game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-run-v1'));
@@ -271,9 +288,11 @@ const OUT = ART + '/screenshot.png';
     return { points: w.state.points, draws: w.state.gachaDraws, soldiers: p.team.soldiers, x: p.x, y: p.y, gens: p.team.generals.map(g => [g.id, g.lead, g.str, g.int, g.cha]),
       items: p.team.items.slice(), freePool: w.state.freePool.slice().sort(), ai: w.aiParties.length, battles: w.state.battles, log: w.state.battleLog.length }; });
   await ev(() => localStorage.removeItem('sanguo-run-v1'));
+  // 等控制台出现新的 “[save] manual”（之后可能马上有别的原因的存档覆盖 reason，所以不按 localStorage 里的 reason 判断）
+  const nManual = () => logs.saves.filter(r => r === 'manual').length, m0 = nManual();
   await page.keyboard.press('F5');
   let manual = null;
-  for (let i = 0; i < 60 && !manual; i++) { await page.waitForTimeout(250); const sv = await readSave(); if (sv && sv.reason === 'manual') manual = sv; }
+  for (let i = 0; i < 60 && !manual; i++) { await page.waitForTimeout(250); if (nManual() > m0) manual = await readSave(); }
   const beforeReload = await playerState();
   await page.reload();
   await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
