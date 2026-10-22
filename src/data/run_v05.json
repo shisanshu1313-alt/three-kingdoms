@@ -1,0 +1,352 @@
+{
+  "_source": {
+    "file": "balance_v0.5.json",
+    "version": "0.5",
+    "note": "由 scripts/sync-v05.mjs（npm run sync:v05）生成，勿手改"
+  },
+  "duration_min": 20,
+  "chapters": [
+    {
+      "id": 1,
+      "name": "黄巾之乱",
+      "start_s": 0,
+      "counter_mult": 1,
+      "spawn_power_vs_player": [
+        0.4,
+        0.9
+      ],
+      "bandit_units": {
+        "inf": 0.7,
+        "uniform": 0.3,
+        "target": 0
+      },
+      "named_chase_home_px": null
+    },
+    {
+      "id": 2,
+      "name": "群雄并起",
+      "start_s": 240,
+      "counter_mult": 1.1,
+      "spawn_power_vs_player": [
+        0.5,
+        1
+      ],
+      "bandit_units": {
+        "inf": 0,
+        "uniform": 1,
+        "target": 0
+      },
+      "named_chase_home_px": null
+    },
+    {
+      "id": 3,
+      "name": "诸侯割据",
+      "start_s": 540,
+      "counter_mult": 1.25,
+      "spawn_power_vs_player": [
+        0.6,
+        1.15
+      ],
+      "bandit_units": {
+        "inf": 0,
+        "uniform": 0.65,
+        "target": 0.35
+      },
+      "named_chase_home_px": 420
+    },
+    {
+      "id": 4,
+      "name": "天下三分",
+      "start_s": 840,
+      "counter_mult": 1.45,
+      "spawn_power_vs_player": [
+        0.7,
+        1.3
+      ],
+      "bandit_units": {
+        "inf": 0,
+        "uniform": 0.5,
+        "target": 0.5
+      },
+      "named_chase_home_px": 420
+    }
+  ],
+  "target_lag_s": 60,
+  "map": {
+    "map_px": 1600,
+    "v04_map_px": 3200,
+    "cities_scaled": 0.5,
+    "layout": {
+      "luoyang": [
+        800,
+        560
+      ],
+      "changan": [
+        300,
+        620
+      ],
+      "xuchang": [
+        1100,
+        900
+      ],
+      "chengdu": [
+        250,
+        1300
+      ],
+      "jianye": [
+        1400,
+        1300
+      ]
+    }
+  },
+  "density": {
+    "max_ai_teams": 10,
+    "respawn_s": 12,
+    "spawn_dist_px": [
+      400,
+      800
+    ],
+    "vision_px": 300,
+    "ai_wander_r_px": 300
+  },
+  "first_battle": {
+    "at_s": 20,
+    "power_vs_player": [
+      0.6,
+      0.8
+    ],
+    "dist_px": [
+      350,
+      450
+    ],
+    "ignores_grace": true
+  },
+  "grace_s": 90,
+  "growth": {
+    "gacha_cost": {
+      "base": 30,
+      "step": 3,
+      "cap": 90
+    },
+    "points": {
+      "base": 8,
+      "per_power": 0.45
+    },
+    "recruit_base": 0.45
+  },
+  "failure": {
+    "hero_hp_max": 100,
+    "hero_hp_per_dead": 35,
+    "hero_hp_rout": 20,
+    "hero_hp_esc_fail": 5,
+    "regen_out_of_battle_per_min": 10,
+    "regen_in_city_per_s": 2,
+    "no_regen_after_battle_s": 5,
+    "recruit_floor": 40,
+    "recruit_interval_s": 2,
+    "city_radius_px": 200
+  },
+  "run_goal": {
+    "named": [
+      "wei_caocao",
+      "qun_lvbu",
+      "shu_guanyu",
+      "wu_zhouyu"
+    ]
+  },
+  "meta": {
+    "fame": {
+      "per_min": 2,
+      "per_named": 50,
+      "power_div": 10
+    },
+    "unlocks": [
+      {
+        "id": "start_spr",
+        "kind": "start_unit",
+        "unit": "spr",
+        "name": "开局兵种：枪兵",
+        "cond": {
+          "chapter_reached": 2
+        }
+      },
+      {
+        "id": "start_arc",
+        "kind": "start_unit",
+        "unit": "arc",
+        "name": "开局兵种：弓兵",
+        "cond": {
+          "defeated": "wu_zhouyu"
+        }
+      },
+      {
+        "id": "start_cav",
+        "kind": "start_unit",
+        "unit": "cav",
+        "name": "开局兵种：骑兵",
+        "cond": {
+          "defeated": "qun_lvbu"
+        }
+      },
+      {
+        "id": "start_liaohua",
+        "kind": "start_general",
+        "general": "liaohua",
+        "name": "开局随从：廖化（B）",
+        "cond": {
+          "fame_total": 300
+        }
+      },
+      {
+        "id": "start_item",
+        "kind": "start_item",
+        "items": [
+          "fine_horse",
+          "art_of_war",
+          "banner"
+        ],
+        "replaces": "war_drum",
+        "name": "开局物品可选：良马 / 兵书 / 招降旗",
+        "cond": {
+          "fame_total": 600
+        }
+      },
+      {
+        "id": "hard_mode",
+        "kind": "mode",
+        "name": "群雄模式（难度 +1）",
+        "spawn_power_add": 0.1,
+        "counter_mult_add": 0.05,
+        "cond": {
+          "cleared": true
+        }
+      }
+    ]
+  },
+  "save": {
+    "keys": {
+      "run": "sanguo-run-v1",
+      "meta": "sanguo-meta-v1",
+      "legacy_from": "sanguo-save",
+      "legacy_to": "sanguo-save-legacy"
+    },
+    "autosave_s": 30,
+    "battle_snapshot_s": 1,
+    "resume_countdown_s": 3,
+    "delete_on_victory": true
+  },
+  "units": {
+    "affinity": {
+      "m_bonus": 0.1,
+      "table": {
+        "lvbu": "cav",
+        "zhangfei": "cav",
+        "huaxiong": "cav",
+        "guanyu": "spr",
+        "zhaoyun": "spr",
+        "caocao": "inf",
+        "xiahoudun": "inf",
+        "liaohua": "inf",
+        "zhouyu": "arc",
+        "zhugeliang": "arc",
+        "hero": null
+      }
+    },
+    "counter_items": [
+      {
+        "id": "juma",
+        "name": "拒马",
+        "effect": {
+          "dmg_taken_from": {
+            "cav": 0.25
+          }
+        },
+        "note": "受骑兵伤害 −25%，并抵消冲锋"
+      },
+      {
+        "id": "tengjia",
+        "name": "藤甲",
+        "effect": {
+          "dmg_taken_from": {
+            "arc": 0.25
+          }
+        },
+        "note": "受弓兵伤害 −25%（含齐射和放箭）"
+      },
+      {
+        "id": "zhongkai",
+        "name": "重铠",
+        "effect": {
+          "dmg_taken_from": {
+            "spr": 0.25
+          }
+        },
+        "note": "受枪兵伤害 −25%"
+      },
+      {
+        "id": "scout_flag",
+        "name": "斥候旗",
+        "effect": {
+          "scout_px": 200
+        },
+        "note": "侦察距离 +200 px"
+      }
+    ],
+    "change_unit_city": {
+      "cost": 30,
+      "lock_s": 5,
+      "radius_px": 200
+    },
+    "unit_order_refund": 25,
+    "drill": {
+      "add": 0.05,
+      "max": 3
+    },
+    "scouting": {
+      "vision_px": 300,
+      "scout_px": 500
+    }
+  },
+  "gacha_pool": [
+    {
+      "type": "attr_small",
+      "weight": 38,
+      "attr_amount": 2
+    },
+    {
+      "type": "attr_big",
+      "weight": 12,
+      "attr_amount": 5
+    },
+    {
+      "type": "item",
+      "weight": 25,
+      "item_source": "items_all_uniform（物品表 5 → 9 件，含 3 件克制物品和斥候旗）"
+    },
+    {
+      "type": "unit_order",
+      "weight": 10,
+      "effect": "兵种令：全队改为任选兵种；不改则返还 25 点"
+    },
+    {
+      "type": "drill",
+      "weight": 5,
+      "effect": "操练：本队对被克兵种的克制倍率 +0.05（每局最多 3 次，换兵种后清零）"
+    },
+    {
+      "type": "general_B",
+      "weight": 6,
+      "tier": "B"
+    },
+    {
+      "type": "general_A",
+      "weight": 3,
+      "tier": "A"
+    },
+    {
+      "type": "general_S",
+      "weight": 1,
+      "tier": "S"
+    }
+  ]
+}

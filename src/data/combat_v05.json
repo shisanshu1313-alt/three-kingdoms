@@ -103,8 +103,8 @@
     "qun_lvbu": "cav"
   },
   "chapter": 0,
-  "assumed": {
-    "_comment": "【假设】v0.5 里只有文字或没写的值，程序先定。说明见 assumptions.json 的 combat_v05 段",
+  "confirmed": {
+    "_comment": "策划确认 2026-10-22：策划确认：全部按程序的假设值写入正式版",
     "retreat_by_personality": {
       "aggressive": [
         0.5,
@@ -137,10 +137,17 @@
     "escaping_heading_deg": 90,
     "escaping_min_speed_frac": 0.2,
     "attack_cancels_protection_closing": 0.5,
-    "player_wipe_keep_soldiers": 5,
     "draw_ignore_s": 10,
     "arrive_px": 6,
     "player_rout_once_per_battle": true,
+    "both_retreating_both_protected": true,
     "max_overlap_px": 4
+  },
+  "answers": {
+    "draw_within_5pct": "是想要的手感：R0<1.05 双方 brk=0.2，打一会儿各自脱离，之后同对 10 s 冷却",
+    "player_rout_once_per_battle": "一场最多溃一次；战斗中士气不恢复，新的一场（保护结束后再接触）士气重置为 100",
+    "both_retreating": "双方都给 8 s 保护",
+    "retreat_by_personality": "激进 0.5/0.25（群雄、黄巾）、普通 0.7/0.15（魏、吴）、谨慎 0.9/0.10（蜀），与 ai_tactics.retreat 一致",
+    "player_wipe_keep_soldiers": "仅限原型；正式版按 failure 规则 B（兵力 + 主角 HP）"
   }
 }

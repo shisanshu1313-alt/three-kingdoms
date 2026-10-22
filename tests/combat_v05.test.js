@@ -28,6 +28,8 @@ const expRate = (Rx) => Math.min(MP.rate_cap, MP.lam * Math.pow(Rx, MP.a));
 
 test('v0.5 配置来自 balance_v0.5.json（move_params 原样）', () => {
   assert.equal(cj._source.version, '0.5'); assert.equal(cj._source.file, 'balance_v0.5.json');
+  assert.equal(cj.confirmed.player_wipe_keep_soldiers, undefined, '原型专用的值不再存在');
+  assert.equal(cj.confirmed.both_retreating_both_protected, true);
   assert.equal(cfg.tick_s, 0.1);
   assert.equal(cj.cooldown.charge_cd_s, 4); assert.equal(cj.cooldown.protect_s, 8); assert.equal(cj.cooldown.ignore_s, 20); assert.equal(cj.cooldown.pair_cd_s, 10);
   assert.equal(MP.escape_gap_px, 150); assert.equal(MP.escape_s, 2); assert.equal(MP.rear_mult, 1.3); assert.equal(MP.contact_speed_mult, 0.6); assert.equal(MP.morale_rout, 30);
@@ -309,4 +311,28 @@ test('骑兵冲击-回撤：拉开到助跑距离就停下等冷却，不会自�
   }
   assert.ok(maxGap < MP.escape_gap_px, `最大间隙 ${maxGap}`);
   assert.ok(charges >= 2, `反复冲击 ${charges} 次`);
+});
+
+test('策划确认：保护结束后再接触 = 新的一场，士气重置 100、可以再溃一次', () => {
+  let { s, tEsc } = escaped();
+  s.bodies.A.routOnce = true; s.bodies.A.shock = 25; // 上一场溃过、冲击值还在
+  // 同对冷却 10 s 后再贴上 B
+  let started = null;
+  for (let i = 0; i < 130 && started === null; i++) { s.bodies.A.v = 0; touch(s, 'B', 'A', -1, 0); s = M.step(s, stay(s), 0.1, cfg); if (s.events.some(e => e.type === 'engage')) started = s.t; }
+  assert.ok(started > tEsc + cj.cooldown.protect_s);
+  const A = s.bodies.A;
+  assert.equal(A.routOnce, false); assert.equal(A.shock, 0);
+  assert.ok(M.moraleOf(A, cfg) > 95, `士气 ${M.moraleOf(A, cfg)}`); // 只打了 1 tick
+});
+
+test('正式版：玩家兵力归零 → player-wiped（不再保留 5 兵），combat-end 带 wiped', () => {
+  const P = team('P', { soldiers: 3, is_player: true, faction: 'player' });
+  let s = world([[P, 0, 0], [team('B', { soldiers: 120, generals: [gen('gb', 60, 60)] }), 0, 0, Math.PI]]); touch(s, 'P', 'B');
+  const evs = [];
+  for (let i = 0; i < 400 && !evs.some(e => e.type === 'player-wiped'); i++) { if (s.bodies.P.foes.length) touch(s, 'P', 'B'); s = M.step(s, stay(s), 0.1, cfg); evs.push(...s.events); } // 被堵住跑不掉
+  const w = evs.find(e => e.type === 'player-wiped');
+  assert.ok(w, '玩家被歼灭');
+  const end = evs.find(e => e.type === 'combat-end' && e.id === 'P');
+  assert.equal(end.soldiers, 0); assert.equal(end.wiped, true); assert.equal(end.endKind, 'player-wiped');
+  assert.equal(s.bodies.P.N0, 0);
 });

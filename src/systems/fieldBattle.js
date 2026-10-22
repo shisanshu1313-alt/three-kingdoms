@@ -138,7 +138,7 @@ export default class FieldBattle {
         if (esc.isPlayer) {
           // 其他正在追玩家的 AI 放弃 others_give_up_player_s 秒
           for (const p of this.parties.values()) if (p.ai?.state === 'chase' && p.ai.targetId === esc.id && p !== from) {
-            p.ai.ignore = { ...p.ai.ignore, [esc.id]: nowS + this.cfg.assumed.others_give_up_player_s }; p.ai.state = 'wander'; p.ai.targetId = null; p.clearPath();
+            p.ai.ignore = { ...p.ai.ignore, [esc.id]: nowS + this.cfg.confirmed.others_give_up_player_s }; p.ai.state = 'wander'; p.ai.targetId = null; p.clearPath();
           }
         }
         console.log(`[escape] ${esc.name} 脱离 ${from?.name}`);
@@ -147,7 +147,7 @@ export default class FieldBattle {
       case 'separate': {
         if (e.kind === 'draw' || e.kind === 'apart') {
           const a = P(e.a), b = P(e.b);
-          for (const [x, y] of [[a, b], [b, a]]) if (x?.ai && y) { x.ai.ignore = { ...x.ai.ignore, [y.id]: nowS + this.cfg.assumed.draw_ignore_s }; x.ai.state = 'return'; x.ai.targetId = null; x.clearPath(); }
+          for (const [x, y] of [[a, b], [b, a]]) if (x?.ai && y) { x.ai.ignore = { ...x.ai.ignore, [y.id]: nowS + this.cfg.confirmed.draw_ignore_s }; x.ai.state = 'return'; x.ai.targetId = null; x.clearPath(); }
           if (e.kind === 'draw') H.onDraw?.(a, b, e);
         }
         break;
@@ -155,8 +155,7 @@ export default class FieldBattle {
       case 'defeat': return this._defeat(e, nowMs);
       case 'player-wiped': {
         const p = P(e.id); if (!p) break;
-        p.team.soldiers = this.cfg.assumed.player_wipe_keep_soldiers; p.refresh(); this.refresh(p);
-        p.invincibleUntil = nowMs + cd.protect_s * 1000;
+        p.team.soldiers = 0; p.refresh(); // 兵力归零 → 本局失败（WorldScene / run 层）
         H.onPlayerWiped?.(p, e); break;
       }
     }

@@ -16,12 +16,12 @@ const toward = (X, Y) => Math.atan2(Y.y - X.y, Y.x - X.x);
 
 /** 对手是否在撤：朝向背离我（> escaping_heading_deg）且在移动 */
 export function isRetreating(Y, X, cfg) {
-  return Math.abs(angDiff(toward(Y, X), Y.h)) > cfg.assumed.escaping_heading_deg * Math.PI / 180 && Y.v > cfg.assumed.escaping_min_speed_frac * vmaxOf(Y, cfg);
+  return Math.abs(angDiff(toward(Y, X), Y.h)) > cfg.confirmed.escaping_heading_deg * Math.PI / 180 && Y.v > cfg.confirmed.escaping_min_speed_frac * vmaxOf(Y, cfg);
 }
 
 /** @returns { h, v, target, mode } */
 export function combatIntent(X, state, mem, cfg, personalityKey = 'normal', dt = cfg.tick_s) {
-  const B = state.bodies, MP = cfg.move, AS = cfg.assumed;
+  const B = state.bodies, MP = cfg.move, AS = cfg.confirmed;
   const foes = (X.foes || []).map(id => B[id]).filter(Boolean);
   if (!foes.length) return null;
   const dist = Y => Math.hypot(Y.x - X.x, Y.y - X.y);

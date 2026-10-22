@@ -116,7 +116,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   dt = dt ?? cfg.tick_s;
   const E = { ...defaultEnv, ...env };
   const s = structuredClone(prev);
-  const MP = cfg.move, CD = cfg.cooldown, AS = cfg.assumed;
+  const MP = cfg.move, CD = cfg.cooldown, AS = cfg.confirmed;
   const rng = mulberry32(0); rng.setState(s.rng);
   s.t = +(s.t + dt).toFixed(6);
   s.events = [];
@@ -142,7 +142,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   const startPair = (a, b, why) => {
     for (const X of [a, b]) if (!inCombat(X)) {
       // 新的一场：用当前兵数重算，士气回 100，raw 清零，roll 重掷，弹药补满
-      X.N0 = soldiersOf(X); X.raw = 0; X.shock = 0; X.brk = null; X.draw = false; X.contrib = {}; X.routOnce = false;
+      X.N0 = soldiersOf(X); X.raw = 0; X.shock = 0; X.brk = null; X.draw = false; X.contrib = {}; X.routOnce = false; X.escFails = 0; X.lastEnd = null;
       X.roll = cfg.fixedRoll ?? (cfg.rollMin + rng() * (cfg.rollMax - cfg.rollMin)); // 测试可用 cfg.fixedRoll 固定
       X.ammo = unitDef(cfg, X.unit).ammo_s ?? 0; X.combatStart = s.t; X.N0start = X.N0;
     }
@@ -280,6 +280,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
     const p = s.pairs[key]; if (!p) return;
     delete s.pairs[key];
     s.pairCd[key] = s.t + CD.pair_cd_s;
+    B[p.a].lastEnd = kind; B[p.b].lastEnd = kind;
     B[p.a].foes = B[p.a].foes.filter(f => f !== p.b); B[p.b].foes = B[p.b].foes.filter(f => f !== p.a);
     changed.add(p.a); changed.add(p.b);
     ev({ type: 'separate', a: p.a, b: p.b, kind, ...extra });
@@ -311,10 +312,9 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   for (const [X, cause] of defeated) {
     const { by, shares } = topContributor(X);
     if (X.isPlayer) {
-      // 【假设】原型：v0.5 兵数归零 = 本局失败（未做结算画面），这里保留少量兵继续玩
       for (const f of [...X.foes]) endPair(pairKey(X.id, f), 'player-wiped');
       ev({ type: 'player-wiped', id: X.id, by, shares, n: soldiersOf(X) });
-      X.N0 = AS.player_wipe_keep_soldiers; X.raw = 0; X.brk = null; X.routed = false; X.protectUntil = s.t + CD.protect_s;
+      X.wiped = true; // 正式版：兵力归零 = 本局失败（failure 规则 B，由 run 层处理）
       continue;
     }
     ev({ type: 'defeat', id: X.id, cause, by, shares, n: soldiersOf(X), n0: X.N0start ?? X.N0, E: by && B[by] ? eff(by, X.id) / Math.max(1e-9, eff(X.id, by)) : 1, power0: X.N0start * X.stats.M + X.stats.genTerm });
@@ -328,6 +328,10 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   for (const [key, p] of Object.entries({ ...s.pairs })) {
     const a = B[p.a], b = B[p.b];
     const g = { gap: Math.hypot(b.x - a.x, b.y - a.y) - radiusOf(soldiersOf(a), cfg) - radiusOf(soldiersOf(b), cfg) };
+    if (g.gap <= MP.escape_gap_px && p.apartT > 0) {
+      // 撤退失败（failure.hero_hp_esc_fail）：拉开过 150 px 又被追上，记给在撤的一方
+      for (const [X, Y] of [[a, b], [b, a]]) if (retreating(X, Y)) X.escFails = (X.escFails ?? 0) + 1;
+    }
     p.apartT = g.gap > MP.escape_gap_px ? +(p.apartT + dt).toFixed(6) : 0;
     if (p.apartT + 1e-9 >= MP.escape_s) {
       // 正在撤的一方 = 逃脱者（保护 protect_s）；【假设】双方都在撤 → 双方都算逃脱；都没撤（站着被拉开）→ 'apart'，没有保护
@@ -346,7 +350,9 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
       X.brk = Math.max(brk, X.raw + 0.05); X.draw = big < cfg.drawRatio;
     } else if (X.brk !== null || X.raw > 0) {
       const n = soldiersOf(X), shown = roundHalfUp(n);
-      ev({ type: 'combat-end', id, soldiers: shown, lost: roundHalfUp((X.N0start ?? X.N0)) - shown, routed: X.routed });
+      ev({ type: 'combat-end', id, soldiers: shown, start: roundHalfUp(X.N0start ?? X.N0), lost: roundHalfUp((X.N0start ?? X.N0)) - shown,
+        routed: !!(X.routed || X.routOnce), endKind: X.lastEnd ?? null, escFails: X.escFails ?? 0, wiped: !!X.wiped });
+      X.escFails = 0; X.lastEnd = null;
       X.N0 = shown; X.raw = 0; X.brk = null; X.draw = false; X.contrib = {}; X.ammo = unitDef(cfg, X.unit).ammo_s ?? 0;
     }
   }
