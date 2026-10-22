@@ -2,7 +2,9 @@
 // 覆盖：无报错、键盘移动、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标抽一次 / 满编替换）、截图
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const URL = process.argv[2] || 'http://localhost:5173/';
-const OUT = __dirname + '/../screenshot.png';
+const ART = require('path').join(__dirname, '..', 'artifacts'); // 截图输出目录（.gitignore，不进仓库）
+require('fs').mkdirSync(ART, { recursive: true });
+const OUT = ART + '/screenshot.png';
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
@@ -116,7 +118,7 @@ const OUT = __dirname + '/../screenshot.png';
     chase = await ev(() => { const w = window.__game.scene.getScene('World'); const c = w.aiParties.find(p => p.id === 'wu_zhouyu'); return c && c.ai.state === 'chase' && c.ai.targetId === 'player' ? { d: Math.round(Math.hypot(w.player.x - c.x, w.player.y - c.y)), pathLen: c.path?.length ?? 0 } : null; });
   }
   await page.waitForTimeout(700);
-  await page.screenshot({ path: __dirname + '/../screenshot-chase.png' });
+  await page.screenshot({ path: ART + '/screenshot-chase.png' });
   // 等战斗结束
   let after = null;
   for (let i = 0; i < 60; i++) {
@@ -164,7 +166,7 @@ const OUT = __dirname + '/../screenshot.png';
   if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('0'); await page.waitForTimeout(200); }
   if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); }
   afterPull = await gs();
-  await page.screenshot({ path: __dirname + '/../screenshot-gacha.png' });
+  await page.screenshot({ path: ART + '/screenshot-gacha.png' });
   result.gachaPull = { openedByMouse: open.gacha, rollingState: rolling.ui, pointsBefore: open.points, pointsAfter: afterPull.points, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
     shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && rolling.points === 950 && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
   // 满编替换：队伍补到 3 将，强制下一抽 = S 级武将（诸葛亮），弹出名册窗口，按 1 替换第一名随从
@@ -180,7 +182,7 @@ const OUT = __dirname + '/../screenshot.png';
   const rfResult = await gs(); // RESULT，next = roster_full
   await page.keyboard.press('Escape'); await page.waitForTimeout(400); // esc_rule.RESULT = 确认 → 进入 ROSTER_FULL
   const rf = await gs();
-  await page.screenshot({ path: __dirname + '/../screenshot-roster.png' });
+  await page.screenshot({ path: ART + '/screenshot-roster.png' });
   await page.keyboard.press('1'); await page.waitForTimeout(400);
   const rep = await gs();
   await ev(() => { window.__game.scene.getScene('World').rngs.gacha = window.__realGachaRng; });
@@ -257,7 +259,7 @@ const OUT = __dirname + '/../screenshot.png';
   await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
   await page.waitForTimeout(300);
   const savedOnUnload = await readSave();
-  await page.screenshot({ path: __dirname + '/../screenshot-title.png' });
+  await page.screenshot({ path: ART + '/screenshot-title.png' });
   const cont = await ev(() => { const b = window.__game.scene.getScene('Title').btnContinue; return b && { x: b.x + 120, y: b.y + 23 }; });
   await page.mouse.click(cont.x, cont.y);
   await page.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
@@ -283,7 +285,7 @@ const OUT = __dirname + '/../screenshot.png';
   await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
   await page.waitForTimeout(300);
   const corrupt = await ev(() => { const t = window.__game.scene.getScene('Title'); return { loadedOk: t.result.ok, code: t.result.code, msg: t.result.message, hasContinue: !!t.btnContinue }; });
-  await page.screenshot({ path: __dirname + '/../screenshot-title-corrupt.png' });
+  await page.screenshot({ path: ART + '/screenshot-title-corrupt.png' });
   await page.keyboard.press('n'); await page.waitForTimeout(200);
   const confirming = await ev(() => window.__game.scene.getScene('Title').confirming);
   await page.keyboard.press('y');

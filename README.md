@@ -5,7 +5,7 @@
 ## 运行
 
 ```bash
-npm install
+npm install            # 需要 Node >= 20.10（package.json engines）
 npm run dev            # 开发服务器 http://localhost:5173/
 npm run build          # 产出 dist/（正式构建：没有调试钩子、没有 F2）
 npm run preview        # 预览 dist/
@@ -13,7 +13,7 @@ npm run build:smoke    # 产出 dist-smoke/：同正式构建，但带 window.__
 npm run preview:smoke  # 预览 dist-smoke/（端口 4175）
 npm test               # 单测：公式 / worked_examples / A* / AI 决策 / 战斗结算 / 抽卡 / 名册 / 存档 / 输入 / 纯 Node 加载
 npm run sync:balance   # 从 ../design/balance_v0.4.json 同步策划配置
-node tests/smoke.cjs http://localhost:5173/        # 完整冒烟（开发服务器或 dist-smoke；需 playwright-core + Chrome）
+node tests/smoke.cjs http://localhost:5173/        # 完整冒烟（开发服务器或 dist-smoke；需 playwright-core + Chrome；截图写到 artifacts/，不进仓库）
 node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist：确认没有调试钩子，只看键盘 + 存档内容）
 ```
 
