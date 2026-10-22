@@ -22,6 +22,10 @@ import { createRun, runTick, checkFail, onPlayerBattleEnd, onNamedDefeated, runS
 import { spawnPowerRange, counterAddOf } from '../systems/runConfig.js';
 import { applyRunResult, loadMeta, saveMeta } from '../systems/meta.js';
 import { DEBUG_HOOKS } from '../debug.js';
+import { changeUnit } from '../systems/gacha.js';
+import { scoutRange, scoutInfo } from '../systems/scouting.js';
+import { counterMult } from '../systems/melee.js';
+import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
 import { getLifecycle } from '../platform/lifecycle.js';
@@ -315,6 +319,30 @@ export default class WorldScene extends Phaser.Scene {
     }
   }
 
+  /** 城池整编（units.change_unit.city）：城池 200 px 内、不在战斗中，花 30 点全队换兵种，原地 5 s 不能移动 */
+  canReorganize() {
+    const C = runCfg.units.change_unit_city, pl = this.player;
+    if (this.run.over) return { ok: false, text: '' };
+    if (pl.inBattle) return { ok: false, text: '战斗中不能整编' };
+    if (!this.inCity(pl)) return { ok: false, text: `需在城池 ${C.radius_px} px 内整编` };
+    if ((pl.team.lockUntil ?? 0) > this.clock.now) return { ok: false, text: '正在整编' };
+    if (this.state.points < C.cost) return { ok: false, text: `点数不足（整编需 ${C.cost} 点）` };
+    return { ok: true, text: '', cost: C.cost };
+  }
+  reorganize(unit) {
+    const chk = this.canReorganize(), pl = this.player;
+    if (!chk.ok) return chk;
+    if (unit === pl.team.unit) return { ok: false, text: '已经是这个兵种' };
+    this.state.points -= chk.cost;
+    changeUnit(pl.team, unit);
+    pl.team.lockUntil = this.clock.now + runCfg.units.change_unit_city.lock_s * 1000;
+    pl.clearPath(); pl.refresh(); this.field.refresh(pl);
+    const text = `整编：全队改为${UNIT_FULL_NAMES[unit]}（−${chk.cost} 点，${runCfg.units.change_unit_city.lock_s} s 内不能移动）`;
+    pushLog(this.state, text, this.gameTime());
+    this.requestSave('reorganize');
+    return { ok: true, text };
+  }
+
   /** 放弃本局（暂停菜单）= 失败 */
   abandonRun() {
     if (this.run.over) return;
@@ -488,8 +516,13 @@ export default class WorldScene extends Phaser.Scene {
     const order = [...this.parties].sort((a, b) =>
       (b.isPlayer - a.isPlayer) || (Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y)));
     const placed = [];
+    const range = scoutRange(pl.team, balance), counters = this.field.cfg.move.counters;
+    const mult = counterMult(this.field.cfg, this.run.chapter) + (this.field.cfg.counterAdd ?? 0);
+    const me = { unit: pl.team.unit, power: pl.power, soldiers: pl.soldiers };
     for (const p of order) {
       const v = this.views.get(p);
+      const sc = p.isPlayer ? null : scoutInfo({ me, them: { unit: p.team.unit, power: p.power, soldiers: p.soldiers }, dist: Math.hypot(p.x - pl.x, p.y - pl.y), range, counters, mult });
+      v.setScout(sc);
       const hovered = Math.abs(pw.x - p.x) < p.size && Math.abs(pw.y - p.y) < p.size;
       const b = this.field.body(p.id);
       if (p.inBattle && b) {
@@ -507,7 +540,7 @@ export default class WorldScene extends Phaser.Scene {
       v.label.setPosition(v.body.x, bottom);
       placed.push({ left: v.body.x - w / 2, right: v.body.x + w / 2, top: bottom - h, bottom });
       // 战斗中/无敌提示色
-      v.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : '#ffffff'));
+      v.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : (sc ? sc.color : '#ffffff')));
     }
   }
 
@@ -518,7 +551,8 @@ export default class WorldScene extends Phaser.Scene {
     const time = this.clock.now, pl = this.player;
     // 玩家：战斗中照常操控（v0.5：撤退 = 把队伍开走）；键盘优先（会取消点击路径）
     const { x: dx, y: dy } = this.actions.moveVector();
-    if (dx || dy) {
+    if ((pl.team.lockUntil ?? 0) > time) { pl.clearPath(); } // 整编中：原地不动
+    else if (dx || dy) {
       pl.clearPath();
       const len = Math.hypot(dx, dy);
       pl.move(dx / len, dy / len);

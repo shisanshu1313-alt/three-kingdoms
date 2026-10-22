@@ -49,6 +49,11 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   const before = await st();
   await p.reload(); await sleep(p, 2500);
   if (await p.evaluate(() => window.__game?.scene.isActive('Title'))) { await p.keyboard.press('Enter'); await sleep(p, 1200); }
+  // save_v05.in_battle：读档回到战斗 → 暂停 + 3 s“继续战斗”倒计时
+  const cd = await p.evaluate(() => ({ paused: __game.scene.isPaused('World'), text: __game.scene.getScene('UI').countdownUi?.text ?? null }));
+  console.log('resume countdown', cd);
+  if (!cd.paused || !/继续战斗/.test(cd.text || '')) await fail('读档回到战斗时没有暂停倒计时');
+  t0 = Date.now(); while (Date.now() - t0 < 6000 && await p.evaluate(() => __game.scene.isPaused('World'))) await sleep(p, 100);
   const restored = await st();
   console.log('reload', { before: before.n, restored: restored.n, inBattle: restored.inBattle });
   if (!restored.inBattle) await fail('读档后战斗没有恢复');

@@ -40,7 +40,7 @@ export default class PartyView {
     if (Math.abs(r - this.radius) > 0.05) { this.radius = r; this.body.setRadius(r); }
     this.body.setPosition(x, y);
     this.body.setAlpha(m.isInvincible(now) ? 0.45 : 1); // 脱战保护：半透明
-    this.unitText.setPosition(x, y).setText(UNIT_NAMES[m.team.unit] ?? '');
+    this.unitText.setPosition(x, y).setText(this.scout && !this.scout.showUnit ? '' : (UNIT_NAMES[m.team.unit] ?? ''));
     this.minimapDot.setPosition(m.x, m.y);
     const g = this.bars.clear();
     if (b) {
@@ -61,18 +61,29 @@ export default class PartyView {
     if (this._rev !== m.rev) { this._rev = m.rev; this.labelMode = null; this.setLabelMode(this._wantFull ?? m.isPlayer); }
   }
 
-  /** 标签：简略（名字+兵）/ 完整（加武将、战力） */
+  /** v0.5 侦察信息（systems/scouting.js）：决定显示兵种 / 兵数精度 / 箭头；玩家自己为 null */
+  setScout(info) {
+    const key = info ? `${info.tier}|${info.soldiers}|${info.arrow}` : '';
+    if (key === this._scoutKey) return;
+    this._scoutKey = key; this.scout = info; this.labelMode = null;
+  }
+
+  /** 标签：简略（名字+兵）/ 完整（加武将、战力；只在视野内） */
   setLabelMode(full) {
     this._wantFull = full;
+    const sc = this.scout;
+    if (sc && sc.tier !== 'vision') full = false;
     const mode = full ? 'full' : 'compact';
     if (mode === this.labelMode) return;
     this.labelMode = mode;
     const m = this.model, t = m.team;
     if (full) {
       const gens = t.generals.map(g => g.name).join('·');
-      this.label.setText(`${t.name}\n${gens}\n兵${t.soldiers}/${m.cap} 战${Math.round(m.power)}`);
+      this.label.setText(`${t.name}${sc?.arrow ?? ''}\n${gens}\n兵${t.soldiers}/${m.cap} 战${Math.round(m.power)}`);
+    } else if (sc?.tier === 'far') {
+      this.label.setText(t.name);
     } else {
-      this.label.setText(`${t.name} ${t.soldiers}`);
+      this.label.setText(`${t.name} ${sc ? sc.soldiers : t.soldiers}${sc?.arrow ?? ''}`);
     }
   }
 

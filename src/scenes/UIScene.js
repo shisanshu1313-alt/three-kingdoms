@@ -9,7 +9,8 @@ import { DEBUG_HOOKS } from '../debug.js';
 import { button } from '../ui/widgets.js';
 import { pullCost } from '../systems/gacha.js';
 import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
-import { UNIT_NAMES } from '../systems/units.js';
+import { UNIT_NAMES, UNIT_FULL_NAMES } from '../systems/units.js';
+import { UNIT_ORDER_UNITS } from '../systems/gacha.js';
 
 const UI_CFG = balance.gacha_ui ?? {};
 const DEBUG_POINTS = 200;
@@ -22,7 +23,7 @@ export default class UIScene extends Phaser.Scene {
     this.world = this.scene.get('World');
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · B 城中整编 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -44,7 +45,17 @@ export default class UIScene extends Phaser.Scene {
     // 暂停菜单：P 打开 / 关闭；菜单里 Y = 放弃本局（按失败结算）
     act.on(ACTIONS.PAUSE, () => this.togglePause());
     act.on(ACTIONS.YES, () => { if (this.pauseUi) { this.closePause(false); this.world.abandonRun(); return true; } });
-    act.on(ACTIONS.CANCEL, () => { if (this.pauseUi) { this.closePause(); return true; } });
+    act.on(ACTIONS.CANCEL, () => { if (this.pauseUi) { this.closePause(); return true; } if (this.reorgUi) { this.closeReorg(); return true; } });
+    // 城池整编：B 打开面板，数字键 1~4 选兵种，0 / Esc 取消
+    act.on(ACTIONS.REORGANIZE, () => this.toggleReorg());
+    act.on(ACTIONS.CHOOSE, ({ n }) => {
+      if (!this.reorgUi) return;
+      if (n === 0) return this.closeReorg();
+      const u = UNIT_ORDER_UNITS[n - 1]; if (!u) return;
+      const r = this.world.reorganize(u);
+      this.toast(r.text, r.ok ? '#aaffaa' : '#ff8888', 15);
+      if (r.ok) this.closeReorg();
+    });
     const onRun = e => this.onRunEvent(e);
     this.game.events.on('run-event', onRun);
     this.events.once('shutdown', () => this.game.events.off('run-event', onRun));
@@ -117,6 +128,22 @@ export default class UIScene extends Phaser.Scene {
     c.add(this.add.text(w / 2, h * 0.45 + 116, '放弃 = 本局失败（存档删除，名望照常计入）', { fontFamily: 'sans-serif', fontSize: '13px', color: '#ffaaaa' }).setOrigin(0.5));
     this.pauseUi = c;
   }
+
+  toggleReorg() {
+    if (this.reorgUi) return this.closeReorg();
+    if (this.modalOpen() || this.pauseUi) return;
+    const chk = this.world.canReorganize();
+    if (!chk.ok) return this.toast(chk.text, '#ff8888', 15);
+    const { width: w, height: h } = this.scale, cur = this.world.player.team.unit;
+    const c = this.add.container(w / 2 - 300, h - 150).setDepth(55);
+    c.add(this.add.rectangle(0, 0, 600, 92, 0x000000, 0.75).setOrigin(0).setStrokeStyle(2, 0xf1c40f));
+    c.add(this.add.text(12, 8, `整编（${chk.cost} 点，之后 ${runCfg.units.change_unit_city.lock_s} s 不能移动；操练等级清零）· 数字键选择，0 / Esc 取消`, { fontFamily: 'sans-serif', fontSize: '13px', color: '#ffdd55' }));
+    UNIT_ORDER_UNITS.forEach((u, i) => c.add(button(this, 12 + i * 145, 38, 135, 40, `[${i + 1}] ${UNIT_FULL_NAMES[u]}${u === cur ? '（现）' : ''}`, () => {
+      const r = this.world.reorganize(u); this.toast(r.text, r.ok ? '#aaffaa' : '#ff8888', 15); if (r.ok) this.closeReorg();
+    })));
+    this.reorgUi = c;
+  }
+  closeReorg() { this.reorgUi?.destroy(); this.reorgUi = null; }
 
   closePause(resume = true) {
     this.pauseUi?.destroy(); this.pauseUi = null;

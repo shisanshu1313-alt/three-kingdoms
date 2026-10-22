@@ -25,13 +25,22 @@ export function applyRunConfig(b, run) {
   out.player_faction = { ...b.player_faction, start: { ...start } };
   out.initial_teams = b.initial_teams.map(t => {
     if (t.faction === b.player_faction.id) return { ...t, position: { ...start } };
-    if (t.position && typeof t.position === 'object') return { ...t, position: { x: Math.round(t.position.x * scale), y: Math.round(t.position.y * scale) } };
+    if (t.position && typeof t.position === 'object') {
+      // [解读] 坐标按 0.5 缩放后，初始黄巾离玩家出生点太近（≈150 px，游荡就会撞上）；推到至少 spawn_dist_px[0] 外，
+      // 保证开局第一战是 20 s 的“来袭”（fast_pace.first_battle）
+      let x = t.position.x * scale, y = t.position.y * scale;
+      const dx = x - start.x, dy = y - start.y, d = Math.hypot(dx, dy), min = run.density.spawn_dist_px[0];
+      if (d < min) { const k = min / Math.max(1e-9, d); x = start.x + dx * k; y = start.y + dy * k; }
+      return { ...t, position: { x: Math.round(Math.min(S - T, Math.max(T, x))), y: Math.round(Math.min(S - T, Math.max(T, y))) } };
+    }
     return t;
   });
   out.spawn = { ...b.spawn, max_ai_teams: run.density.max_ai_teams, respawn_interval_s: run.density.respawn_s, dist_from_player_px: run.density.spawn_dist_px,
     power_vs_player: run.chapters[0].spawn_power_vs_player };
   const g = run.growth;
-  out.gacha = { ...b.gacha, cost_base: g.gacha_cost.base, cost_step: g.gacha_cost.step, cost_cap: g.gacha_cost.cap };
+  // gacha_v05.pool：属性 50 / 物品 25 / 兵种令 10 / 操练 5 / 武将 10（item_source 说明文字 → 规则名）
+  const pool = (run.gacha_pool ?? b.gacha.pool).map(e => (e.type === 'item' ? { ...e, item_source: 'items_all_uniform' } : { ...e }));
+  out.gacha = { ...b.gacha, pool, cost_base: g.gacha_cost.base, cost_step: g.gacha_cost.step, cost_cap: g.gacha_cost.cap };
   out.rewards = { ...b.rewards, points_base: g.points.base, points_per_enemy_power: g.points.per_power, recruit_base: g.recruit_base };
   // 克制物品（units.counter_items）并入物品表；效果 dmg_taken_from / scout_px 由战斗、显示读取
   const have = new Set(b.items.map(i => i.id));

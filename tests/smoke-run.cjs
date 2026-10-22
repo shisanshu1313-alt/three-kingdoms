@@ -71,6 +71,11 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.keyboard.press('Enter'); await sleep(p, 2000);
   const run1 = await W(() => { const w = __game.scene.getScene('World'); return { active: __game.scene.isActive('World'), runId: w.run.runId, t: w.clock.now / 1000, hp: w.run.heroHp, over: w.run.over, soldiers: w.player.team.soldiers }; });
   await ok(run1.active && run1.runId !== run0.runId && run1.t < 5 && run1.hp === 100 && !run1.over && run1.soldiers > 0, `再来一局（${JSON.stringify(run1)}）`);
+  // 城池整编：开局在洛阳城内；B → 2（骑兵）：−30 点、兵种改变、5 s 不能移动
+  await W(() => { const w = __game.scene.getScene('World'); w.state.points = 100; });
+  await p.keyboard.press('b'); await sleep(p, 200); await p.keyboard.press('2'); await sleep(p, 300);
+  const reorg = await W(() => { const w = __game.scene.getScene('World'); return { unit: w.player.team.unit, body: w.field.body(w.player.id).unit, points: w.state.points, locked: (w.player.team.lockUntil ?? 0) > w.clock.now }; });
+  await ok(reorg.unit === 'cav' && reorg.body === 'cav' && reorg.points === 70 && reorg.locked, `城池整编：B → 骑兵（${JSON.stringify(reorg)}）`);
   await p.keyboard.press('p'); await sleep(p, 400);
   const paused = await W(() => __game.scene.isPaused('World'));
   await p.keyboard.press('Escape'); await sleep(p, 300);

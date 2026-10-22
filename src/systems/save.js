@@ -252,7 +252,7 @@ export function validateSave(s, balance) {
     need(r && typeof r === 'object' && typeof r.runId === 'string' && isNum(r.heroHp) && isInt(r.chapter) && Array.isArray(r.namedDefeated), '缺 run（一局的状态）');
   }
   const gp = s.state?.gachaPending;
-  need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)), '抽卡待选择非法');
+  need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)) || gp.next === 'choose_unit', '抽卡待选择非法');
   return errs;
 }
 

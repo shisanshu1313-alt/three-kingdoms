@@ -27,6 +27,9 @@ const OUT = ART + '/screenshot.png';
   const pos = () => ev(() => { const p = window.__game.scene.getScene('World').player; return { x: Math.round(p.x), y: Math.round(p.y) }; });
   // 前半段让玩家无敌，避免被附近黄巾军打断
   await ev(() => { const w = window.__game.scene.getScene('World'); w.player.invincibleUntil = w.clock.now + 60000; });
+  // 这是 v0.4 玩法的回归冒烟：关掉 v0.5 一局的开局遭遇战（20 s）和新手保护（90 s 不追玩家），否则追击 / 点击寻路场景会被打断。
+  // v0.5 一局的流程由 tests/smoke-run.cjs 覆盖。
+  await ev(() => { const w = window.__game.scene.getScene('World'); w.run.raidDone = true; w.aiSystem.rules.graceUntilS = 0; });
   const result = {};
 
   // 1) 键盘
@@ -59,7 +62,7 @@ const OUT = ART + '/screenshot.png';
   // 2) 点击寻路绕障：找一处“起点—障碍—终点”水平排列且可达的位置，把玩家放到起点
   const scen = await ev(() => {
     const w = window.__game.scene.getScene('World'), T = w.tileSize, pf = w.pathfinder, g = w.mapData.grid;
-    for (let y = 5; y < g.length - 5; y++) for (let x = 5; x < g[0].length - 5; x++) {
+    for (let y = 8; y < g.length - 5; y++) for (let x = 5; x < g[0].length - 5; x++) { // y ≥ 8：v0.5 小地图上避开右上角小地图区域
       const sx = x - 3, ex = x + 3;
       if (pf.passable(x, y) || !pf.passable(sx, y) || !pf.passable(ex, y)) continue;
       if (!pf.passable(sx, y - 1) || !pf.passable(sx, y + 1) || !pf.passable(sx - 1, y)) continue;
@@ -98,9 +101,10 @@ const OUT = ART + '/screenshot.png';
   await ev(() => {
     const w = window.__game.scene.getScene('World'), pl = w.player, T = w.tileSize;
     pl.invincibleUntil = 0; pl.clearPath();
-    const home = w.findPassableNear(37, 28); pl.setPosition(home.x, home.y); // 回到地图中部开阔处
+    w.aiSystem.rules.namedLeashPx = 1e9; // v0.5 名将军 1–2 章坐镇；这一步测 v0.4 的追击决策，临时放开
+    const home = w.findPassableNear(Math.floor(w.mapData.grid[0].length * 0.37), Math.floor(w.mapData.grid.length * 0.28)); pl.setPosition(home.x, home.y); // 回到地图中部开阔处
     // 其他 AI 暂时移开，保证是曹操军来追
-    w.aiParties.filter(p => p.id !== 'wu_zhouyu').forEach(p => { if (Math.hypot(p.x - pl.x, p.y - pl.y) < 700) { const f = w.findPassableNear(80, 85); p.setPosition(f.x, f.y); p.clearPath(); } });
+    w.aiParties.filter(p => p.id !== 'wu_zhouyu').forEach(p => { if (Math.hypot(p.x - pl.x, p.y - pl.y) < 700) { const f = w.findPassableNear(Math.floor(w.mapData.grid[0].length * 0.8), Math.floor(w.mapData.grid.length * 0.85)); p.setPosition(f.x, f.y); p.clearPath(); } });
     const c = w.aiParties.find(p => p.id === 'wu_zhouyu');
     for (const ang of [0, 1.57, 3.14, 4.71, 0.78, 2.35, 3.92, 5.49]) {
       const x = pl.x + Math.cos(ang) * 220, y = pl.y + Math.sin(ang) * 220;
@@ -181,8 +185,9 @@ const OUT = ART + '/screenshot.png';
   if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); }
   afterPull = await gs();
   await page.screenshot({ path: ART + '/screenshot-gacha.png' });
+  const costBase = await ev(() => window.__balance.gacha.cost_base);
   result.gachaPull = { openedByMouse: open.gacha, rollingState: rolling.ui, pointsBefore: open.points, pointsAfter: afterPull.points, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
-    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && rolling.points === 950 && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
+    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && rolling.points === 1000 - costBase && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
   // 满编替换：队伍补到 3 将，强制下一抽 = S 级武将（诸葛亮），弹出名册窗口，按 1 替换第一名随从
   await ev(() => { const w = window.__game.scene.getScene('World'); const t = w.player.team; const lib = (id) => { const g = window.__balance.generals.find(x => x.id === id); return { id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }; };
     t.generals = t.generals.filter(g => g.id === 'hero');
@@ -236,7 +241,7 @@ const OUT = ART + '/screenshot.png';
   await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.5]; // 0.5 → 属性 +5（权重 45/10/…），多人可选 → 待选择
     w.rngs.gacha = Object.assign(() => (seq.length ? seq.shift() : window.__realGachaRng()), { getState: () => window.__realGachaRng.getState(), setState: v => window.__realGachaRng.setState(v) }); });
   await page.keyboard.press('Space'); await page.waitForTimeout(1300);
-  const pendBefore = await ev(() => { const w = window.__game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-save'));
+  const pendBefore = await ev(() => { const w = window.__game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-run-v1'));
     return { ui: window.__game.scene.getScene('Gacha').uiState, pending: w.state.gachaPending, points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState(),
       savedPending: sv.state.gachaPending, savedPoints: sv.state.points, savedRng: sv.rng.gacha, savedReason: sv.reason }; });
   await page.reload(); // 不做选择直接刷新（模拟崩溃 / 关闭）
@@ -248,7 +253,7 @@ const OUT = ART + '/screenshot.png';
     return { gachaOpen: window.__game.scene.isActive('Gacha'), ui: g?.uiState, pending: w.state.gachaPending, points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState() }; });
   await page.keyboard.press('1'); await page.waitForTimeout(300);
   const chosen = await ev(() => ({ ui: window.__game.scene.getScene('Gacha').uiState, pending: window.__game.scene.getScene('World').state.gachaPending,
-    savedPending: JSON.parse(localStorage.getItem('sanguo-save')).state.gachaPending }));
+    savedPending: JSON.parse(localStorage.getItem('sanguo-run-v1')).state.gachaPending }));
   await page.keyboard.press('Escape'); await page.waitForTimeout(200); await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   result.pendingChoiceReload = { before: { ui: pendBefore.ui, next: pendBefore.pending?.next, points: pendBefore.points, savedReason: pendBefore.savedReason },
     after: { gachaOpen: pendAfter.gachaOpen, ui: pendAfter.ui, points: pendAfter.points, draws: pendAfter.draws, rngSame: pendAfter.rng === pendBefore.rng }, chosen,
@@ -260,12 +265,12 @@ const OUT = ART + '/screenshot.png';
   await ev(() => { window.__game.scene.getScene('World').player.invincibleUntil = window.__game.scene.getScene('World').clock.now + 600000; });
 
   // 5) 存档：F5 手动存档 → 刷新页面 → 标题菜单「继续游戏」→ 状态恢复
-  const SAVE_KEY = 'sanguo-save';
+  const SAVE_KEY = 'sanguo-run-v1';
   const readSave = () => ev(k => { const t = localStorage.getItem(k); try { return t && JSON.parse(t); } catch { return 'CORRUPT'; } }, SAVE_KEY);
   const playerState = () => ev(() => { const w = window.__game.scene.getScene('World'); const p = w.player;
     return { points: w.state.points, draws: w.state.gachaDraws, soldiers: p.team.soldiers, x: p.x, y: p.y, gens: p.team.generals.map(g => [g.id, g.lead, g.str, g.int, g.cha]),
       items: p.team.items.slice(), freePool: w.state.freePool.slice().sort(), ai: w.aiParties.length, battles: w.state.battles, log: w.state.battleLog.length }; });
-  await ev(() => localStorage.removeItem('sanguo-save'));
+  await ev(() => localStorage.removeItem('sanguo-run-v1'));
   await page.keyboard.press('F5');
   let manual = null;
   for (let i = 0; i < 60 && !manual; i++) { await page.waitForTimeout(250); const sv = await readSave(); if (sv && sv.reason === 'manual') manual = sv; }
@@ -295,15 +300,15 @@ const OUT = ART + '/screenshot.png';
   result.f9Load = { savedPoints: savedPts, afterF9: afterF9.points, ok: afterF9.points === savedPts };
   // 损坏存档：标题显示错误，只能新游戏（确认后清档）
   // 先禁止本页再存档（否则刷新时的自动存档会覆盖掉损坏数据），再写入损坏存档
-  await ev(() => { window.__game.scene.getScene('World').canSaveNow = () => false; localStorage.setItem('sanguo-save', '{"saveVersion":1, broken'); });
+  await ev(() => { window.__game.scene.getScene('World').canSaveNow = () => false; localStorage.setItem('sanguo-run-v1', '{"saveVersion":1, broken'); });
   await page.reload();
   await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
   await page.waitForTimeout(300);
   const corrupt = await ev(() => { const t = window.__game.scene.getScene('Title'); return { loadedOk: t.result.ok, code: t.result.code, msg: t.result.message, hasContinue: !!t.btnContinue }; });
   await page.screenshot({ path: ART + '/screenshot-title-corrupt.png' });
-  await page.keyboard.press('n'); await page.waitForTimeout(200);
-  const confirming = await ev(() => window.__game.scene.getScene('Title').confirming);
-  await page.keyboard.press('y');
+  // v0.5 标题：损坏 / 不兼容的存档没有“继续”，新一局面板直接 Enter 开始（会清掉坏档；没有可丢的进度，不再确认）
+  const confirming = await ev(() => !window.__game.scene.getScene('Title').hasRun && !!window.__game.scene.getScene('Title').btnNew);
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
   const fresh = await playerState();
   result.corruptSave = { ...corrupt, confirming, freshPoints: fresh.points, freshDraws: fresh.draws, ok: !corrupt.loadedOk && corrupt.code === 'corrupt' && !corrupt.hasContinue && confirming && fresh.points === 0 && fresh.draws === 0 };

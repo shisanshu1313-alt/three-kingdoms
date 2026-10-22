@@ -2,7 +2,7 @@
 import { ATTR_NAMES } from '../systems/gacha.js';
 
 export const FONT = 'sans-serif';
-export const TIER_COLORS = { S: 0xf1c40f, A: 0x9b59b6, B: 0x3498db, item: 0x2ecc71, attr_small: 0x95a5a6, attr_big: 0xe67e22, refund: 0x7f8c8d };
+export const TIER_COLORS = { S: 0xf1c40f, A: 0x9b59b6, B: 0x3498db, item: 0x2ecc71, attr_small: 0x95a5a6, attr_big: 0xe67e22, refund: 0x7f8c8d, unit_order: 0xc0392b, drill: 0x16a085 };
 export const hex = c => '#' + c.toString(16).padStart(6, '0');
 
 /** 按钮：返回 container，带 .setEnabled(bool)、.label；enabled=false 时灰色且不可点 */

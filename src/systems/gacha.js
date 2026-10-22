@@ -14,7 +14,8 @@ import { addGeneralOrQueue } from './roster.js';
 
 const ATTRS = ['lead', 'str', 'int', 'cha'];
 export const ATTR_NAMES = { lead: '统率', str: '武力', int: '智力', cha: '魅力' };
-const POOL_NAMES = { item: '物品' };
+const POOL_NAMES = { item: '物品', unit_order: '兵种令', drill: '操练' };
+export const UNIT_ORDER_UNITS = ['inf', 'cav', 'arc', 'spr'];
 /** 卡池条目 → 显示名（属性卡数值、武将档位都读配置） */
 export function typeName(entry) {
   if (!entry) return '';
@@ -138,6 +139,25 @@ export function pull(state, team, balance, rng, ctx = {}) {
     }
   }
 
+  // v0.5 gacha_v05：操练（克制倍率 +0.05，每局最多 max 次，换兵种清零）；用完 → 按 attr_small 出
+  if (res.type === 'drill') {
+    const D = balance.v05?.units?.drill ?? { add: 0.05, max: 3 };
+    if ((state.drillUsed ?? 0) < D.max) {
+      state.drillUsed = (state.drillUsed ?? 0) + 1;
+      team.drill = (team.drill ?? 0) + 1;
+      res.text = `操练：对被克兵种的克制倍率 +${D.add}（本局 ${state.drillUsed}/${D.max}，换兵种后清零）`;
+      return res;
+    }
+    res.fallback = 'drill_max'; res.type = 'attr_small';
+  }
+  // v0.5 兵种令：选择全队兵种（可不改，返还 unit_order_refund 点）——选择留在 state 里，读档后重新弹出
+  if (res.type === 'unit_order') {
+    res.next = 'choose_unit';
+    res.text = `兵种令：选择全队兵种（不改返还 ${balance.v05?.units?.unit_order_refund ?? 25} 点）`;
+    state.gachaPending = pendingOf(res);
+    return res;
+  }
+
   if (poolEntry(balance, res.type)?.attr_amount !== undefined) {
     res.amount = attrAmount(balance, res.type);
     const targets = attrTargets(team, balance);
@@ -196,6 +216,25 @@ export function resultFromPending(state, team, balance) {
   if (p.next === 'choose_general') r.targets = attrTargets(team, balance);
   if (p.next === 'item_full') r.item = balance.items.find(i => i.id === p.itemId);
   return r;
+}
+
+/** 换兵种（兵种令 / 城池整编共用）：操练等级清零 */
+export function changeUnit(team, unit) {
+  if (!UNIT_ORDER_UNITS.includes(unit)) throw new Error(`未知兵种 ${unit}`);
+  if (team.unit === unit) return false;
+  team.unit = unit; team.drill = 0;
+  return true;
+}
+
+/** CHOOSE_UNIT（兵种令）：unit = 新兵种；null 或与现在相同 = 不改，返还点数 */
+export function resolveUnitOrder(state, team, unit, balance) {
+  const p = state.gachaPending;
+  if (!p || p.next !== 'choose_unit') throw new Error('没有待选择的兵种令');
+  state.gachaPending = null;
+  if (unit && changeUnit(team, unit)) return { changed: true, refund: 0, unit };
+  const refund = balance.v05?.units?.unit_order_refund ?? 25;
+  state.points += refund;
+  return { changed: false, refund, unit: team.unit };
 }
 
 /** CHOOSE_GENERAL：选人后加属性并清掉 state.gachaPending */

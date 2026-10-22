@@ -1,8 +1,9 @@
 import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
-import { canPull, pull, oddsTable, freeByTier, resolveAttrChoice, resolveItemFull, resultFromPending, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
+import { canPull, pull, oddsTable, freeByTier, resolveAttrChoice, resolveItemFull, resolveUnitOrder, UNIT_ORDER_UNITS, resultFromPending, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
 import { mainGeneral } from '../systems/combat.js';
+import { UNIT_FULL_NAMES } from '../systems/units.js';
 import { button, text, generalLine, tierColor, TIER_COLORS, hex } from '../ui/widgets.js';
 
 const UI = balance.gacha_ui ?? {};
@@ -46,7 +47,7 @@ export default class GachaScene extends Phaser.Scene {
     const pending = resultFromPending(this.st, this.team, balance);
     if (pending) {
       this.result = pending;
-      this.uiState = pending.next === 'choose_general' ? 'CHOOSE_GENERAL' : 'ITEM_FULL';
+      this.uiState = { choose_general: 'CHOOSE_GENERAL', choose_unit: 'CHOOSE_UNIT' }[pending.next] ?? 'ITEM_FULL';
     }
     this.render();
   }
@@ -57,7 +58,7 @@ export default class GachaScene extends Phaser.Scene {
 
   /** gacha_ui.esc_rule（配置是中文说明，这里是它的逐条实现；配置里没有列出的状态按“忽略”处理） */
   escAction(state) {
-    const ESC = { IDLE: 'close', ROLLING: 'skip', RESULT: 'confirm', CHOOSE_GENERAL: 'ignore', ITEM_FULL: 'ignore', ROSTER_FULL: 'ignore' };
+    const ESC = { IDLE: 'close', ROLLING: 'skip', RESULT: 'confirm', CHOOSE_GENERAL: 'ignore', CHOOSE_UNIT: 'ignore', ITEM_FULL: 'ignore', ROSTER_FULL: 'ignore' };
     return UI.esc_rule && !(state in UI.esc_rule) ? 'ignore' : ESC[state] ?? 'ignore';
   }
 
@@ -66,6 +67,7 @@ export default class GachaScene extends Phaser.Scene {
     const r = this.result;
     if (r?.next === 'choose_general') this.uiState = 'CHOOSE_GENERAL';
     else if (r?.next === 'item_full') this.uiState = 'ITEM_FULL';
+    else if (r?.next === 'choose_unit') this.uiState = 'CHOOSE_UNIT';
     else if (r?.next === 'roster_full') { this.uiState = 'ROSTER_FULL'; this.render(); return this.openRoster(); }
     else this.uiState = 'IDLE';
     this.render();
@@ -89,6 +91,10 @@ export default class GachaScene extends Phaser.Scene {
   onChoose(n) {
     if (this.uiState === 'CHOOSE_GENERAL' && n >= 1 && n <= 3) {
       const i = n - 1; if (this.result.targets.includes(i)) this.chooseGeneral(i);
+    }
+    if (this.uiState === 'CHOOSE_UNIT') {
+      if (n >= 1 && n <= UNIT_ORDER_UNITS.length) this.chooseUnit(UNIT_ORDER_UNITS[n - 1]);
+      if (n === 0) this.chooseUnit(null);
     }
     if (this.uiState === 'ITEM_FULL') {
       if (n >= 1 && n <= this.team.items.length) this.itemFull(n - 1);
@@ -135,6 +141,16 @@ export default class GachaScene extends Phaser.Scene {
     const up = resolveAttrChoice(this.st, this.team, i, balance, this.world.rngs.gacha);
     this.result.attr = up; this.result.text = up.text; this.result.next = null;
     this.world.player.refresh();
+    this.world.trySaveNow('gacha');
+    this.uiState = 'RESULT'; this.render();
+  }
+
+  /** 兵种令：换兵种（操练清零）或不改（返还点数） */
+  chooseUnit(unit) {
+    const r = resolveUnitOrder(this.st, this.team, unit, balance);
+    this.result.text = r.changed ? `全队改为${UNIT_FULL_NAMES[r.unit]}（操练等级清零）` : `兵种不变，返还 ${r.refund} 点`;
+    this.result.next = null;
+    this.world.player.refresh(); this.world.field.refresh(this.world.player);
     this.world.trySaveNow('gacha');
     this.uiState = 'RESULT'; this.render();
   }
@@ -217,8 +233,8 @@ export default class GachaScene extends Phaser.Scene {
       add(text(this, x0 + 110, cy + 40, '抽取中…（按任意键 / 点击跳过）', 16, '#ffffff'));
     } else if (r) {
       const head = r.general ? `${r.general.name}  ${r.general.tier} 级武将` : r.item ? `物品：${r.item.name}` : typeName(poolEntry(balance, r.type));
-      add(text(this, x0 + 45, cy + 60, r.general ? r.general.tier : r.item ? '物' : `+${r.amount ?? ''}`, 28, '#000000').setOrigin(0.5));
-      add(text(this, x0 + 110, cy, head + (r.fallback === 'empty_tier' ? `（${typeName(poolEntry(balance, r.rolledType))}已空，改出${typeName(poolEntry(balance, r.type))}）` : r.fallback === 'duplicate_general' ? '（武将已在队中）' : ''), 17, hex(cardColor)));
+      add(text(this, x0 + 45, cy + 60, r.general ? r.general.tier : r.item ? '物' : r.type === 'unit_order' ? '令' : r.type === 'drill' ? '练' : `+${r.amount ?? ''}`, 28, '#000000').setOrigin(0.5));
+      add(text(this, x0 + 110, cy, head + (r.fallback === 'empty_tier' ? `（${typeName(poolEntry(balance, r.rolledType))}已空，改出${typeName(poolEntry(balance, r.type))}）` : r.fallback === 'duplicate_general' ? '（武将已在队中）' : r.fallback === 'drill_max' ? '（操练已满 3 次，改出属性卡）' : ''), 17, hex(cardColor)));
       if (r.general) add(text(this, x0 + 110, cy + 28, generalLine(r.general), 14));
       add(text(this, x0 + 110, cy + 54, r.text, 15, '#ffffff', { wordWrap: { width: 700 } }));
     } else {
@@ -232,6 +248,12 @@ export default class GachaScene extends Phaser.Scene {
       r.targets.forEach((i, k) => add(button(this, x0 + k * 200, by, 190, 40, `[${i + 1}] ${team.generals[i].name}`, () => this.chooseGeneral(i))));
       return;
     }
+    if (this.uiState === 'CHOOSE_UNIT') {
+      add(text(this, x0, by - 30, `兵种令：选择全队兵种（数字键 1~4；0 = 不改，返还 ${balance.v05?.units?.unit_order_refund ?? 25} 点）`, 14, '#ffdd55'));
+      UNIT_ORDER_UNITS.forEach((u, i) => add(button(this, x0 + i * 150, by, 140, 40, `[${i + 1}] ${UNIT_FULL_NAMES[u]}${team.unit === u ? '（现）' : ''}`, () => this.chooseUnit(u))));
+      add(button(this, x0 + 610, by, 150, 40, '[0] 不改', () => this.chooseUnit(null), { color: 0x7f3b3b }));
+      return;
+    }
     if (this.uiState === 'ITEM_FULL') {
       add(text(this, x0, by - 30, `物品栏已满：丢弃一件旧物品换 ${r.item.name}（1~3），或放弃（0 / R，返还 ${balance.gacha.duplicate_item_refund_points} 点）`, 14, '#ffdd55'));
       team.items.forEach((id, i) => add(button(this, x0 + i * 180, by, 170, 40, `[${i + 1}] 丢弃 ${balance.items.find(x => x.id === id)?.name}`, () => this.itemFull(i))));
@@ -241,7 +263,7 @@ export default class GachaScene extends Phaser.Scene {
     if (this.uiState === 'ROSTER_FULL') { add(text(this, x0, by, '队伍已满：请在弹窗中选择替换或释放', 15, '#ffdd55')); return; }
     if (this.uiState === 'ROLLING') return;
     if (this.uiState === 'RESULT' && r?.next) {
-      const what = { choose_general: '选择武将', item_full: '处理物品栏', roster_full: '安排武将' }[r.next];
+      const what = { choose_general: '选择武将', choose_unit: '选择兵种', item_full: '处理物品栏', roster_full: '安排武将' }[r.next];
       add(text(this, x0, by - 26, `需要${what}（抽卡已扣点，不能取消）`, 14, '#ffdd55'));
       this.confirmBtn = add(button(this, x0, by, 240, 44, `确定 [Enter / Esc]`, () => this.confirmResult(), { color: 0x8e5a00, size: 16 }));
       return;

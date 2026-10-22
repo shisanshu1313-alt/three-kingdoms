@@ -46,6 +46,10 @@ test('覆盖层：1600 px 地图、城池布局、密度、成长调参、克制
   assert.equal(balance.gacha.cost_cap, 90);
   for (const id of ['juma', 'tengjia', 'zhongkai', 'scout_flag']) assert.ok(balance.items.some(i => i.id === id), id);
   assert.equal(b04.map.width_px, 3200, 'v0.4 原数据不变');
+  for (const t of balance.initial_teams.filter(t => typeof t.position === 'object' && t.faction !== b04.player_faction.id)) {
+    const d = Math.hypot(t.position.x - balance.player_faction.start.x, t.position.y - balance.player_faction.start.y);
+    assert.ok(d >= cfg.density.spawn_dist_px[0] - 1, `${t.id} 离出生点 ${d}`);
+  }
   for (const t of balance.initial_teams.filter(t => typeof t.position === 'object')) assert.ok(t.position.x <= 1600 && t.position.y <= 1600, t.id);
 });
 
@@ -238,4 +242,50 @@ test('删档：死亡时先删 run 存档再写局外数据（两个键互不影
   const { meta } = applyRunResult(loadMeta(st, META_KEY), runSummary(r, 60, cfg), cfg);
   saveMeta(st, META_KEY, meta);
   assert.equal(loadMeta(st, META_KEY).runs, 1); assert.equal(hasSave(st), false);
+});
+
+test('gacha_v05：卡池权重 38/12/25/10/5/6/3/1；item_source 规范化；抽卡价 min(30+3n, 90)', async () => {
+  const { oddsTable, pullCost } = await import('../src/systems/gacha.js');
+  assert.deepEqual(balance.gacha.pool.map(e => [e.type, e.weight]), [['attr_small', 38], ['attr_big', 12], ['item', 25], ['unit_order', 10], ['drill', 5], ['general_B', 6], ['general_A', 3], ['general_S', 1]]);
+  assert.equal(balance.gacha.pool.find(e => e.type === 'item').item_source, 'items_all_uniform');
+  assert.ok(Math.abs(oddsTable(balance.gacha).reduce((s, e) => s + e.p, 0) - 1) < 1e-12);
+  assert.deepEqual([0, 1, 10, 20, 30].map(n => pullCost(n, balance.gacha)), [30, 33, 60, 90, 90]);
+});
+
+test('gacha_v05：操练 +1 级（每局最多 3 次，满了改出属性卡）；兵种令 → 选择兵种 / 不改返还 25；换兵种清零操练', async () => {
+  const G = await import('../src/systems/gacha.js');
+  const { createGameState } = await import('../src/systems/gameState.js');
+  const st = createGameState(balance); st.points = 10000;
+  const hero = { id: 'hero', name: '主角', lead: 40, str: 45, int: 40, cha: 40 };
+  const team = { id: 'player', is_player: true, unit: 'inf', soldiers: 30, generals: [hero], items: ['war_drum'] };
+  const forced = (type) => { const i = balance.gacha.pool.findIndex(e => e.type === type), tot = balance.gacha.pool.reduce((s, e) => s + e.weight, 0);
+    const before = balance.gacha.pool.slice(0, i).reduce((s, e) => s + e.weight, 0); const v = (before + 0.5) / tot; let k = 0; return () => (k++ === 0 ? v : 0.3); };
+  for (let i = 1; i <= 3; i++) { const r = G.pull(st, team, balance, forced('drill')); assert.equal(r.type, 'drill'); assert.equal(team.drill, i); }
+  const r4 = G.pull(st, team, balance, forced('drill'));
+  assert.equal(r4.fallback, 'drill_max'); assert.equal(r4.type, 'attr_small'); assert.equal(team.drill, 3);
+  const u = G.pull(st, team, balance, forced('unit_order'));
+  assert.equal(u.next, 'choose_unit'); assert.equal(st.gachaPending.next, 'choose_unit');
+  const pts = st.points;
+  assert.deepEqual(G.resolveUnitOrder(st, team, 'inf', balance), { changed: false, refund: 25, unit: 'inf' });
+  assert.equal(st.points, pts + 25); assert.equal(st.gachaPending, null); assert.equal(team.drill, 3, '不改兵种不清零');
+  G.pull(st, team, balance, forced('unit_order'));
+  assert.deepEqual(G.resolveUnitOrder(st, team, 'spr', balance), { changed: true, refund: 0, unit: 'spr' });
+  assert.equal(team.unit, 'spr'); assert.equal(team.drill, 0, '换兵种清零');
+  assert.throws(() => G.resolveUnitOrder(st, team, 'cav', balance));
+});
+
+test('侦察：≤300 精确兵数 + 对比色 + 克制箭头；≤500（斥候旗 +200）约数；更远不显示兵种', async () => {
+  const { scoutInfo, scoutRange, SCOUT_COLORS } = await import('../src/systems/scouting.js');
+  const counters = cj.move.counters;
+  const range = scoutRange({ items: [] }, balance), flag = scoutRange({ items: ['scout_flag'] }, balance);
+  assert.deepEqual(range, { vision: 300, scout: 500 }); assert.equal(flag.scout, 700);
+  const me = { unit: 'spr', power: 100, soldiers: 40 }, them = { unit: 'cav', power: 110, soldiers: 47 };
+  const v = scoutInfo({ me, them, dist: 250, range, counters, mult: 1.25 });
+  assert.equal(v.tier, 'vision'); assert.equal(v.soldiers, '47'); assert.equal(v.arrow, '↑'); assert.equal(v.color, SCOUT_COLORS.even); // 100×1.25/110 = 1.14
+  assert.equal(scoutInfo({ me, them: { ...them, power: 60 }, dist: 250, range, counters }).color, SCOUT_COLORS.good);
+  assert.equal(scoutInfo({ me: { ...me, unit: 'arc' }, them, dist: 250, range, counters, mult: 1.45 }).arrow, '↓');
+  const s = scoutInfo({ me, them, dist: 450, range, counters });
+  assert.equal(s.tier, 'scout'); assert.equal(s.soldiers, '约50'); assert.equal(s.showUnit, true);
+  assert.equal(scoutInfo({ me, them, dist: 600, range, counters }).showUnit, false);
+  assert.equal(scoutInfo({ me, them, dist: 600, range: flag, counters }).tier, 'scout');
 });
