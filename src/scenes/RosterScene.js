@@ -40,6 +40,7 @@ export default class RosterScene extends Phaser.Scene {
     const r = resolvePending(this.st, this.team, action, index, balance);
     this.st.lastRosterText = r.text;
     this.world.player.refresh();
+    this.world.trySaveNow('roster'); // 每做完一个选择立即存档（世界暂停中，等不到下一帧）
     console.log(`[roster] ${r.text}`);
     this.game.events.emit('roster-resolved', r);
     if (this.st.pendingGenerals.length) return this.render();

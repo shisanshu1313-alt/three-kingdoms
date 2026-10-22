@@ -40,7 +40,7 @@ export default class UIScene extends Phaser.Scene {
     const onSaved = ({ reason }) => { if (reason === 'manual') this.toast('已存档', '#aaffaa', 16); };
     this.game.events.on('game-saved', onSaved);
     this.events.once('shutdown', () => this.game.events.off('game-saved', onSaved));
-    if (data.loaded) this.time.delayedCall(100, () => this.toast('已读取存档', '#aaffaa', 16));
+    if (data.loaded) this.time.delayedCall(100, () => { this.toast('已读取存档', '#aaffaa', 16); this.reopenPendingChoice(); });
     for (const w of data.warnings ?? []) this.time.delayedCall(200, () => this.toast(w, '#ffdd55', 14));
     this.game.events.on('modal-closed', this.onModalClosed, this);
     this.events.once('shutdown', () => this.game.events.off('modal-closed', this.onModalClosed, this));
@@ -83,11 +83,20 @@ export default class UIScene extends Phaser.Scene {
 
   modalOpen() { return this.scene.isActive('Gacha') || this.scene.isPaused('Gacha') || this.scene.isActive('Roster'); }
 
-  /** gacha_ui.allowed_when：不在战斗中且没有待安排武将（有则先弹出名册窗口） */
-  openGacha() {
+  /** 存档决定 1：读档后若有没做完的选择（抽卡选武将 / 物品栏满 / 满编安排），重新弹出对应窗口 */
+  reopenPendingChoice() {
     if (this.modalOpen()) return;
-    if (this.world.player.inBattle) return this.toast('战斗中不能抽卡', '#ff8888', 15);
-    if (this.world.state.pendingGenerals.length) return this.openRoster();
+    const st = this.world.state;
+    if (st.gachaPending) return this.openGacha({ force: true });
+    if (st.pendingGenerals.length) this.openRoster();
+  }
+
+  /** gacha_ui.allowed_when：不在战斗中且没有待安排武将（有则先弹出名册窗口） */
+  openGacha({ force = false } = {}) {
+    if (this.modalOpen()) return;
+    if (!force && this.world.player.inBattle) return this.toast('战斗中不能抽卡', '#ff8888', 15);
+    if (this.world.state.pendingGenerals.length && !this.world.state.gachaPending) return this.openRoster();
+    this.world.trySaveNow('modal'); // 存档决定 1：打开窗口前立即存档
     if (UI_CFG.pause_world !== false) this.scene.pause('World');
     this.scene.launch('Gacha');
     this.scene.bringToTop('Gacha');
@@ -95,6 +104,7 @@ export default class UIScene extends Phaser.Scene {
 
   openRoster() {
     if (this.modalOpen() || !this.world.state.pendingGenerals.length) return;
+    this.world.trySaveNow('modal'); // 存档决定 1：打开窗口前立即存档
     this.scene.pause('World');
     this.scene.launch('Roster');
     this.scene.bringToTop('Roster');

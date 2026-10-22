@@ -7,7 +7,8 @@ export function createGameState(balance) {
     pendingGenerals: [], // 满编时获得（俘获/抽卡）待“替换/释放”的武将队列 [{general, source:'capture'|'gacha', from}]
     battleLog: [],       // 最新在前 [{time, text}]
     battles: 0,
-    gachaDraws: 0
+    gachaDraws: 0,
+    gachaPending: null   // 抽卡后未完成的选择 {next:'choose_general'|'item_full', ...}；见 gacha.js
   };
 }
 

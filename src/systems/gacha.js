@@ -67,6 +67,7 @@ export function canPull(state, team, balance, { inBattle = false } = {}) {
   const cost = pullCost(state.gachaDraws, balance.gacha);
   if (inBattle) return { ok: false, cost, reason: 'battle', text: '战斗中不能抽卡' };
   if (state.pendingGenerals?.length) return { ok: false, cost, reason: 'pending', text: '有待安排的武将，请先处理' };
+  if (state.gachaPending) return { ok: false, cost, reason: 'pending', text: '上一抽还没选择，请先处理' };
   if (state.points < cost) {
     const tpl = balance.gacha_ui?.insufficient_text ?? '点数不足：下一抽需要 {cost} 点，还差 {lack} 点';
     return { ok: false, cost, reason: 'points', text: fmt(tpl, { cost, lack: cost - state.points }) };
@@ -154,6 +155,7 @@ export function pull(state, team, balance, rng, ctx = {}) {
     res.targets = targets;
     res.next = 'choose_general';
     res.text = `属性 +${res.amount}：请选择一名武将`;
+    state.gachaPending = pendingOf(res); // 抽卡是原子的：结果已产生，选择留在 state 里（存档后读档会重新弹出）
     return res;
   }
 
@@ -173,14 +175,44 @@ export function pull(state, team, balance, rng, ctx = {}) {
   } else {
     res.next = 'item_full';
     res.text = `物品栏已满：丢弃一件旧物品换 ${item.name}，或放弃`;
+    state.gachaPending = pendingOf(res);
   }
   return res;
+}
+
+/** 未完成的选择（纯数据，可存档） */
+function pendingOf(res) {
+  const p = { next: res.next, type: res.type, rolledType: res.rolledType, fallback: res.fallback, cost: res.cost, text: res.text };
+  if (res.next === 'choose_general') p.amount = res.amount;
+  if (res.next === 'item_full') p.itemId = res.item.id;
+  return p;
+}
+
+/** 由 state.gachaPending 还原出界面用的结果对象（读档后重新弹出选择用） */
+export function resultFromPending(state, team, balance) {
+  const p = state.gachaPending;
+  if (!p) return null;
+  const r = { ...p, refund: 0 };
+  if (p.next === 'choose_general') r.targets = attrTargets(team, balance);
+  if (p.next === 'item_full') r.item = balance.items.find(i => i.id === p.itemId);
+  return r;
+}
+
+/** CHOOSE_GENERAL：选人后加属性并清掉 state.gachaPending */
+export function resolveAttrChoice(state, team, index, balance, rng) {
+  const p = state.gachaPending;
+  if (!p || p.next !== 'choose_general') throw new Error('没有待选择的属性提升');
+  if (!attrTargets(team, balance).includes(index)) throw new Error('该武将不可选');
+  const up = applyAttrUpgrade(team, index, p.amount, balance, rng);
+  state.gachaPending = null;
+  return up;
 }
 
 /**
  * item_rule.slots_full（ITEM_FULL）：discardIndex = 丢弃的旧物品下标换新；null = 放弃新物品并返还 duplicate_item_refund_points
  */
 export function resolveItemFull(state, team, item, discardIndex, balance) {
+  if (state.gachaPending?.next === 'item_full') state.gachaPending = null;
   if (discardIndex === null || discardIndex === undefined) {
     const refund = balance.gacha.duplicate_item_refund_points;
     state.points += refund;

@@ -2,26 +2,31 @@
  * 存档（纯逻辑，无 Phaser / 浏览器依赖；单测见 tests/save.test.js）。
  * 读写通过存储接口 storage = { get, set, remove }（src/platform/storage.js），由调用方传入。
  *
- * 存档结构（saveVersion 2，v0.4 起所有计时都用游戏时钟 core/GameClock.js）：
+ * 存档结构（saveVersion 3；所有计时都用游戏时钟 core/GameClock.js）：
  * {
  *   saveVersion, balanceVersion, mapSeed, savedAt(ISO 真实时间，仅显示用), reason,
  *   gameTimeMs,                       // 游戏时钟 now；下面所有时间都是这个时钟上的绝对时刻
- *   state:  { points, gachaDraws, freePool, pendingGenerals, captured, battleLog, battles },
+ *   state:  { points, gachaDraws, freePool, pendingGenerals, captured, battleLog, battles,
+ *             gachaPending },          // 抽卡后还没做的选择（选武将 / 物品栏满），读档后重新弹出
+ *   battles: [{ a, b, result, startAt, endAt, lossOf, startSoldiers }], // 进行中的战斗（结果开战时已掷好）
  *   player: { team, mainGeneralId, invincibleUntil, graceUntil },
  *   ai:     [{ team, mem: { state, targetId, since(秒), ignore: {id: 截止秒}, idleUntil }, graceUntil }],
  *   spawn:  { counter },              // 补充刷新已刷支数（决定 id）
  *   timers: { respawn, autosave },    // 各定时器下一次触发的游戏时间
  *   names:  { pool, n },              // 黄巾头目名字池剩余 + 「黄巾头目N」序号
- *   rng:    { team },                 // 种子随机数状态（其余随机用 Math.random，不保存）
+ *   rng:    { team, gacha, combat },  // 种子随机数流状态：读档后抽卡/战斗结果不会重掷（AI 游荡、补充刷新仍用 Math.random）
  *   pairCooldowns: [[pairKey, 截止ms]],
  *   camera: { zoom }
  * }
  * 读档时游戏时钟从 gameTimeMs 继续，所以截止时间原样还原。
- * team = balance.team_example 结构（+ name/home/state），武将含当前（已强化）属性。
- * v1（存剩余时长）→ v2 的转换见 MIGRATIONS[1]。
+ * team = balance.team_example 结构（+ name/home/state）。
+ * 武将（v3）：名将/主角只存 { id, growth: {属性: 成长值} }，基础属性读档时取当前配置（策划改数值会生效）；
+ *            黄巾头目等没有配置的武将存完整属性 { id, name, generic: true, lead, str, int, cha }。
+ *            存档对象（makeSave 的结果）是编码后的；parseSave 返回解码后的运行时形式（完整属性）。
+ * v1（存剩余时长）→ v2 见 MIGRATIONS[1]；v2（完整属性）→ v3（成长值）见 MIGRATIONS[2]。
  */
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'sanguo-save';
 
 /**
@@ -45,8 +50,71 @@ export const MIGRATIONS = {
     out.timers = { respawn: T + nextMs };
     out.pairCooldowns = (s.pairCooldowns || []).map(([k, ms]) => [k, T + ms]);
     return out;
+  },
+  /** v2（完整属性）→ v3（id + 成长值）：成长 = 存档属性 − 当前配置基础值，负数按 0 */
+  2: (s, { balance }) => {
+    const out = { ...s, saveVersion: 3 };
+    const conv = g => (g && typeof g === 'object' ? encodeGeneral(g, balance, { clampNegative: true }) : g);
+    walkGenerals(out, conv);
+    return out;
   }
 };
+
+// ---------------- 武将编码：id + 成长值 ----------------
+const ATTR_KEYS = ['lead', 'str', 'int', 'cha'];
+export function baseGeneral(balance, id) {
+  if (id === balance.hero?.id) return balance.hero;
+  return balance.generals.find(g => g.id === id) ?? null;
+}
+
+/** 运行时武将 → 存档形式。没有配置基础值的（黄巾头目、未知 id）存完整属性 */
+export function encodeGeneral(g, balance, { clampNegative = false } = {}) {
+  const base = g.generic ? null : baseGeneral(balance, g.id);
+  if (!base) {
+    const out = { id: g.id, name: g.name };
+    if (g.generic) out.generic = true;
+    for (const a of ATTR_KEYS) out[a] = g[a];
+    return out;
+  }
+  const growth = {};
+  for (const a of ATTR_KEYS) {
+    let d = (g[a] ?? base[a]) - base[a];
+    if (clampNegative) d = Math.max(0, d);
+    if (d !== 0) growth[a] = d;
+  }
+  return Object.keys(growth).length ? { id: g.id, growth } : { id: g.id };
+}
+
+/** 存档形式 → 运行时武将：基础值取当前配置 + 成长值，截到 [0, attr_cap] */
+export function decodeGeneral(e, balance) {
+  const cap = balance.gacha.attr_cap;
+  const base = e.generic ? null : baseGeneral(balance, e.id);
+  if (!base) {
+    const out = { id: e.id, name: e.name };
+    if (e.generic) out.generic = true;
+    for (const a of ATTR_KEYS) out[a] = e[a];
+    return out;
+  }
+  const g = { id: base.id, name: base.name };
+  if (base.tier !== undefined) g.tier = base.tier;
+  for (const a of ATTR_KEYS) g[a] = Math.min(cap, Math.max(0, base[a] + (e.growth?.[a] ?? 0)));
+  return g;
+}
+
+/** 对存档里所有武将（玩家/AI 队伍、待安排队列、俘获记录）做同一个变换（原地） */
+function walkGenerals(s, fn) {
+  const team = t => { if (t && Array.isArray(t.generals)) t.generals = t.generals.map(fn); };
+  team(s.player?.team);
+  for (const a of s.ai || []) team(a?.team);
+  if (s.state) {
+    if (Array.isArray(s.state.pendingGenerals)) s.state.pendingGenerals = s.state.pendingGenerals.map(p => (p && p.general ? { ...p, general: fn(p.general) } : p));
+    if (Array.isArray(s.state.captured)) s.state.captured = s.state.captured.map(fn);
+  }
+  return s;
+}
+
+export const encodeSave = (save, balance) => walkGenerals(structuredClone(save), g => encodeGeneral(g, balance));
+export const decodeSave = (save, balance) => walkGenerals(structuredClone(save), g => decodeGeneral(g, balance));
 
 function memV1toV2(m, T) {
   const nowS = T / 1000, ignore = {};
@@ -60,26 +128,26 @@ export class SaveError extends Error {
 
 /** snapshot（WorldScene.snapshot() 的纯数据）→ 带版本信息的存档对象 */
 export function makeSave(snapshot, { balance, mapSeed, reason = 'auto', now = new Date() }) {
-  return {
+  return encodeSave({
     saveVersion: SAVE_VERSION,
     balanceVersion: balance._meta?.version ?? null,
     mapSeed,
     savedAt: now.toISOString(),
     reason,
     ...JSON.parse(JSON.stringify(snapshot)) // 只保留可 JSON 化的数据（undefined/函数被去掉），保证往返一致
-  };
+  }, balance);
 }
 
 export const serialize = (save) => JSON.stringify(save);
 
 /** 依次执行迁移到当前版本；缺迁移函数 → incompatible */
-export function migrate(save, migrations = MIGRATIONS, target = SAVE_VERSION) {
+export function migrate(save, migrations = MIGRATIONS, target = SAVE_VERSION, ctx = {}) {
   let s = save;
   while (s.saveVersion < target) {
     const fn = migrations[s.saveVersion];
     if (!fn) throw new SaveError('incompatible', `存档版本 ${s.saveVersion} 无法升级到 ${target}`);
     const from = s.saveVersion;
-    s = fn(structuredClone(s));
+    s = fn(structuredClone(s), ctx);
     if (!(s?.saveVersion > from)) throw new SaveError('incompatible', `迁移 ${from} 没有提升版本号`);
   }
   return s;
@@ -99,11 +167,17 @@ export function validateSave(s, balance) {
   const rules = balance.team_rules;
   const W = balance.map.tiles_w * balance.map.tile_px, H = balance.map.tiles_h * balance.map.tile_px;
 
+  // v3 编码形式：名将 { id, growth? }；头目 { id, name, generic, 四项属性 }
   const general = (g, where) => {
     if (!g || typeof g !== 'object') return errs.push(`${where}: 武将格式错误`);
-    need(isStr(g.id) && isStr(g.name), `${where}: 武将缺 id/name`);
-    for (const a of ATTRS) need(isNum(g[a]) && g[a] >= 0 && g[a] <= balance.gacha.attr_cap, `${where}.${g.id}.${a} 非法: ${g[a]}`);
-    if (!g.generic) need(known.has(g.id), `${where}: 未知武将 ${g.id}`);
+    need(isStr(g.id), `${where}: 武将缺 id`);
+    if (g.generic) {
+      need(isStr(g.name), `${where}: 头目缺 name`);
+      for (const a of ATTRS) need(isNum(g[a]) && g[a] >= 0 && g[a] <= balance.gacha.attr_cap, `${where}.${g.id}.${a} 非法: ${g[a]}`);
+    } else {
+      need(known.has(g.id), `${where}: 未知武将 ${g.id}`);
+      need(g.growth === undefined || (typeof g.growth === 'object' && Object.entries(g.growth).every(([k, v]) => ATTRS.includes(k) && isNum(v))), `${where}.${g.id}: 成长值非法`);
+    }
   };
   const team = (t, where) => {
     if (!t || typeof t !== 'object') return errs.push(`${where}: 缺少队伍`);
@@ -147,6 +221,9 @@ export function validateSave(s, balance) {
   need(s.spawn && isInt(s.spawn.counter), '缺 spawn');
   need(!s.timers || Object.values(s.timers).every(isNum), 'timers 非法');
   need(isNum(s.player?.invincibleUntil ?? 0) && isNum(s.player?.graceUntil ?? 0), 'player 计时非法');
+  need(s.battles === undefined || (Array.isArray(s.battles) && s.battles.every(b => b && ids.includes(b.a) && ids.includes(b.b) && b.result && isNum(b.endAt))), '进行中的战斗非法');
+  const gp = s.state?.gachaPending;
+  need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)), '抽卡待选择非法');
   return errs;
 }
 
@@ -161,14 +238,14 @@ export function parseSave(text, { balance, mapSeed, migrations = MIGRATIONS }) {
   try { raw = JSON.parse(text); } catch { throw new SaveError('corrupt', '存档损坏（无法解析）'); }
   if (!raw || typeof raw !== 'object' || !isInt(raw.saveVersion)) throw new SaveError('corrupt', '存档损坏（缺少版本号）');
   if (raw.saveVersion > SAVE_VERSION) throw new SaveError('too_new', `存档来自更新版本的游戏（存档 v${raw.saveVersion}，当前 v${SAVE_VERSION}）`);
-  const save = migrate(raw, migrations);
+  const save = migrate(raw, migrations, SAVE_VERSION, { balance });
   if (mapSeed !== undefined && save.mapSeed !== mapSeed) throw new SaveError('incompatible', `地图不同（存档种子 ${save.mapSeed}，当前 ${mapSeed}）`);
   const errs = validateSave(save, balance);
   if (errs.length) throw new SaveError('corrupt', `存档数据不完整：${errs.slice(0, 3).join('；')}${errs.length > 3 ? ` 等 ${errs.length} 处` : ''}`);
   const warnings = [];
   const bv = balance._meta?.version ?? null;
   if (save.balanceVersion !== bv) warnings.push(`存档来自数值 v${save.balanceVersion}，当前 v${bv}，已按当前数值继续`);
-  return { save, warnings };
+  return { save: decodeSave(save, balance), warnings };
 }
 
 // ---------------- 存储（接口见 src/platform/storage.js：get / set / remove）----------------

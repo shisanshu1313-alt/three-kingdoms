@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
-import { canPull, pull, oddsTable, freeByTier, applyAttrUpgrade, resolveItemFull, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
+import { canPull, pull, oddsTable, freeByTier, resolveAttrChoice, resolveItemFull, resultFromPending, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
 import { mainGeneral } from '../systems/combat.js';
 import { button, text, generalLine, tierColor, TIER_COLORS, hex } from '../ui/widgets.js';
 
@@ -33,6 +33,12 @@ export default class GachaScene extends Phaser.Scene {
     this.dyn = this.add.container(0, 0);
     this.input.keyboard.on('keydown', e => this.onKey(e));
     this.events.on('resume', () => this.afterRoster());
+    // 读档后有未完成的选择：直接回到对应选择状态（抽卡不回滚）
+    const pending = resultFromPending(this.st, this.team, balance);
+    if (pending) {
+      this.result = pending;
+      this.uiState = pending.next === 'choose_general' ? 'CHOOSE_GENERAL' : 'ITEM_FULL';
+    }
     this.render();
   }
 
@@ -86,8 +92,10 @@ export default class GachaScene extends Phaser.Scene {
   doPull() {
     const chk = canPull(this.st, this.team, balance, this.ctx());
     if (!chk.ok) { this.message = chk.text; return this.render(); }
-    this.result = pull(this.st, this.team, balance, Math.random, this.ctx()); // deduct_timing：立即扣点 + 次数+1
+    // deduct_timing：立即扣点 + 次数+1；用存档里的 gacha 随机数流，结果产生后立即存档（抽卡原子化）
+    this.result = pull(this.st, this.team, balance, this.world.rngs.gacha, this.ctx());
     this.world.player.refresh();
+    this.world.trySaveNow('gacha');
     console.log(`[gacha] -${this.result.cost} ${this.result.type}${this.result.fallback ? `(${this.result.fallback})` : ''} ${this.result.text}`);
     this.message = '';
     this.startRoll();
@@ -113,9 +121,10 @@ export default class GachaScene extends Phaser.Scene {
   }
 
   chooseGeneral(i) {
-    const up = applyAttrUpgrade(this.team, i, this.result.amount, balance, Math.random);
+    const up = resolveAttrChoice(this.st, this.team, i, balance, this.world.rngs.gacha);
     this.result.attr = up; this.result.text = up.text; this.result.next = null;
     this.world.player.refresh();
+    this.world.trySaveNow('gacha');
     this.uiState = 'RESULT'; this.render();
   }
 
@@ -123,6 +132,7 @@ export default class GachaScene extends Phaser.Scene {
     const r = resolveItemFull(this.st, this.team, this.result.item, discardIndex, balance);
     this.result.text = r.text; this.result.next = null;
     this.world.player.refresh();
+    this.world.trySaveNow('gacha');
     this.uiState = 'RESULT'; this.render();
   }
 

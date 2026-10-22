@@ -104,7 +104,13 @@ export default class BattleSystem {
     const cand = overlaps.filter(([a, b]) => this.canFight(a, b, now))
       .map(([a, b]) => ({ a, b, d: Math.hypot(a.x - b.x, a.y - b.y) }))
       .sort((p, q) => p.d - q.d);
-    for (const { a, b } of cand) if (!a.inBattle && !b.inBattle) this.start(a, b, now);
+    let saved = false;
+    for (const { a, b } of cand) {
+      if (a.inBattle || b.inBattle) continue;
+      // 存档决定 1：开战前立即存档（只存一次；战斗结果用存档里的 combat 随机数流，读档后不会重掷）
+      if (!saved) { this.world.beforeBattleStart?.(); saved = true; }
+      this.start(a, b, now);
+    }
     for (const bt of [...this.battles]) if (now >= bt.endAt) this.finish(bt, now);
   }
 
@@ -121,6 +127,25 @@ export default class BattleSystem {
     this.battles.push(battle);
     console.log(`[battle-start] ${a.name} vs ${b.name} R=${result.ratio.toFixed(3)} T=${result.duration_s.toFixed(2)}s`);
     this.world.onBattleStart(battle);
+  }
+
+  /** 进行中的战斗 → 纯数据（存档用） */
+  serialize() {
+    return this.battles.map(bt => ({ a: bt.a.id, b: bt.b.id, result: bt.result, startAt: bt.startAt, endAt: bt.endAt, lossOf: bt.lossOf, startSoldiers: bt.startSoldiers }));
+  }
+
+  /** 读档：恢复进行中的战斗（byId: id → 队伍）；返回恢复的战斗列表 */
+  restore(list, byId) {
+    const out = [];
+    for (const d of list || []) {
+      const a = byId.get(d.a), b = byId.get(d.b);
+      if (!a || !b) continue;
+      const battle = { a, b, result: d.result, startAt: d.startAt, endAt: d.endAt, lossOf: d.lossOf, startSoldiers: d.startSoldiers };
+      a.inBattle = b.inBattle = battle;
+      this.battles.push(battle);
+      out.push(battle);
+    }
+    return out;
   }
 
   finish(battle, now) {

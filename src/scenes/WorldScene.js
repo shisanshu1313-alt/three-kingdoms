@@ -13,6 +13,7 @@ import { buildRespawnTeam } from '../systems/teams.js';
 import { mainGeneral } from '../systems/combat.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
+import { mulberry32 } from '../systems/rng.js';
 import { makeSave, writeSave, memToSave, memFromSave, restoreGameState } from '../systems/save.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
@@ -86,7 +87,16 @@ export default class WorldScene extends Phaser.Scene {
       this.player = this.addParty(teams.player);
       teams.ai.forEach(t => this.addParty(t));
     }
-    this.battleSystem = new BattleSystem(this, balance, this.state);
+    // 存档决定 3：抽卡与战斗结算用各自的种子随机数流，状态随存档保存（读档不能重掷）
+    const newSeed = () => (Math.random() * 4294967296) >>> 0;
+    this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()) };
+    if (save?.rng?.gacha !== undefined) this.rngs.gacha.setState(save.rng.gacha);
+    if (save?.rng?.combat !== undefined) this.rngs.combat.setState(save.rng.combat);
+    this.battleSystem = new BattleSystem(this, balance, this.state, this.rngs.combat);
+    if (save?.battles?.length) {
+      const restored = this.battleSystem.restore(save.battles, new Map(this.parties.map(p => [p.id, p])));
+      for (const bt of restored) this.onBattleStart(bt, { restored: true });
+    }
     for (const [k, until] of save?.pairCooldowns ?? []) this.battleSystem.pairCooldown.set(k, until);
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s（游戏时间）检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
@@ -147,15 +157,16 @@ export default class WorldScene extends Phaser.Scene {
   /** 游戏时间（毫秒，读档后接着算；暂停时不走） */
   gameTime() { return this.clock.now; }
 
-  /** 不在战斗中、没有打开抽卡/名册窗口、没有待安排武将时才可以存 */
+  /**
+   * 存档决定 1：任何时刻都能存——进行中的战斗（结果开战时已掷好）、抽卡后未做的选择、待安排武将都在存档里，
+   * 读档后原样继续 / 重新弹出选择窗口，不会回滚抽卡。
+   */
   canSaveNow() {
-    if (!this.player || !this.battleSystem) return false;
-    if (this.battleSystem.battles.length) return false;
-    if (this.state.pendingGenerals.length) return false;
-    const sm = this.scene;
-    if (sm.isActive('Gacha') || sm.isPaused('Gacha') || sm.isActive('Roster')) return false;
-    return true;
+    return !!(this.player && this.battleSystem);
   }
+
+  /** BattleSystem 开战前回调：立即存档 */
+  beforeBattleStart() { this.trySaveNow('battle-start'); }
 
   /** 纯数据快照（存档格式见 systems/save.js） */
   snapshot() {
@@ -171,7 +182,8 @@ export default class WorldScene extends Phaser.Scene {
       spawn: { counter: this.spawnCounter },
       timers: this.clock.getState().timers,
       names: nextBanditName.getState(),
-      rng: { team: teamRng.getState() },
+      rng: { team: teamRng.getState(), gacha: this.rngs.gacha.getState(), combat: this.rngs.combat.getState() },
+      battles: this.battleSystem.serialize(),
       pairCooldowns: [...this.battleSystem.pairCooldown].filter(([, until]) => until > now),
       camera: { zoom: this.cameras.main.zoom }
     };
@@ -254,7 +266,8 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ================= 战斗回调（BattleSystem 调用）=================
-  onBattleStart(battle) {
+  /** opts.restored：读档恢复的进行中战斗，只画标记，不再发开战事件 */
+  onBattleStart(battle, opts = {}) {
     const { a, b } = battle;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const ring = this.add.circle(mx, my, 26).setStrokeStyle(3, 0xff4444).setDepth(12);
@@ -263,7 +276,7 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.ignore([ring, icon]);
     const tween = this.tweens.add({ targets: [ring], scale: 1.4, alpha: 0.4, yoyo: true, repeat: -1, duration: 300 });
     battle.marker = { ring, icon, tween };
-    EventBus.emit(EVENTS.BATTLE_START, { battle });
+    if (!opts.restored) EventBus.emit(EVENTS.BATTLE_START, { battle });
   }
 
   onBattleEnd(battle, outcome) {
