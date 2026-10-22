@@ -1,9 +1,9 @@
 {
   "_meta": {
     "name": "三国像素开放世界 · 原型数值配置",
-    "version": "0.3",
+    "version": "0.4",
     "date": "2026-10-22",
-    "note": "全部数值为初版平衡建议值（原型用）。属性 1~100；距离 px，速度 px/s，时间 s。v0.3：修正 worked_examples（由 tools/calc_examples.py 从本文件参数算出）、数值取整规则、M2 程序问题答复、M3「能变强」流程（gacha_ui / roster）。",
+    "note": "全部数值为初版平衡建议值（原型用）。属性 1~100；距离 px，速度 px/s，时间 s。v0.4：M3 对齐后的程序问题答复（属性数值字段、释放规则、Esc 限制、字段去重、道具抽取、暂停范围）；新增追击阈值分析待拍板。v0.3：修正 worked_examples（由 tools/calc_examples.py 从本文件参数算出）、数值取整规则、M2 程序问题答复、M3「能变强」流程（gacha_ui / roster）。",
     "changelog": [
       "v0.2 新增 map / cities / factions[].color / bandit_name_pool / terrain_speed / initial_teams / spawn / collision / decisions",
       "v0.2 取整统一：损兵 round，收编/保留 floor，点数 round",
@@ -19,7 +19,15 @@
       "v0.3 team_example.position 改为玩家出生点 (1616,1136)",
       "v0.3 zero_soldier 规则：任何战斗结束后兵数为 0 的 AI 队按 ai_loser 移除；玩家兵数下限为 player_defeat.min_soldiers",
       "v0.3 防碾压：ai.chase_max_ratio=3，r ≥ 3 的 AI 不主动追击（碰上照常开战）；列入 decisions 待拍板",
-      "v0.3 新增 gacha_ui、roster（替换/释放/待处理队列）、attr_upgrade、item_full 流程；save_fields"
+      "v0.3 新增 gacha_ui、roster（替换/释放/待处理队列）、attr_upgrade、item_full 流程；save_fields",
+      "v0.4 gacha.pool[] 加数值字段：attr_small/attr_big 带 attr_amount（2/5），general_* 带 tier，item 带 item_source",
+      "v0.4 roster.actions.release 明确：俘获和抽卡来的武将释放都给 release_captive_points（20）",
+      "v0.4 gacha_ui.esc_rule：只有 IDLE 可 Esc 关闭；ROLLING 中 Esc=跳过动画，RESULT 中 Esc=确认；CHOOSE_GENERAL/ITEM_FULL/ROSTER_FULL 忽略 Esc",
+      "v0.4 删除与新字段重叠的旧字段：gacha.attr_full_rule / duplicate_general / team_full_general / item_full_rule（含义已由 gacha.attr_upgrade / item_rule / roster 覆盖）",
+      "v0.4 gacha.item_rule.source：从整张物品表等概率抽，含已拥有（重复返还 25 点）",
+      "v0.4 gacha_ui.pause_scope：打开抽卡时冻结整个世界（含别处 AI 战斗、刷新、无敌与冷却计时）",
+      "v0.4 decisions 新增 chase_threshold_tuning（pending），附 tools/sim_growth.py 模拟数据；配置中的 chase_max_ratio=3 不变",
+      "v0.4（2026-10-22 用户确认 chase_threshold_tuning=C）rewards.recruit_base 0.2→0.3；chase_max_ratio 保持 3；worked_examples 用 calc_examples.py 重算"
     ]
   },
   "attributes": {
@@ -135,7 +143,7 @@
     "points_per_enemy_power": 0.3,
     "bully_ratio": 4,
     "bully_mult": 0.5,
-    "recruit_base": 0.2,
+    "recruit_base": 0.3,
     "recruit_per_cha": 0.004,
     "recruit_max": 0.7,
     "capture_base": 0.3,
@@ -166,41 +174,43 @@
       {
         "type": "attr_small",
         "weight": 45,
-        "effect": "玩家选 1 名队内武将，随机 1 项属性 +2"
+        "attr_amount": 2,
+        "effect": "玩家选 1 名队内武将，在其未满属性中随机 1 项 +attr_amount"
       },
       {
         "type": "attr_big",
         "weight": 10,
-        "effect": "玩家选 1 名队内武将，随机 1 项属性 +5"
+        "attr_amount": 5,
+        "effect": "同 attr_small，+attr_amount"
       },
       {
         "type": "item",
         "weight": 35,
-        "effect": "从物品表等概率抽 1 件"
+        "item_source": "items_all_uniform",
+        "effect": "从 items 表等概率抽 1 件，见 item_rule"
       },
       {
         "type": "general_B",
         "weight": 6,
-        "effect": "B 级武将池随机 1 名"
+        "tier": "B",
+        "effect": "B 级自由池随机 1 名，见 general_rule"
       },
       {
         "type": "general_A",
         "weight": 3,
-        "effect": "A 级武将池随机 1 名"
+        "tier": "A",
+        "effect": "A 级自由池随机 1 名，见 general_rule"
       },
       {
         "type": "general_S",
         "weight": 1,
-        "effect": "S 级武将池随机 1 名"
+        "tier": "S",
+        "effect": "S 级自由池随机 1 名，见 general_rule"
       }
     ],
     "attr_cap": 100,
     "duplicate_item_refund_points": 25,
-    "duplicate_general": "自由池规则下不会重复；保留字段兼容",
-    "team_full_general": "玩家选择替换一名随从或释放（+20 点）",
     "general_source": "只从自由池（不在任何队伍中的名将）按档位抽；该档位自由池为空时改出 attr_big",
-    "attr_full_rule": "选中属性已满 100 则在该武将其余未满属性中重抽；四项全满时提示玩家另选武将",
-    "item_full_rule": "物品栏满 3 件：玩家选择丢弃一件旧物品或放弃新物品；已拥有的同名物品直接返还 duplicate_item_refund_points",
     "attr_upgrade": {
       "target": "玩家从队内武将中选 1 名（只有 1 名时自动选中）；已四项全满的武将不可选",
       "attr": "在该武将未满 100 的属性中等概率随机 1 项",
@@ -211,9 +221,12 @@
     "item_rule": {
       "duplicate": "已拥有同名物品：返还 duplicate_item_refund_points 点",
       "slots_free": "直接放入物品栏",
-      "slots_full": "弹出 ITEM_FULL：选择丢弃一件旧物品换新，或放弃新物品并返还 duplicate_item_refund_points 点"
+      "slots_full": "弹出 ITEM_FULL：选择丢弃一件旧物品换新，或放弃新物品并返还 duplicate_item_refund_points 点",
+      "source": "从整张 items 表等概率抽 1 件，包含已拥有的物品；抽到已拥有的按 duplicate 返还"
     },
-    "general_rule": "从自由池中对应档位等概率抽 1 名并移出自由池；档位为空改出 attr_big；队伍 <3 将直接入队，满 3 将进入 roster.pending_generals（source=gacha）"
+    "general_rule": "从自由池中对应档位等概率抽 1 名并移出自由池；档位为空改出 attr_big；队伍 <3 将直接入队，满 3 将进入 roster.pending_generals（source=gacha）",
+    "empty_tier_fallback": "attr_big",
+    "overlap_note": "v0.3 的 attr_full_rule→attr_upgrade.target/attr/all_full；duplicate_general→roster.duplicate_general；team_full_general→roster.actions；item_full_rule→item_rule.slots_full"
   },
   "items": [
     {
@@ -597,6 +610,71 @@
       "chosen": "A",
       "status": "pending",
       "note": "v0.3 先按 A 实现（team_rules.main_general_rule），待用户确认"
+    },
+    {
+      "id": "chase_threshold_tuning",
+      "title": "chase_max_ratio=3 下名将长期不追玩家",
+      "status": "decided",
+      "analysis": {
+        "tool": "tools/sim_growth.py（400 局，每分钟 1 场打黄巾，参数取 v0.4）",
+        "named_power": {
+          "曹操军": 297.5,
+          "吕布军": 293.8,
+          "关羽军": 265.8,
+          "周瑜军": 181.5
+        },
+        "player_power_median": {
+          "1min": 64,
+          "10min": 67,
+          "20min": 71,
+          "30min": 75,
+          "45min": 96,
+          "60min": 136,
+          "90min": 293
+        },
+        "player_power_p25": {
+          "10min": 57,
+          "30min": 44,
+          "60min": 42
+        },
+        "chase_start_median_min": {
+          "ratio_3": {
+            "曹操军": 39,
+            "吕布军": 39,
+            "关羽军": 31,
+            "周瑜军": 1
+          },
+          "ratio_4": {
+            "曹操军": 16,
+            "吕布军": 16,
+            "关羽军": 7,
+            "周瑜军": 1
+          },
+          "ratio_5": {
+            "曹操军": 1,
+            "吕布军": 1,
+            "关羽军": 1,
+            "周瑜军": 1
+          },
+          "ratio_3_recruit_base_0.3": {
+            "曹操军": 16,
+            "吕布军": 16,
+            "关羽军": 13,
+            "周瑜军": 1
+          }
+        },
+        "finding": "问题主因是早期成长停滞：胜方损兵≈收编，前 30 分钟中位战力只从 64 涨到 75，超过 25% 的玩家 90 分钟内都达不到曹操/吕布的追击线（99）"
+      },
+      "options": [
+        "A 保持现状（ratio 3）",
+        "B chase_max_ratio 改 4",
+        "C 保持 ratio 3，收编基础率 recruit_base 0.2→0.3",
+        "D 取消比值上限，只在玩家战败保护结束后 120 秒内不追"
+      ],
+      "recommend": "C",
+      "note": "已按 C 写入：chase_max_ratio 保持 3，rewards.recruit_base 0.2→0.3",
+      "chosen": "C",
+      "decided_note": "2026-10-22 用户确认"
     }
   ],
   "map": {
@@ -865,10 +943,10 @@
         "loser_dead": 8,
         "loser_survivors": 17,
         "recruit_base": 17,
-        "recruit_rate": 0.4,
-        "recruited": 6,
+        "recruit_rate": 0.5,
+        "recruited": 8,
         "winner_soldier_cap": 180,
-        "winner_soldiers_after": 31,
+        "winner_soldiers_after": 33,
         "bully": false,
         "points": 20,
         "capture": {
@@ -923,10 +1001,10 @@
         "loser_dead": 7,
         "loser_survivors": 18,
         "recruit_base": 18,
-        "recruit_rate": 0.4,
-        "recruited": 7,
+        "recruit_rate": 0.5,
+        "recruited": 9,
         "winner_soldier_cap": 180,
-        "winner_soldiers_after": 31,
+        "winner_soldiers_after": 33,
         "bully": false,
         "points": 20,
         "capture": {
@@ -976,10 +1054,10 @@
         "loser_survivors": 88,
         "player_kept": 44,
         "recruit_base": 44,
-        "recruit_rate": 0.48,
-        "recruited": 21,
+        "recruit_rate": 0.58,
+        "recruited": 25,
         "winner_soldier_cap": 278,
-        "winner_soldiers_after": 145,
+        "winner_soldiers_after": 149,
         "bully": false,
         "points": 0,
         "capture": {
@@ -1030,10 +1108,10 @@
         "loser_dead": 42,
         "loser_survivors": 18,
         "recruit_base": 18,
-        "recruit_rate": 0.524,
-        "recruited": 9,
+        "recruit_rate": 0.624,
+        "recruited": 11,
         "winner_soldier_cap": 498,
-        "winner_soldiers_after": 304,
+        "winner_soldiers_after": 306,
         "bully": true,
         "points": 23,
         "capture": {
@@ -1077,7 +1155,17 @@
       "general": "{武将}（{档}）加入队伍",
       "general_pending": "{武将}（{档}）待安排：队伍已满"
     },
-    "deduct_timing": "点击抽卡时立即扣点并 gachaDraws+1，然后掷结果；之后的选择窗口不能取消抽卡"
+    "deduct_timing": "点击抽卡时立即扣点并 gachaDraws+1，然后掷结果；之后的选择窗口不能取消抽卡",
+    "esc_rule": {
+      "IDLE": "关闭界面",
+      "ROLLING": "等同跳过动画",
+      "RESULT": "等同确认，回到 IDLE 或进入选择状态",
+      "CHOOSE_GENERAL": "忽略",
+      "ITEM_FULL": "忽略",
+      "ROSTER_FULL": "忽略",
+      "_note": "抽卡已扣点不可取消，选择状态必须做出选择"
+    },
+    "pause_scope": "打开期间整个世界冻结：玩家与所有 AI 移动、别处正在进行的 AI 战斗计时、补充刷新计时、战后保护/无敌/平局冷却/忽略名单计时全部暂停。所有计时用游戏时间，不用真实时间"
   },
   "roster": {
     "pending_generals": "队列 [{general, source: 'capture'|'gacha', from}]，先进先出逐个处理",
@@ -1089,11 +1177,12 @@
     ],
     "actions": {
       "replace": "替换所选随从：新武将入队，被替换者名将回自由池、黄巾头目消失",
-      "release": "释放新武将：名将回自由池、黄巾头目消失；获得 release_captive_points 点"
+      "release": "释放新武将：名将回自由池、黄巾头目消失；无论来源是俘获还是抽卡，都获得 release_captive_points（20）点"
     },
     "no_defer": true,
     "_no_defer": "必须当场选择，不能关闭窗口，原型不做“稍后决定”",
-    "duplicate_general": "自由池机制下不会出现重复武将；若检测到已在玩家队中，按 attr_big 给该武将"
+    "duplicate_general": "自由池机制下不会出现重复武将；若检测到已在玩家队中，按 attr_big 给该武将",
+    "release_economy": "释放 20 点 < 最低抽价 50，抽到武将再释放每次至少净亏 30 点，不存在套利；武将卡只占 10%，每抽期望返还 ≤ 2 点，不会过度亏损"
   },
   "save_fields": [
     "points",

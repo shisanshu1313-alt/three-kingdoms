@@ -13,7 +13,8 @@ import { buildRespawnTeam } from '../systems/teams.js';
 import { mainGeneral } from '../systems/combat.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
-import { makeSave, writeSave, memToSave, memFromSave, remainingMs, restoreGameState } from '../systems/save.js';
+import { makeSave, writeSave, memToSave, memFromSave, restoreGameState } from '../systems/save.js';
+import GameClock from '../core/GameClock.js';
 
 export default class WorldScene extends Phaser.Scene {
   constructor() { super('World'); }
@@ -56,26 +57,24 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.centerOn(this.worldW / 2, this.worldH / 2);
     this.minimap.setBackgroundColor(0x000000);
 
-    // ---- 状态与系统 ----
-    const now = this.time.now;
+    // ---- 游戏时钟（v0.4 pause_scope）：所有计时都读 this.clock.now；只在本场景 update 里推进，场景暂停即冻结 ----
+    this.clock = new GameClock(save?.gameTimeMs ?? 0);
     this.parties = [];
     this.aiParties = [];
     this.collisions = new CollisionSystem();
     this.aiSystem = new AISystem(balance);
-    this.playTimeBase = save?.gameTimeMs ?? 0;
-    this.sessionStart = now;
     if (save) {
       teamRng.setState(save.rng?.team ?? teamRng.getState());
       nextBanditName.setState(save.names);
       this.state = restoreGameState(save.state, createGameState(balance));
       this.spawnCounter = save.spawn.counter;
       this.player = this.addParty(structuredClone(save.player.team), { exact: true });
-      this.player.invincibleUntil = now + (save.player.invincibleMs ?? 0);
-      this.player.graceUntil = now + (save.player.graceMs ?? 0);
+      this.player.invincibleUntil = save.player.invincibleUntil ?? 0;
+      this.player.graceUntil = save.player.graceUntil ?? 0;
       for (const a of save.ai) {
         const p = this.addParty(structuredClone(a.team), { exact: true });
-        p.ai = { ...memFromSave(a.mem, now), personality: this.aiSystem.personalityOf(p) };
-        p.graceUntil = now + (a.graceMs ?? 0);
+        p.ai = { ...memFromSave(a.mem), personality: this.aiSystem.personalityOf(p) };
+        p.graceUntil = a.graceUntil ?? 0;
       }
     } else {
       resetWorldRandom(); // 同一页面里再开新游戏也从相同的种子开始
@@ -86,19 +85,16 @@ export default class WorldScene extends Phaser.Scene {
       teams.ai.forEach(t => this.addParty(t));
     }
     this.battleSystem = new BattleSystem(this, balance, this.state);
-    for (const [k, ms] of save?.pairCooldowns ?? []) this.battleSystem.pairCooldown.set(k, now + ms);
+    for (const [k, until] of save?.pairCooldowns ?? []) this.battleSystem.pairCooldown.set(k, until);
 
-    // 补充刷新（balance.spawn）：每 respawn_interval_s 检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
-    const spawnDelay = balance.spawn.respawn_interval_s * 1000;
-    this.respawnTimer = this.time.addEvent({
-      delay: spawnDelay, loop: true, callback: () => this.respawn(),
-      startAt: save ? Math.max(0, spawnDelay - Math.min(spawnDelay, save.spawn.nextMs)) : 0
-    });
+    // 补充刷新（balance.spawn）：每 respawn_interval_s（游戏时间）检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
+    const T = save?.timers ?? {};
+    this.clock.every('respawn', balance.spawn.respawn_interval_s * 1000, () => this.respawn(), T.respawn);
 
-    // ---- 存档：定时 + 事件后请求，战斗中/弹窗中延后；页面隐藏/关闭时能存就存 ----
+    // ---- 存档：定时（游戏时间）+ 事件后请求，战斗中/弹窗中延后；页面隐藏/关闭时能存就存 ----
     this.saveDirty = null;
     this.lastSaveAt = null;
-    this.time.addEvent({ delay: SAVE_INTERVAL_S * 1000, loop: true, callback: () => this.requestSave('interval') });
+    this.clock.every('autosave', SAVE_INTERVAL_S * 1000, () => this.requestSave('interval'), T.autosave);
     const onHide = () => { if (document.visibilityState === 'hidden' || !document.visibilityState) this.trySaveNow('unload'); };
     const onUnload = () => this.trySaveNow('unload');
     document.addEventListener('visibilitychange', onHide);
@@ -151,8 +147,8 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ================= 存档 =================
-  /** 累计游戏时间（毫秒，读档后接着算） */
-  gameTime() { return this.playTimeBase + (this.time.now - this.sessionStart); }
+  /** 游戏时间（毫秒，读档后接着算；暂停时不走） */
+  gameTime() { return this.clock.now; }
 
   /** 不在战斗中、没有打开抽卡/名册窗口、没有待安排武将时才可以存 */
   canSaveNow() {
@@ -166,19 +162,20 @@ export default class WorldScene extends Phaser.Scene {
 
   /** 纯数据快照（存档格式见 systems/save.js） */
   snapshot() {
-    const now = this.time.now;
+    const now = this.clock.now;
     const teamOf = p => { const t = structuredClone(p.team); t.position = { x: p.x, y: p.y }; return t; };
     const main = mainGeneral(this.player.team, balance);
     return {
-      gameTimeMs: Math.round(this.gameTime()),
+      gameTimeMs: now,
       state: structuredClone(this.state),
       player: { team: teamOf(this.player), mainGeneralId: main?.id ?? null,
-        invincibleMs: remainingMs(this.player.invincibleUntil, now), graceMs: remainingMs(this.player.graceUntil, now) },
-      ai: this.aiParties.map(p => ({ team: teamOf(p), mem: memToSave(p.ai, now), graceMs: remainingMs(p.graceUntil, now) })),
-      spawn: { counter: this.spawnCounter, nextMs: Math.round(this.respawnTimer.getRemaining()) },
+        invincibleUntil: this.player.invincibleUntil ?? 0, graceUntil: this.player.graceUntil ?? 0 },
+      ai: this.aiParties.map(p => ({ team: teamOf(p), mem: memToSave(p.ai, now), graceUntil: p.graceUntil ?? 0 })),
+      spawn: { counter: this.spawnCounter },
+      timers: this.clock.getState().timers,
       names: nextBanditName.getState(),
       rng: { team: teamRng.getState() },
-      pairCooldowns: [...this.battleSystem.pairCooldown].filter(([, until]) => until > now).map(([k, until]) => [k, until - now]),
+      pairCooldowns: [...this.battleSystem.pairCooldown].filter(([, until]) => until > now),
       camera: { zoom: this.cameras.main.zoom }
     };
   }
@@ -199,7 +196,7 @@ export default class WorldScene extends Phaser.Scene {
     if (!this.canSaveNow()) return false;
     const ok = writeSave(makeSave(this.snapshot(), { balance, mapSeed: MAP_SEED, reason }));
     if (ok) {
-      this.lastSaveAt = this.time.now;
+      this.lastSaveAt = this.clock.now;
       console.log(`[save] ${reason} 存档完成`);
       this.game.events.emit('game-saved', { reason });
     }
@@ -275,7 +272,7 @@ export default class WorldScene extends Phaser.Scene {
   onBattleEnd(battle, outcome) {
     const { a, b } = battle;
     if (battle.marker) { battle.marker.tween.stop(); battle.marker.ring.destroy(); battle.marker.icon.destroy(); }
-    const now = this.time.now;
+    const now = this.clock.now;
     if (outcome.outcome === 'draw') this.pushApart(a, b, outcome.pushback_px);
     if (outcome.playerDefeat) {
       this.player.invincibleUntil = now + outcome.playerDefeat.invincible_s * 1000;
@@ -424,7 +421,7 @@ export default class WorldScene extends Phaser.Scene {
       const hovered = Math.abs(pw.x - p.x) < p.size && Math.abs(pw.y - p.y) < p.size;
       if (p.inBattle) {
         // during_battle：损兵数字在 T 秒内线性播放，结束时一次性写入结果
-        const bt = p.inBattle, t = Math.min(1, (this.time.now - bt.startAt) / (bt.endAt - bt.startAt));
+        const bt = p.inBattle, t = Math.min(1, (this.clock.now - bt.startAt) / (bt.endAt - bt.startAt));
         p.setBattleLabel(Math.round(bt.startSoldiers[p.id] - bt.lossOf[p.id] * t));
       } else {
         p.setLabelMode(p.isPlayer || hovered || Math.hypot(p.x - pl.x, p.y - pl.y) < NEAR_PLAYER_FULL_LABEL_PX);
@@ -439,12 +436,15 @@ export default class WorldScene extends Phaser.Scene {
       p.label.setPosition(p.x, bottom);
       placed.push({ left: p.x - w / 2, right: p.x + w / 2, top: bottom - h, bottom });
       // 战斗中/无敌提示色
-      p.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.time.now) ? '#88ffff' : '#ffffff'));
+      p.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : '#ffffff'));
     }
   }
 
   // ================= 主循环 =================
-  update(time, delta) {
+  update(_time, delta) {
+    // 游戏时钟：用帧间隔推进（单帧最多 250ms，切后台回来不会一下跳过很多）；本场景暂停时 update 不执行 → 时钟冻结
+    this.clock.tick(Math.min(delta, 250));
+    const time = this.clock.now;
     const dt = Math.min(delta, 50) / 1000;
     const pl = this.player;
 

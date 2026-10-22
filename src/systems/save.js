@@ -1,31 +1,57 @@
 /**
  * 存档（纯逻辑 + localStorage 读写，无 Phaser；单测见 tests/save.test.js）。
  *
- * 存档结构（saveVersion 1）：
+ * 存档结构（saveVersion 2，v0.4 起所有计时都用游戏时钟 core/GameClock.js）：
  * {
- *   saveVersion, balanceVersion, mapSeed, savedAt(ISO), reason,
- *   gameTimeMs,                       // 累计游戏时间
+ *   saveVersion, balanceVersion, mapSeed, savedAt(ISO 真实时间，仅显示用), reason,
+ *   gameTimeMs,                       // 游戏时钟 now；下面所有时间都是这个时钟上的绝对时刻
  *   state:  { points, gachaDraws, freePool, pendingGenerals, captured, battleLog, battles },
- *   player: { team, mainGeneralId, invincibleMs, graceMs },
- *   ai:     [{ team, mem: { state, targetId, sinceAgoS, ignore: {id: 剩余秒}, idleMs }, graceMs }],
- *   spawn:  { counter, nextMs },      // 补充刷新：已刷支数（决定 id）、距下次检查的毫秒
+ *   player: { team, mainGeneralId, invincibleUntil, graceUntil },
+ *   ai:     [{ team, mem: { state, targetId, since(秒), ignore: {id: 截止秒}, idleUntil }, graceUntil }],
+ *   spawn:  { counter },              // 补充刷新已刷支数（决定 id）
+ *   timers: { respawn, autosave },    // 各定时器下一次触发的游戏时间
  *   names:  { pool, n },              // 黄巾头目名字池剩余 + 「黄巾头目N」序号
  *   rng:    { team },                 // 种子随机数状态（其余随机用 Math.random，不保存）
- *   pairCooldowns: [[pairKey, 剩余ms]],
+ *   pairCooldowns: [[pairKey, 截止ms]],
  *   camera: { zoom }
  * }
- * 所有“截止时间”都存为剩余时长，读档后按新的时钟还原。
+ * 读档时游戏时钟从 gameTimeMs 继续，所以截止时间原样还原。
  * team = balance.team_example 结构（+ name/home/state），武将含当前（已强化）属性。
+ * v1（存剩余时长）→ v2 的转换见 MIGRATIONS[1]。
  */
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'sanguo-save';
 
 /**
  * 迁移钩子：MIGRATIONS[v] 把 saveVersion=v 的存档升级到 v+1（返回新对象）。
  * 例：2 版加字段 → MIGRATIONS[1] = s => ({ ...s, saveVersion: 2, newField: 默认值 })
  */
-export const MIGRATIONS = {};
+export const MIGRATIONS = {
+  /** v1（真实时钟，存剩余时长）→ v2（游戏时钟，存绝对时刻）：截止时间 = gameTimeMs + 剩余 */
+  1: (s) => {
+    const T = s.gameTimeMs ?? 0, out = { ...s, saveVersion: 2 };
+    if (s.player) {
+      const { invincibleMs = 0, graceMs = 0, ...rest } = s.player;
+      out.player = { ...rest, invincibleUntil: T + invincibleMs, graceUntil: T + graceMs };
+    }
+    out.ai = (s.ai || []).map(a => {
+      const { graceMs = 0, mem, ...rest } = a || {};
+      return { ...rest, mem: memV1toV2(mem, T), graceUntil: T + graceMs };
+    });
+    const { nextMs = 0, ...spawn } = s.spawn || {};
+    out.spawn = spawn;
+    out.timers = { respawn: T + nextMs };
+    out.pairCooldowns = (s.pairCooldowns || []).map(([k, ms]) => [k, T + ms]);
+    return out;
+  }
+};
+
+function memV1toV2(m, T) {
+  const nowS = T / 1000, ignore = {};
+  for (const [id, left] of Object.entries(m?.ignore || {})) ignore[id] = nowS + left;
+  return { state: m?.state ?? 'wander', targetId: m?.targetId ?? null, since: nowS - (m?.sinceAgoS ?? 0), ignore, idleUntil: T + (m?.idleMs ?? 0) };
+}
 
 export class SaveError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -117,7 +143,9 @@ export function validateSave(s, balance) {
   const ids = [s.player?.team?.id, ...(s.ai || []).map(a => a?.team?.id)];
   need(new Set(ids).size === ids.length, '队伍 id 重复');
   need(s.names && Array.isArray(s.names.pool) && isInt(s.names.n), '缺 names');
-  need(s.spawn && isInt(s.spawn.counter) && isNum(s.spawn.nextMs), '缺 spawn');
+  need(s.spawn && isInt(s.spawn.counter), '缺 spawn');
+  need(!s.timers || Object.values(s.timers).every(isNum), 'timers 非法');
+  need(isNum(s.player?.invincibleUntil ?? 0) && isNum(s.player?.graceUntil ?? 0), 'player 计时非法');
   return errs;
 }
 
@@ -170,22 +198,16 @@ export function clearSave(storage = defaultStorage(), key = SAVE_KEY) {
 
 export const hasSave = (storage = defaultStorage(), key = SAVE_KEY) => readSaveText(storage, key) !== null;
 
-// ---------------- 时间换算（截止时间 ↔ 剩余时长）----------------
-export const remainingMs = (until, now) => Math.max(0, (until ?? 0) - now);
-
-/** AI 记忆：绝对时间（since/ignore 秒，idleUntil 毫秒）→ 相对 */
+// ---------------- AI 记忆（游戏时钟上的绝对时间，原样保存）----------------
+/** 只保存决策记忆；过期的忽略项丢弃；personality 由阵营配置重新推出，nextReplan 不保存 */
 export function memToSave(mem, nowMs) {
-  const nowS = nowMs / 1000;
-  const ignore = {};
-  for (const [id, until] of Object.entries(mem?.ignore || {})) if (until > nowS) ignore[id] = until - nowS;
-  return { state: mem?.state ?? 'wander', targetId: mem?.targetId ?? null, sinceAgoS: Math.max(0, nowS - (mem?.since ?? nowS)), ignore, idleMs: remainingMs(mem?.idleUntil, nowMs) };
+  const nowS = nowMs / 1000, ignore = {};
+  for (const [id, until] of Object.entries(mem?.ignore || {})) if (until > nowS) ignore[id] = until;
+  return { state: mem?.state ?? 'wander', targetId: mem?.targetId ?? null, since: mem?.since ?? nowS, ignore, idleUntil: mem?.idleUntil ?? 0 };
 }
 
-export function memFromSave(m, nowMs) {
-  const nowS = nowMs / 1000;
-  const ignore = {};
-  for (const [id, left] of Object.entries(m?.ignore || {})) ignore[id] = nowS + left;
-  return { state: m?.state ?? 'wander', targetId: m?.targetId ?? null, since: nowS - (m?.sinceAgoS ?? 0), ignore, idleUntil: nowMs + (m?.idleMs ?? 0), nextReplan: 0 };
+export function memFromSave(m) {
+  return { state: m?.state ?? 'wander', targetId: m?.targetId ?? null, since: m?.since ?? 0, ignore: { ...(m?.ignore || {}) }, idleUntil: m?.idleUntil ?? 0, nextReplan: 0 };
 }
 
 /** 存档里的 state → 运行时 gameState（缺省字段补默认值） */

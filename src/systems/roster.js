@@ -1,10 +1,10 @@
 /**
  * 队伍武将名册变更（纯逻辑，无 Phaser；单测见 tests/roster.test.js）。
- * 规则：balance.rewards.capture_rules.player_full_team / gacha.team_full_general（v0.2）+ 已决定：
+ * 规则：balance.rewards.capture_rules.player_full_team + roster.actions（v0.4）+ 已决定：
  *   - 队伍 < max_generals：新武将直接入队
  *   - 满编：进入 state.pendingGenerals 队列（先进先出），弹窗当场选择：
  *       replace(i)：替换随从 i（主角不可替换），被替换者 名将→自由池、黄巾头目→消失
- *       release   ：释放新武将，名将→自由池、头目→消失，获得 release_captive_points
+ *       release   ：释放新武将，名将→自由池、头目→消失，获得 release_captive_points（v0.4：俘获和抽卡来源都给）
  */
 
 export const isHero = (g, balance) => g.id === balance.hero?.id;

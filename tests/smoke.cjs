@@ -138,13 +138,15 @@ const OUT = __dirname + '/../screenshot.png';
   const rolling = await gs();
   await page.waitForTimeout(1200);
   let afterPull = await gs();
+  const shownFirst = afterPull.ui; // v0.4：滚动结束先进入 RESULT 展示
+  if (afterPull.ui === 'RESULT' && afterPull.result?.next) { await page.keyboard.press('Enter'); await page.waitForTimeout(300); afterPull = await gs(); }
   if (afterPull.ui === 'CHOOSE_GENERAL') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
   if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('0'); await page.waitForTimeout(200); }
   if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); }
   afterPull = await gs();
   await page.screenshot({ path: __dirname + '/../screenshot-gacha.png' });
   result.gachaPull = { openedByMouse: open.gacha, rollingState: rolling.ui, pointsBefore: open.points, pointsAfter: afterPull.points, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
-    ok: open.gacha && rolling.ui === 'ROLLING' && rolling.points === 950 && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
+    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && rolling.points === 950 && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
   // 满编替换：队伍补到 3 将，强制下一抽 = S 级武将（诸葛亮），弹出名册窗口，按 1 替换第一名随从
   await ev(() => { const w = window.__game.scene.getScene('World'); const t = w.player.team; const lib = (id) => { const g = window.__balance.generals.find(x => x.id === id); return { id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }; };
     t.generals = t.generals.filter(g => g.id === 'hero');
@@ -153,16 +155,40 @@ const OUT = __dirname + '/../screenshot.png';
     w.player.refresh();
     window.__realRandom = Math.random; const seq = [0.995, 0]; Math.random = () => (seq.length ? seq.shift() : window.__realRandom()); });
   await page.keyboard.press('Space'); await page.waitForTimeout(1300);
+  const rfResult = await gs(); // RESULT，next = roster_full
+  await page.keyboard.press('Escape'); await page.waitForTimeout(400); // esc_rule.RESULT = 确认 → 进入 ROSTER_FULL
   const rf = await gs();
   await page.screenshot({ path: __dirname + '/../screenshot-roster.png' });
   await page.keyboard.press('1'); await page.waitForTimeout(400);
   const rep = await gs();
   await ev(() => { Math.random = window.__realRandom; });
-  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300); // RESULT → IDLE
+  const idle = await gs();
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300); // IDLE → 关闭
   const fin = await gs();
   result.gachaReplace = { rosterOpened: rf.roster, gachaPausedUnderRoster: rf.gachaPaused, uiWhileRoster: rf.ui, gensAfter: rep.gens, liaohuaInFreePool: rep.freePool.includes('liaohua'),
     resultText: rep.result?.text, worldResumed: !fin.worldPaused && !fin.gacha,
-    ok: rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
+    escRule: { resultBeforeConfirm: rfResult.ui, next: rfResult.result?.next, afterEsc: rf.ui, afterSecondEsc: idle.ui, idleStillOpen: idle.gacha },
+    ok: rfResult.ui === 'RESULT' && rfResult.result?.next === 'roster_full' && idle.ui === 'IDLE' && idle.gacha && rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
+  // 4b) v0.4 pause_scope：打开抽卡时整个世界冻结（游戏时钟、AI 战斗计时、无敌、刷新、自动存档）
+  const freeze = () => ev(() => { const w = window.__game.scene.getScene('World'); const now = w.clock.now; const bt = w.battleSystem.battles[0];
+    return { now, battleLeft: bt ? bt.endAt - now : null, battles: w.battleSystem.battles.length, inv: w.player.invincibleUntil - now,
+      respawn: w.clock.remaining('respawn'), autosave: w.clock.remaining('autosave'), pos: w.aiParties.map(p => Math.round(p.x) + ',' + Math.round(p.y)).join(' ') }; });
+  await ev(() => { const w = window.__game.scene.getScene('World');
+    // 手动让两支不同阵营的 AI 开战，检验“别处的 AI 战斗计时”也被冻结
+    const x = w.aiParties.find(p => !p.inBattle), y = w.aiParties.find(p => !p.inBattle && p.faction !== x.faction);
+    w.battleSystem.start(x, y, w.clock.now); });
+  await page.waitForTimeout(300);
+  await page.keyboard.press('g'); await page.waitForTimeout(200);
+  const f0 = await freeze();
+  await page.waitForTimeout(2000);
+  const f1 = await freeze();
+  await page.keyboard.press('Escape'); await page.waitForTimeout(500);
+  const f2 = await freeze();
+  result.pauseFreeze = { before: f0, after2sPaused: f1, afterResume: { now: f2.now, battleLeft: f2.battleLeft },
+    ok: f0.battles >= 1 && JSON.stringify(f0) === JSON.stringify(f1) && f2.now > f1.now && (f2.battleLeft === null || f2.battleLeft < f1.battleLeft) };
+  await page.waitForFunction(() => !window.__game.scene.getScene('World').battleSystem.battles.length, null, { timeout: 20000 }).catch(() => {});
+
   // 5) 存档：F5 手动存档 → 刷新页面 → 标题菜单「继续游戏」→ 状态恢复
   const SAVE_KEY = 'sanguo-save';
   const readSave = () => ev(k => { const t = localStorage.getItem(k); try { return t && JSON.parse(t); } catch { return 'CORRUPT'; } }, SAVE_KEY);
@@ -217,7 +243,7 @@ const OUT = __dirname + '/../screenshot.png';
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && result.keyboard.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
+  const ok = !errors.length && result.keyboard.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.pauseFreeze.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAIL');
   process.exit(ok ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });

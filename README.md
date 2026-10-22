@@ -1,4 +1,4 @@
-# 三国·群雄逐鹿（像素风开放世界原型）— M3「能变强」（数值对齐 balance v0.3）
+# 三国·群雄逐鹿（像素风开放世界原型）— M3「能变强」+ 存档（数值对齐 balance v0.4）
 
 单人、实时、俯视角三国开放世界原型。引擎 **Phaser 3**（npm 依赖），构建 **Vite**，美术为**色块占位**。
 
@@ -10,16 +10,16 @@ npm run dev            # 开发服务器 http://localhost:5173/
 npm run build          # 产出 dist/
 npm run preview        # 预览 dist/
 npm test               # 单测：公式 / worked_examples / A* / AI 决策 / 战斗结算 / 抽卡 / 名册
-npm run sync:balance   # 从 ../design/balance_v0.3.json 同步策划配置
+npm run sync:balance   # 从 ../design/balance_v0.4.json 同步策划配置
 node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 playwright-core + Chrome）
 ```
 
 ## 策划配置（balance.json）
 
-- 源文件：`/workspace/design/balance_v0.3.json`（策划维护）；游戏读副本 `src/data/balance.json`。
+- 源文件：`/workspace/design/balance_v0.4.json`（策划维护）；游戏读副本 `src/data/balance.json`。
 - 策划改完后执行 `npm run sync:balance`；换版本（v0.4…）时改 `package.json` 的 `sync:balance` 和 `tests/combat.test.js` 第一条用例里的文件名。该用例会检查副本与原件一致。
 - **所有玩法数值都从 balance.json 读取**：地图尺寸、城池、地形速度/可通行、阵营 home/颜色/性格、初始队伍、战力/速度/兵力上限/损兵减免、战斗结算与取整、积分/收编/俘获、取整规则、主将规则、AI 状态机（含 chase_max_ratio）、补充刷新、碰撞规则、抽卡（价格/权重/属性/物品/武将/文案）、抽卡界面（gacha_ui）、满编替换/释放（roster）。
-- `src/data/assumptions.json`：v0.3 仍未明确、程序先按“假设”实现的点（见下；目前只剩表现层）。
+- `src/data/assumptions.json`：v0.4 仍未明确、程序先按“假设”实现的点（见下；目前只剩表现层）。
 
 ## 操作
 
@@ -30,7 +30,8 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 | 鼠标悬停队伍 | 显示完整信息（武将、兵/上限、战力）；靠近玩家的队伍也自动显示 |
 | 滚轮 | 缩放 0.5x ~ 2.5x |
 | G / 右上「抽卡 [G]」按钮 | 打开抽卡（大地图暂停）；战斗中或有待安排武将时不能抽（后者会先弹出名册窗口） |
-| 抽卡界面 | 空格/回车 或 点「抽一次」；抽取动画任意键/点击跳过；1~3 选武将（属性）或丢弃旧物品；0/R 放弃新物品；Esc/「关闭」 |
+| 抽卡界面 | 空格 或 点「抽一次」；抽取动画任意键/点击跳过；结果先展示，需要选择时按 Enter/Esc 或点「确定」进入选择；1~3 选武将（属性）或丢弃旧物品；0/R 放弃新物品 |
+| 抽卡 Esc（v0.4 esc_rule） | 待机：关闭界面；抽取动画：跳过；结果：确认（回待机或进入选择）；选武将 / 物品栏满 / 队伍满：忽略（抽卡已扣点，必须选） |
 | 名册窗口（满编） | 1/2 或 点按钮 替换对应随从；R 或 点按钮 释放新武将（+20 点）；必须当场选择，不能关闭 |
 | F5 / F9 | 手动存档 / 读档（带提示；战斗中按 F5 会在战斗结束后自动存） |
 | 标题菜单（有存档时） | Enter/1 或点「继续游戏」；N/2 或点「新游戏」→ 确认 Y / 取消 N（会删除存档）；存档损坏时只显示原因和「新游戏」 |
@@ -45,17 +46,21 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 - **取整（v0.3 numeric_rules）**：中间量保持浮点；损兵/阵亡/积分 `floor(x+0.5+1e-9)`；收编/残部保留 `floor(x+1e-9)`。主将 = 统率最高（并列取靠前）。本场俘获不提高本场兵力上限。
 - **玩家战败**：保留 `max(5, floor(溃兵×0.5))`，主角不被俘、随从可被俘；无敌 `invincible_s` 秒、速度 ×`escape_speed_mult`（战后保护取 max(1s grace, 8s 无敌)）。兵数为 0 的 AI 队伍按败方移除；玩家兵数最低补到 5。
 - **AI 追击上限**：`r ≥ ai.chase_max_ratio`（3）时不主动追（碰上照常开战）。
-- **抽卡（M3）**：`systems/gacha.js`（纯逻辑）+ `scenes/GachaScene.js`。单价 `min(50+5×已抽, 200)`，点击即扣点并计次；6 档权重；无保底。武将只从自由池对应档位等概率出，空档改出属性 +5；属性在未满项中随机、截断到 100，全队全满返还 25；物品重复返还 25、满栏选择丢旧或放弃（返还 25）。
-- **满编替换/释放（M3）**：`systems/roster.js` + `scenes/RosterScene.js`。俘获或抽到武将而队伍已满 3 将 → `pendingGenerals` 先进先出逐个弹窗：替换随从（主角不可替换；名将回自由池、头目消失）或释放（+20 点）。替换后战力/上限/速度即时重算；若主将会变化，窗口里会提示。
+- **抽卡（M3，v0.4）**：`systems/gacha.js`（纯逻辑）+ `scenes/GachaScene.js`。单价 `min(50+5×已抽, 200)`，点击即扣点并计次；6 档权重；无保底。属性卡加 `pool[].attr_amount`（+2 / +5）；武将只从自由池对应档位（`pool[].tier`）等概率出，档位空了按 `gacha.empty_tier_fallback` 改出；属性在未满项中随机、截断到 100，全队全满返还 25；物品从整张 items 表等概率抽（`item_source = items_all_uniform`，含已拥有，重复返还 25），满栏选择丢旧或放弃（返还 25）。v0.3 的重叠字段（`gacha.overlap_note`）不再读取。
+- **满编替换/释放（M3）**：`systems/roster.js` + `scenes/RosterScene.js`。俘获或抽到武将而队伍已满 3 将 → `pendingGenerals` 先进先出逐个弹窗：替换随从（主角不可替换；名将回自由池、头目消失）或释放（+20 点，俘获和抽卡来源都给）。替换后战力/上限/速度即时重算；若主将会变化，窗口里会提示。
 - **补充刷新**：每 `respawn_interval_s` 若 AI 队伍 < `max_ai_teams`，在距玩家 700~1400px、视野外的可通行格刷黄巾，战力 ≈ 玩家 × U(0.5,1.3)；黄巾头目名不放回抽取。
 - **UI**：点数（下一抽价格）、兵力/上限、战力、武将、待安排武将、自由池数量、状态（交战/无敌倒计时）、最近 5 条战报、战斗提示。
 - **标签防重叠**：默认简略标签，靠近玩家/悬停显示完整；重叠的标签自动向上堆叠。
 
+## 游戏时钟（core/GameClock.js，v0.4 pause_scope）
+
+所有计时都走游戏时钟 `world.clock.now`，不用真实时间：战斗时长、战后保护、玩家无敌、平局冷却、AI 状态计时与忽略名单、补充刷新、自动存档间隔。时钟只在大地图 `update` 里按帧间隔推进（单帧最多 250ms）；打开抽卡/名册窗口时大地图暂停，时钟和全部计时一起冻结（单测 `tests/gameClock.test.js`，冒烟测试也会检查）。
+
 ## 存档（systems/save.js）
 
-- **localStorage** 键 `sanguo-save`，JSON，带 `saveVersion`（当前 1）、`balanceVersion`、`mapSeed`、`savedAt`。
-- 内容：玩家队（位置、兵数、武将含已强化属性、物品、主将）、点数、抽卡次数、自由池、待安排武将队列、俘获记录、战报、全部 AI 队（位置、兵数、武将、AI 状态/目标/忽略名单、home）、补充刷新计数与倒计时、黄巾头目名字池使用情况、种子随机数状态、平局冷却、无敌/战后保护剩余时间、累计游戏时间、镜头缩放。所有“截止时间”都存成剩余时长。
-- **自动存档**：每 `SAVE_INTERVAL_S`（config.js，30 秒），以及战斗结束、抽卡窗口关闭、名册变更之后；页面隐藏/关闭（visibilitychange / pagehide / beforeunload）时能存就存。**战斗进行中、抽卡/名册窗口打开、有待安排武将时不存**，等结束后再存。
+- **localStorage** 键 `sanguo-save`，JSON，带 `saveVersion`（当前 2）、`balanceVersion`、`mapSeed`、`savedAt`。
+- 内容：玩家队（位置、兵数、武将含已强化属性、物品、主将）、点数、抽卡次数、自由池、待安排武将队列、俘获记录、战报、全部 AI 队（位置、兵数、武将、AI 状态/目标/忽略名单、home）、补充刷新计数与倒计时、黄巾头目名字池使用情况、种子随机数状态、平局冷却、无敌/战后保护剩余时间、游戏时钟、镜头缩放。v2 起所有截止时间都存成游戏时钟上的绝对时刻（读档后时钟从存档时刻继续）；v1 存档（存剩余时长）通过 `MIGRATIONS[1]` 自动转换。
+- **自动存档**：每 `SAVE_INTERVAL_S`（config.js，30 秒游戏时间），以及战斗结束、抽卡窗口关闭、名册变更之后；页面隐藏/关闭（visibilitychange / pagehide / beforeunload）时能存就存。**战斗进行中、抽卡/名册窗口打开、有待安排武将时不存**，等结束后再存。
 - **读档容错**：JSON 损坏、字段缺失/非法、引用了不存在的武将/物品 → corrupt；存档版本比游戏新 → too_new；地图种子不同或缺迁移 → incompatible。都只显示原因并提供新游戏，不会崩溃。数值版本不同但数据有效 → 可以继续，并提示一次。
 - **迁移钩子**：`MIGRATIONS[v]` 把 v 版存档升级到 v+1，读档时逐级执行。
 
@@ -81,10 +86,11 @@ src/
     teams.js     队伍构建、命名规则、补充刷新兵数反解
     collision.js AABB 碰撞 + 事件去抖（engine_debounce_ms）
     gameState.js 积分/自由池/待处理俘虏/战报
+  core/GameClock.js              游戏时钟 + 定时器（暂停即冻结，可存档）
     gacha.js     抽卡纯逻辑（价格/权重/武将/属性/物品/文案）
     roster.js    满编队列、替换/释放
     save.js      存档：结构/校验/迁移/localStorage 读写/时间换算（纯逻辑）
-tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save（node:test）+ smoke.cjs
+tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save / gameClock（node:test）+ smoke.cjs
 ```
 
 ## 已决定（PM / 用户确认 2026-10-22，balance decisions）
@@ -94,7 +100,7 @@ tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roste
 
 ## 仍是【假设】的点（assumptions.json）
 
-v0.3 已回答之前全部战斗/抽卡/名册假设。剩下：
+v0.3/v0.4 已回答之前全部战斗/抽卡/名册假设（v0.4 补了属性卡数值、空档改出、Esc 规则、暂停范围）。剩下：
 1. 抽卡动画样式：配置只给了 `roll_anim_s`=1 和可跳过；实现为结果卡在 6 档颜色间闪烁。
 
 ## 部署到 GitHub Pages
@@ -114,7 +120,7 @@ mkdir -p /tmp/pages/three-kingdoms && cp -r dist/. /tmp/pages/three-kingdoms/
 cd /tmp/pages && python3 -m http.server 8090   # 打开 http://localhost:8090/three-kingdoms/
 ```
 
-注：`tests/combat.test.js` 的“副本与策划原件一致”用例需要 `../design/balance_v0.3.json`，在独立仓库/CI 中会自动跳过。
+注：`tests/combat.test.js` 的“副本与策划原件一致”用例需要 `../design/balance_v0.4.json`，在独立仓库/CI 中会自动跳过。
 
 ## 下一步
 

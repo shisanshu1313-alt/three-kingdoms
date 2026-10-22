@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pullCost, oddsTable, canPull, pull, applyAttrUpgrade, attrTargets, resolveItemFull, freeByTier, weightedPick } from '../src/systems/gacha.js';
+import { pullCost, oddsTable, canPull, pull, applyAttrUpgrade, attrTargets, resolveItemFull, freeByTier, weightedPick, typeName, attrAmount, poolEntry } from '../src/systems/gacha.js';
 import { createGameState } from '../src/systems/gameState.js';
 import { indexBalance } from '../src/systems/teams.js';
 import { mulberry32 } from '../src/systems/rng.js';
@@ -84,7 +84,7 @@ test('武将：该档自由池为空 → 改出 attr_big', () => {
   const s = state(), t = player();
   s.freePool = s.freePool.filter(id => idx.generalsById[id].tier !== 'B'); // 初始自由池本来就没有 B
   const r = pull(s, t, balance, seq(rollFor('general_B'), 0));
-  assert.equal(r.fallback, 'attr_big'); assert.equal(r.type, 'attr_big');
+  assert.equal(r.fallback, 'empty_tier'); assert.equal(r.type, balance.gacha.empty_tier_fallback);
   assert.equal(r.attr.new - r.attr.old, 5); // 只有主角一人 → 自动选中
 });
 
@@ -133,4 +133,54 @@ test('物品：空栏直接放入；重复返还；满栏可丢旧换新或放�
   assert.equal(keep.refund, 25); assert.equal(s.points, before + 25); assert.equal(t.items.length, 3);
   resolveItemFull(s, t, r.item, 1, balance);
   assert.deepEqual(t.items, ['war_drum', 'art_of_war', 'banner']);
+});
+
+// ---------------- v0.4 ----------------
+const withGacha = (patch) => { const b = structuredClone(balance); patch(b); return b; };
+
+test('v0.4 属性卡数值读 pool[].attr_amount（改配置即生效）', () => {
+  assert.equal(attrAmount(balance, 'attr_small'), poolEntry(balance, 'attr_small').attr_amount);
+  assert.equal(attrAmount(balance, 'attr_big'), poolEntry(balance, 'attr_big').attr_amount);
+  const b = withGacha(x => { x.gacha.pool.find(e => e.type === 'attr_small').attr_amount = 7; });
+  const s = state(), t = player();
+  const r = pull(s, t, b, seq(rollFor('attr_small'), 0));
+  assert.equal(r.amount, 7); assert.equal(r.attr.new - r.attr.old, 7);
+  assert.equal(typeName(poolEntry(b, 'attr_small')), '属性 +7');
+  assert.equal(typeName(poolEntry(balance, 'general_S')), 'S 级武将');
+  const bad = withGacha(x => { delete x.gacha.pool.find(e => e.type === 'attr_big').attr_amount; });
+  assert.throws(() => attrAmount(bad, 'attr_big'));
+});
+
+test('v0.4 武将档位为空：按 gacha.empty_tier_fallback 改出（改成 attr_small 也生效）', () => {
+  const b = withGacha(x => { x.gacha.empty_tier_fallback = 'attr_small'; });
+  const s = state(), t = player();
+  const r = pull(s, t, b, seq(rollFor('general_B'), 0)); // 初始自由池没有 B
+  assert.equal(r.fallback, 'empty_tier'); assert.equal(r.rolledType, 'general_B'); assert.equal(r.type, 'attr_small');
+  assert.equal(r.attr.new - r.attr.old, attrAmount(b, 'attr_small'));
+});
+
+test('v0.4 重复武将（已在队中）→ attr_big 给该武将，数值读配置', () => {
+  const s = state(), t = player({ generals: [hero(), G('zhugeliang')] });
+  s.freePool = ['zhugeliang']; // 人为制造：自由池与队伍重复
+  const r = pull(s, t, balance, seq(rollFor('general_S'), 0, 0));
+  assert.equal(r.fallback, 'duplicate_general'); assert.equal(r.amount, attrAmount(balance, 'attr_big'));
+  assert.equal(t.generals[1].id, 'zhugeliang'); assert.ok(!s.freePool.includes('zhugeliang'));
+});
+
+test('v0.4 物品：items_all_uniform 整表等概率（含已拥有）；未知 item_source 报错', () => {
+  const N = 60000, cnt = {};
+  // 固定第一个随机数 = 物品档，第二个随机数决定哪件；队里已有战鼓也照样会抽到（返还）
+  const rng2 = mulberry32(9);
+  for (let i = 0; i < N; i++) { const t2 = player({ items: ['war_drum'] }); const r = pull(state(), t2, balance, seq(rollFor('item'), rng2())); cnt[r.item.id] = (cnt[r.item.id] || 0) + 1; }
+  for (const it of balance.items) assert.ok(Math.abs(cnt[it.id] / N - 1 / balance.items.length) < 0.01, `${it.id} ${cnt[it.id] / N}`);
+  const owned = pull(state(), player({ items: ['war_drum'] }), balance, seq(rollFor('item'), (balance.items.findIndex(i => i.id === 'war_drum') + 0.5) / balance.items.length));
+  assert.equal(owned.refund, balance.gacha.duplicate_item_refund_points);
+  const bad = withGacha(x => { x.gacha.pool.find(e => e.type === 'item').item_source = 'weighted'; });
+  assert.throws(() => pull(state(), player(), bad, seq(rollFor('item'), 0)));
+});
+
+test('v0.4 不再读取 v0.3 已删除的重叠字段', () => {
+  for (const k of ['team_full_general', 'attr_full_rule', 'duplicate_general', 'item_full_rule']) assert.ok(!(k in balance.gacha), k);
+  const src = readFileSync(new URL('../src/systems/gacha.js', import.meta.url), 'utf8');
+  for (const k of ['team_full_general', 'attr_full_rule', 'item_full_rule', 'gacha.duplicate_general']) assert.ok(!src.includes(k), `gacha.js 仍引用 ${k}`);
 });

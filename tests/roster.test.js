@@ -53,3 +53,12 @@ test('释放：名将回自由池，+release_captive_points；头目消失', () 
   assert.ok(!s.freePool.includes('x')); assert.equal(s.points, 40);
   assert.equal(t.generals.length, 3);
 });
+
+test('v0.4 释放：无论来源（俘获 / 抽卡）都 +release_captive_points', () => {
+  for (const source of ['capture', 'gacha']) {
+    const s = createGameState(balance), t = full();
+    s.pendingGenerals.push({ general: G('zhaoyun'), source });
+    const r = resolvePending(s, t, 'release', null, balance);
+    assert.equal(r.points, 20, source); assert.equal(s.points, 20, source); assert.ok(s.freePool.includes('zhaoyun'));
+  }
+});

@@ -137,7 +137,7 @@ export default class UIScene extends Phaser.Scene {
   update() {
     const p = this.world.player;
     if (!p) return;
-    const st = this.world.state, now = this.world.time.now;
+    const st = this.world.state, now = this.world.clock.now;
     const inv = p.isInvincible(now) ? `  无敌${((p.invincibleUntil - now) / 1000).toFixed(1)}s` : '';
     const status = p.inBattle ? '交战中' : (p.path ? '行军' : '待命');
     const t = this.world.tileAt(p.x, p.y);

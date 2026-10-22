@@ -56,3 +56,16 @@ test('主将 = 统率最高（并列取靠前）：ex2 取廖化、ex3 取赵云
   const tie = { generals: [{ id: 'x', lead: 50 }, { id: 'y', lead: 50 }] };
   assert.equal(mainGeneral(tie, balance).id, 'x');
 });
+
+// v0.4 recruit_base 0.2→0.3：PM 给出的期望（收编率 / 收编数 / 胜方战后兵数）与配置、与实际计算三方核对
+const PM_V04 = { ex1: [0.5, 8, 33], ex1_rand: [0.5, 9, 33], ex2: [0.58, 25, 149], ex3: [0.624, 11, 306] };
+test('v0.4 收编：PM 期望 = 配置 expect = 计算结果', () => {
+  assert.equal(balance.rewards.recruit_base, 0.3);
+  for (const ex of balance.worked_examples) {
+    const want = PM_V04[ex.id]; assert.ok(want, `PM 表没有 ${ex.id}`);
+    assert.deepEqual([ex.expect.recruit_rate, ex.expect.recruited, ex.expect.winner_soldiers_after], want, `${ex.id} 配置 vs PM`);
+    const r = resolveCombat(mk('A', ex.a), mk('B', ex.b), balance, null, { rolls: ex.rolls });
+    assert.ok(Math.abs(r.recruitRate - want[0]) < 1e-9, `${ex.id} recruitRate ${r.recruitRate}`);
+    assert.deepEqual([r.recruited, r.winnerSoldiersAfter], want.slice(1), `${ex.id} 计算 vs PM`);
+  }
+});

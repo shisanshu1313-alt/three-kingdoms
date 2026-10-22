@@ -1,6 +1,6 @@
 /**
  * 数据入口：统一加载策划配置。
- * balance.json 是 /workspace/design/balance_v0.3.json 的副本（npm run sync:balance 同步）。
+ * balance.json 是 /workspace/design/balance_v0.4.json 的副本（npm run sync:balance 同步）。
  * 初始队伍 = balance.initial_teams；阵营颜色 = balance.ai.factions[].color / player_faction.color。
  */
 import balance from './balance.json';

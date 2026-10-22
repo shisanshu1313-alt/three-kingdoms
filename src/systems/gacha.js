@@ -1,7 +1,8 @@
 /**
  * 抽卡（纯逻辑，无 Phaser；单测见 tests/gacha.test.js）。
- * 规则全部来自 balance v0.3：gacha（单价、权重、attr_upgrade、item_rule、general_rule）、gacha_ui（allowed_when、
- * deduct_timing、文案模板）、roster（满编队列）。配置没有保底（pity）字段 → 不实现保底。
+ * 规则全部来自 balance v0.4：gacha（单价、pool[].weight/attr_amount/tier/item_source、empty_tier_fallback、attr_upgrade、
+ * item_rule、general_rule）、gacha_ui（allowed_when、deduct_timing、文案模板）、roster（满编队列、duplicate_general）。
+ * 不读 v0.3 已删除的重叠字段（gacha.overlap_note）。配置没有保底（pity）字段 → 不实现保底。
  *
  * 用法：
  *   const chk = canPull(state, team, balance, {inBattle})    // {ok, cost, reason, text}
@@ -13,8 +14,24 @@ import { addGeneralOrQueue } from './roster.js';
 
 const ATTRS = ['lead', 'str', 'int', 'cha'];
 export const ATTR_NAMES = { lead: '统率', str: '武力', int: '智力', cha: '魅力' };
-export const TYPE_NAMES = { attr_small: '属性 +2', attr_big: '属性 +5', item: '物品', general_B: 'B 级武将', general_A: 'A 级武将', general_S: 'S 级武将' };
-const ATTR_AMOUNT = { attr_small: 2, attr_big: 5 }; // 来自 pool[].effect 文案“+2 / +5”（配置无数值字段）
+const POOL_NAMES = { item: '物品' };
+/** 卡池条目 → 显示名（属性卡数值、武将档位都读配置） */
+export function typeName(entry) {
+  if (!entry) return '';
+  if (entry.attr_amount !== undefined) return `属性 +${entry.attr_amount}`;
+  if (entry.tier) return `${entry.tier} 级武将`;
+  return POOL_NAMES[entry.type] ?? entry.type;
+}
+export const poolEntry = (balance, type) => balance.gacha.pool.find(e => e.type === type);
+/** 属性卡加多少：pool[].attr_amount（v0.4） */
+export function attrAmount(balance, type) {
+  const v = poolEntry(balance, type)?.attr_amount;
+  if (!Number.isFinite(v)) throw new Error(`卡池 ${type} 缺少 attr_amount`);
+  return v;
+}
+/** 武将档位为空时改出的卡类型：gacha.empty_tier_fallback（v0.4）；roster.duplicate_general 文案写的是 attr_big */
+export const emptyTierFallback = balance => balance.gacha.empty_tier_fallback ?? 'attr_big';
+const DUPLICATE_GENERAL_TYPE = 'attr_big';
 
 /** 文案模板：把 {键} 换成 vars[键] */
 export function fmt(tpl, vars) { return tpl.replace(/\{([^}]+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)); }
@@ -38,7 +55,6 @@ export function weightedPick(pool, rng) {
   return pool[pool.length - 1];
 }
 
-const tierOf = type => (type.startsWith('general_') ? type.slice('general_'.length) : null);
 
 /** 自由池中某档位的名将 id */
 export function freeByTier(state, balance, tier) {
@@ -94,18 +110,18 @@ export function pull(state, team, balance, rng, ctx = {}) {
   const entry = weightedPick(g.pool, rng);
   const res = { cost: chk.cost, type: entry.type, rolledType: entry.type, entry, fallback: null, refund: 0, next: null, text: '' };
 
-  const tier = tierOf(entry.type);
+  const tier = entry.tier;
   if (tier) {
     const cands = freeByTier(state, balance, tier);
     if (!cands.length) {
-      res.fallback = 'attr_big'; // general_source：该档自由池为空 → 改出 attr_big
-      res.type = 'attr_big';
+      res.fallback = 'empty_tier'; // gacha.empty_tier_fallback：该档自由池为空 → 改出配置指定的卡
+      res.type = emptyTierFallback(balance);
     } else {
       const id = cands[Math.floor(rng() * cands.length)]; // general_rule：档内等概率，移出自由池
       state.freePool = state.freePool.filter(x => x !== id);
       const inTeam = team.generals.findIndex(x => x.id === id);
       if (inTeam >= 0) { // roster.duplicate_general：已在玩家队中 → 按 attr_big 给该武将
-        res.fallback = 'duplicate_general'; res.type = 'attr_big'; res.amount = ATTR_AMOUNT.attr_big;
+        res.fallback = 'duplicate_general'; res.type = DUPLICATE_GENERAL_TYPE; res.amount = attrAmount(balance, res.type);
         res.attr = applyAttrUpgrade(team, inTeam, res.amount, balance, rng);
         res.text = res.attr ? res.attr.text : '';
         return res;
@@ -121,8 +137,8 @@ export function pull(state, team, balance, rng, ctx = {}) {
     }
   }
 
-  if (res.type === 'attr_small' || res.type === 'attr_big') {
-    res.amount = ATTR_AMOUNT[res.type];
+  if (poolEntry(balance, res.type)?.attr_amount !== undefined) {
+    res.amount = attrAmount(balance, res.type);
     const targets = attrTargets(team, balance);
     if (!targets.length) { // attr_upgrade.all_full：全队四项全满 → 返还 duplicate_item_refund_points
       res.refund = g.duplicate_item_refund_points;
@@ -142,6 +158,9 @@ export function pull(state, team, balance, rng, ctx = {}) {
   }
 
   // item：从物品表等概率抽 1 件
+  // pool[].item_source = items_all_uniform：整张 items 表等概率（含已拥有的，抽到按 item_rule.duplicate 返还）
+  const src = poolEntry(balance, 'item')?.item_source ?? 'items_all_uniform';
+  if (src !== 'items_all_uniform') throw new Error(`不支持的 item_source: ${src}`);
   const item = balance.items[Math.floor(rng() * balance.items.length)];
   res.item = item;
   if (team.items.includes(item.id)) { // item_rule.duplicate

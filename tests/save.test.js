@@ -32,14 +32,15 @@ function sampleSnapshot() {
   st.battleLog.unshift({ time: 12345, text: '主角军 胜 黄巾军·波才' });
   const nowMs = 50000;
   return {
-    gameTimeMs: 98765,
+    gameTimeMs: nowMs,
     state: st,
-    player: { team: player, mainGeneralId: 'liaohua', invincibleMs: 1500, graceMs: 0 },
+    player: { team: player, mainGeneralId: 'liaohua', invincibleUntil: nowMs + 1500, graceUntil: nowMs },
     ai: teams.filter(t => !t.is_player).map((t, i) => ({
-      team: t, graceMs: i * 100,
+      team: t, graceUntil: nowMs + i * 100,
       mem: memToSave({ state: i % 2 ? 'chase' : 'wander', targetId: i % 2 ? 'player' : null, since: 40, ignore: { bandit_1: 55, gone: 10 }, idleUntil: nowMs + 2000, nextReplan: 0 }, nowMs)
     })),
-    spawn: { counter: 3, nextMs: 4200 },
+    spawn: { counter: 3 },
+    timers: { respawn: nowMs + 4200, autosave: nowMs + 30000 },
     names: names.getState(),
     rng: { team: rng.getState() },
     pairCooldowns: [['bandit_1|player', 2500]],
@@ -77,11 +78,10 @@ test('往返：名字池 / 随机数状态还原后继续产生相同序列', ()
   assert.deepEqual([names2(), names2(), rng2()], expect);
 });
 
-test('AI 记忆：绝对时间 ↔ 剩余时长，换个时钟后剩余时间不变；过期忽略项被丢弃', () => {
-  const m = memToSave({ state: 'chase', targetId: 'player', since: 40, ignore: { a: 55, b: 10 }, idleUntil: 52000 }, 50000);
-  assert.deepEqual(m, { state: 'chase', targetId: 'player', sinceAgoS: 10, ignore: { a: 5 }, idleMs: 2000 });
-  const r = memFromSave(m, 1000);
-  assert.deepEqual(r, { state: 'chase', targetId: 'player', since: -9, ignore: { a: 6 }, idleUntil: 3000, nextReplan: 0 });
+test('AI 记忆：游戏时钟绝对时间原样保存；过期忽略项被丢弃；nextReplan 归零', () => {
+  const m = memToSave({ state: 'chase', targetId: 'player', since: 40, ignore: { a: 55, b: 10 }, idleUntil: 52000, nextReplan: 999, personality: { key: 'normal' } }, 50000);
+  assert.deepEqual(m, { state: 'chase', targetId: 'player', since: 40, ignore: { a: 55 }, idleUntil: 52000 });
+  assert.deepEqual(memFromSave(m), { state: 'chase', targetId: 'player', since: 40, ignore: { a: 55 }, idleUntil: 52000, nextReplan: 0 });
 });
 
 test('localStorage：写入 / 读取 / 清除；没有存档 → empty', () => {
@@ -121,17 +121,38 @@ test('版本：更新版本的存档 → too_new；地图种子不同 → incomp
   assert.throws(() => parseSave(serialize({ ...save, saveVersion: SAVE_VERSION + 1 }), ctx), e => e.code === 'too_new');
   assert.throws(() => parseSave(serialize({ ...save, mapSeed: 999 }), ctx), e => e.code === 'incompatible');
   const r = parseSave(serialize({ ...save, balanceVersion: '0.2' }), ctx);
-  assert.equal(r.warnings.length, 1); assert.match(r.warnings[0], /v0\.2.*v0\.3/);
+  assert.equal(r.warnings.length, 1); assert.ok(r.warnings[0].includes('v0.2') && r.warnings[0].includes(`v${balance._meta.version}`));
+});
+
+test('迁移 v1 → v2：剩余时长换成游戏时钟上的绝对时刻', () => {
+  const v2 = makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED });
+  const T = v2.gameTimeMs;
+  // 手工构造对应的 v1 存档（存剩余时长）
+  const v1 = structuredClone(v2);
+  v1.saveVersion = 1;
+  v1.player = { team: v2.player.team, mainGeneralId: v2.player.mainGeneralId, invincibleMs: v2.player.invincibleUntil - T, graceMs: 0 };
+  v1.ai = v2.ai.map(a => ({ team: a.team, graceMs: a.graceUntil - T,
+    mem: { state: a.mem.state, targetId: a.mem.targetId, sinceAgoS: T / 1000 - a.mem.since, ignore: Object.fromEntries(Object.entries(a.mem.ignore).map(([k, u]) => [k, u - T / 1000])), idleMs: a.mem.idleUntil - T } }));
+  v1.spawn = { counter: v2.spawn.counter, nextMs: v2.timers.respawn - T };
+  delete v1.timers;
+  v1.pairCooldowns = v2.pairCooldowns.map(([k, u]) => [k, u - T]);
+  const { save } = parseSave(serialize(v1), ctx);
+  assert.equal(save.saveVersion, 2);
+  assert.deepEqual(save.player, v2.player);
+  assert.deepEqual(save.ai, v2.ai);
+  assert.deepEqual(save.spawn, v2.spawn);
+  assert.equal(save.timers.respawn, v2.timers.respawn);
+  assert.deepEqual(save.pairCooldowns, v2.pairCooldowns);
 });
 
 test('迁移钩子：旧版本按 MIGRATIONS 逐级升级；缺迁移 → incompatible', () => {
   const cur = makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED });
   // 假装当前存档其实是 v0（没有 camera 字段），用迁移补上
   const old = { ...structuredClone(cur), saveVersion: SAVE_VERSION - 1 }; delete old.camera;
-  const migrations = { [SAVE_VERSION - 1]: s => ({ ...s, saveVersion: SAVE_VERSION, camera: { zoom: 1 } }) };
+  const migrations = { [SAVE_VERSION - 1]: s => ({ ...s, saveVersion: SAVE_VERSION, camera: { zoom: 1 } }) }; // 自定义迁移表
   const r = parseSave(serialize(old), { ...ctx, migrations });
   assert.equal(r.save.saveVersion, SAVE_VERSION); assert.deepEqual(r.save.camera, { zoom: 1 });
-  assert.throws(() => parseSave(serialize(old), ctx), e => e.code === 'incompatible');
+  assert.throws(() => parseSave(serialize(old), { ...ctx, migrations: {} }), e => e.code === 'incompatible');
   assert.throws(() => migrate(old, { [SAVE_VERSION - 1]: s => s }), e => e.code === 'incompatible'); // 没提升版本号
 });
 

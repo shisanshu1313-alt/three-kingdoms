@@ -42,7 +42,7 @@ export default class Party {
 
   /** 实际移动速度（未含地形）：配置速度 × 战败逃跑加速（无敌期间） */
   moveSpeed() {
-    const esc = this.isInvincible(this.scene.time.now) ? this.balance.battle.player_defeat.escape_speed_mult : 1;
+    const esc = this.isInvincible(this.scene.clock.now) ? this.balance.battle.player_defeat.escape_speed_mult : 1;
     return this.speed * esc;
   }
 
