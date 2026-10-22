@@ -1,6 +1,6 @@
 import { MAP_SEED } from '../config.js';
 import terrainData from '../data/terrain.json' with { type: 'json' };
-import balance from '../data/balance.json' with { type: 'json' };
+import { balance } from '../data/index.js';
 
 /** 地形表：表现字段来自 terrain.json，speed/passable 来自 balance.terrain_speed（null = 不可通行） */
 export function buildTerrain(types, terrainSpeed) {
@@ -47,9 +47,11 @@ export function generateMap(width = balance.map.tiles_w, height = balance.map.ti
       }
     }
   };
-  blob(T.FOREST, 14, 40);
-  blob(T.MOUNTAIN, 6, 25);
-  blob(T.WATER, 3, 30);
+  // 斑块数量按地图面积缩放（v0.5 1600 px 地图 = v0.4 的 1/4 面积）
+  const k = balance.map.blob_scale ?? 1, n = c => Math.max(1, Math.round(c * k));
+  blob(T.FOREST, n(14), 40);
+  blob(T.MOUNTAIN, n(6), 25);
+  blob(T.WATER, n(3), 30);
 
   // 地图边缘一圈山作为边界
   for (let x = 0; x < width; x++) { grid[0][x] = T.MOUNTAIN; grid[height - 1][x] = T.MOUNTAIN; }

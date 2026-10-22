@@ -99,11 +99,11 @@ export function initialFreePool(balance) { return [...(balance.initial_free_pool
  *   P* = 玩家面板战力 × U(power_vs_player)；先随机头目属性，再
  *   N = min(兵力上限, max(min_soldiers, round((P* − k_gen×Σ武力) / M)))，M = 1 + k_lead×主将统率 + k_str×Σ武力 + 物品%
  */
-export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx = indexBalance(balance), nextName }) {
+export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx = indexBalance(balance), nextName, powerRange = null }) {
   const sp = balance.spawn;
   const def = { id, faction: sp.faction, soldiers: 1, generals: ['generic'], items: [], position };
   const { team } = buildTeam(def, balance, rng, idx, nextName);
-  const [lo, hi] = sp.power_vs_player;
+  const [lo, hi] = powerRange ?? sp.power_vs_player; // v0.5：按章节（chapters.spawn_power_vs_player）
   const target = playerPower * (lo + rng() * (hi - lo));
   const p = balance.power, g = team.generals;
   const sumStr = g.reduce((s, x) => s + x.str, 0);

@@ -92,7 +92,8 @@ test('纯逻辑模拟：PartyModel + WorldModel + AI + v0.5 实时战斗（Field
   const pos = world.respawnPosition(player, balance, mulberry32(9));
   if (pos) assert.ok(world.isPassable(pos.x, pos.y) && Math.hypot(pos.x - player.x, pos.y - player.y) > balance.ai.vision_px);
   // 快照（含战斗快照）→ 存档 → 读档
-  const snap = snapshotWorld({ clock, state, player, aiParties: ai.filter(p => field.body(p.id)), spawnCounter: 0, names: nextBanditName.getState(), rngs, combat: field.serialize(), cameraZoom: 1, balance });
+  const snap = snapshotWorld({ clock, state, player, aiParties: ai.filter(p => field.body(p.id)), spawnCounter: 0, names: nextBanditName.getState(), rngs, combat: field.serialize(), cameraZoom: 1, balance,
+    run: (await import('../src/systems/run.js')).createRun({ runId: 'r1', runSeed: 11, cfg: (await import('../src/data/run_v05.json', { with: { type: 'json' } })).default }) });
   const save = makeSave(snap, { balance, mapSeed: MAP_SEED, reason: 'test' });
   const r = parseSave(JSON.stringify(save), { balance, mapSeed: MAP_SEED });
   assert.equal(r.save.player.team.position.x, player.x);

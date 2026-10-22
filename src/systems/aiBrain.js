@@ -25,9 +25,10 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
  * @param others [{ id, faction, power, x, y, isPlayer, invincible, inBattle }]
  * @param mem    { state, targetId, since, ignore: {id: untilSec} }
  * @param now    当前时间（秒）
+ * @param canChase(o) v0.5 追击许可（开局保护、名将坐镇/领地），默认都可以
  * @returns { state, targetId, since, ignore: {id: untilSec} }（新对象，不改入参）
  */
-export function decide({ self, others, mem, cfg, personality, now }) {
+export function decide({ self, others, mem, cfg, personality, now, canChase = () => true }) {
   const ignore = { ...(mem.ignore || {}) };
   for (const k of Object.keys(ignore)) if (ignore[k] <= now) delete ignore[k];
   const set = (state, targetId = null) => ({
@@ -41,7 +42,7 @@ export function decide({ self, others, mem, cfg, personality, now }) {
     .sort((a, b) => dist(self, a) - dist(self, b));
   const att = o => attitude(self.power, o.power, personality, cfg.chase_max_ratio ?? Infinity);
   const threat = visible.find(o => att(o) === 'flee');
-  const prey = visible.find(o => att(o) === 'chase');
+  const prey = visible.find(o => att(o) === 'chase' && canChase(o)); // v0.5：开局 90 s 不追玩家、名将坐镇 / 领地内追
   const homeDist = self.home ? dist(self, self.home) : 0;
   const idle = () => (homeDist > cfg.wander_radius_px * cfg.return_home_radius_mult ? set('return') : set('wander'));
 
@@ -57,11 +58,11 @@ export function decide({ self, others, mem, cfg, personality, now }) {
 
   if (mem.state === 'chase') {
     const t = others.find(o => o.id === mem.targetId);
-    const lost = !t || !valid(t);
+    const lost = !t || !valid(t) || !canChase(t);
     const giveUp = !lost && (dist(self, t) > cfg.chase_give_up_px || now - mem.since >= cfg.chase_max_s);
     if (!lost && !giveUp && att(t) !== 'flee') return set('chase', t.id);
     if (t) ignore[t.id] = now + cfg.ignore_target_s;
-    const next = visible.find(o => !ignore[o.id] && att(o) === 'chase');
+    const next = visible.find(o => !ignore[o.id] && att(o) === 'chase' && canChase(o));
     return next ? set('chase', next.id) : idle();
   }
 

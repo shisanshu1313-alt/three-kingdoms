@@ -38,12 +38,19 @@ export function mainGeneral(team, balance) {
   return best;
 }
 
-/** 面板战力：P = N × (1 + k_lead×主将统率 + k_str×Σ武力 + 物品战力%) + k_gen×Σ武力 */
+/** v0.5 武将擅长兵种（units.general_affinity）：主将擅长 = 队伍兵种时 M + m_bonus；没有 v0.5 配置时为 0 */
+export function affinityBonus(team, balance) {
+  const af = balance.v05?.units?.affinity; if (!af || !team.unit) return 0;
+  const mg = mainGeneral(team, balance);
+  return mg && af.table[mg.id] === team.unit ? af.m_bonus : 0;
+}
+
+/** 面板战力：P = N × (1 + k_lead×主将统率 + k_str×Σ武力 + 物品战力% + v0.5 擅长兵种) + k_gen×Σ武力 */
 export function computePower(team, balance) {
   const { k_lead, k_str, k_gen } = balance.power;
   const lead = mainGeneral(team, balance)?.lead ?? 0;
   const sumStr = sum(team.generals, g => g.str);
-  return team.soldiers * (1 + k_lead * lead + k_str * sumStr + itemEffect(team, balance, 'power_pct')) + k_gen * sumStr;
+  return team.soldiers * (1 + k_lead * lead + k_str * sumStr + itemEffect(team, balance, 'power_pct') + affinityBonus(team, balance)) + k_gen * sumStr;
 }
 
 /** 兵力上限 = soldier_cap_base + soldier_cap_per_lead × Σ统率(全队) + Σ物品 soldier_cap */

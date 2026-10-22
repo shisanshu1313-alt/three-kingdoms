@@ -154,10 +154,11 @@ export function snapshotWorld(s) {
     spawn: { counter: s.spawnCounter },
     timers: s.clock.getState().timers,
     names: s.names,
-    rng: { team: s.rngs.team.getState(), gacha: s.rngs.gacha.getState(), combat: s.rngs.combat.getState() },
+    rng: { team: s.rngs.team.getState(), gacha: s.rngs.gacha.getState(), combat: s.rngs.combat.getState(), ...(s.rngs.spawn ? { spawn: s.rngs.spawn.getState() } : {}) },
     battles: s.battleSystem ? s.battleSystem.serialize() : [],
     pairCooldowns: s.battleSystem ? [...s.battleSystem.pairCooldown].filter(([, until]) => until > now) : [],
     combat: s.combat ?? null, // v0.5 实时战斗快照（melee state + AI 战术记忆），读档原样继续
+    run: s.run ? structuredClone(s.run) : null, // v0.5 一局的状态（systems/run.js）
     camera: { zoom: s.cameraZoom }
   };
 }

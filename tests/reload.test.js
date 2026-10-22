@@ -25,7 +25,7 @@ function newGame(seed) {
   return { state, team, rng: mulberry32(seed) };
 }
 function saveLoad(g) {
-  const snap = { gameTimeMs: 0, state: g.state, player: { team: g.team }, ai: [], spawn: { counter: 0 }, names: { pool: [], n: 0 }, rng: { gacha: g.rng.getState() } };
+  const snap = { gameTimeMs: 0, state: g.state, player: { team: g.team }, ai: [], spawn: { counter: 0 }, names: { pool: [], n: 0 }, rng: { gacha: g.rng.getState() }, run: { runId: 'r', heroHp: 100, chapter: 0, namedDefeated: [] } };
   const { save } = parseSave(serialize(makeSave(snap, { balance, mapSeed: 184 })), ctx);
   const rng = mulberry32(0); rng.setState(save.rng.gacha);
   return { state: restoreGameState(save.state, createGameState(balance)), team: save.player.team, rng };

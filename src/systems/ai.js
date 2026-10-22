@@ -12,6 +12,8 @@ export default class AISystem {
     this.rng = rng;
     this.factions = Object.fromEntries(this.cfg.factions.map(f => [f.id, f]));
     this.tickAcc = Infinity; // 第一帧立即决策
+    // v0.5 追击规则（WorldScene 每 tick 由 run 层更新）：{ graceUntilS, namedIds:Set, namedLeashPx: null=坐镇不追 | px }
+    this.rules = { graceUntilS: 0, namedIds: new Set(), namedLeashPx: null };
     this.inSight = new Set();
   }
 
@@ -42,11 +44,28 @@ export default class AISystem {
     for (const p of aiParties) if (!p.inBattle) this.act(p, byId, dt, now, world);
   }
 
+  /** v0.5 追击许可：开局 grace_s 内不追玩家（来袭队除外）；名将军坐镇（null）或只追领地 home 半径内的目标 */
+  canChaseFn(p, nowS) {
+    const R = this.rules, home = p.team.home, named = R.namedIds.has(p.id);
+    return o => {
+      if (p.team.raid) return true;
+      if (o.isPlayer && nowS < R.graceUntilS) return false;
+      if (named) return R.namedLeashPx != null && !!home && Math.hypot(o.x - home.x, o.y - home.y) <= R.namedLeashPx;
+      return true;
+    };
+  }
+
   think(p, snaps, nowS) {
     const prev = p.ai.state, prevT = p.ai.targetId;
+    // 来袭队（fast_pace.first_battle）：直接冲向玩家，开打前不按战力比决策
+    if (p.team.raid) {
+      Object.assign(p.ai, { state: 'chase', targetId: 'player', since: p.ai.state === 'chase' ? p.ai.since : nowS });
+      if (prev !== 'chase') { p.ai.nextReplan = 0; p.clearPath(); console.log(`[ai] ${p.name}(${p.id}) 来袭 -> chase player`); }
+      return;
+    }
     const res = decide({
       self: { id: p.id, faction: p.faction, power: p.power, x: p.x, y: p.y, home: p.team.home },
-      others: snaps, mem: p.ai, cfg: this.cfg, personality: p.ai.personality, now: nowS
+      others: snaps, mem: p.ai, cfg: this.cfg, personality: p.ai.personality, now: nowS, canChase: this.canChaseFn(p, nowS)
     });
     Object.assign(p.ai, res);
     p.team.state = res.state;

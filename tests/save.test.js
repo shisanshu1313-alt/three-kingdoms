@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  SAVE_VERSION, makeSave, serialize, parseSave, loadSave, writeSave, clearSave, hasSave, migrate, validateSave,
+  SAVE_VERSION, SAVE_KEY, MIGRATIONS, makeSave, serialize, parseSave, loadSave, writeSave, clearSave, hasSave, migrate, validateSave,
   memToSave, memFromSave, restoreGameState, encodeGeneral, decodeGeneral
 } from '../src/systems/save.js';
 import { buildTeam, indexBalance, createNameAllocator } from '../src/systems/teams.js';
@@ -49,9 +49,17 @@ function sampleSnapshot() {
     rng: { team: rng.getState(), gacha: 123456, combat: 654321 },
     battles: [{ a: ai[0].id, b: ai[1].id, result: { outcome: 'a_wins', winner: ai[0].id, ratio: 1.5 }, startAt: 49000, endAt: 53000, lossOf: { [ai[0].id]: 3 }, startSoldiers: { [ai[0].id]: 100 } }],
     pairCooldowns: [['bandit_1|player', 52500]],
-    camera: { zoom: 1.3 }
+    camera: { zoom: 1.3 },
+    run: sampleRun()
   };
 }
+/** v0.5 一局的状态（systems/run.js createRun 的形状） */
+function sampleRun() {
+  return { runId: 'run-test', runSeed: 42, hard: false, startUnit: 'inf', chapter: 1, maxChapter: 1, raidDone: true, raidId: 'raid_1',
+    heroHp: 63.5, lastBattleEndS: 40, recruitAcc: 0, unitHistory: [{ t: 0, unit: 'inf' }], namedDefeated: ['wu_zhouyu'], maxPower: 210, battlesWon: 3, battles: 4, over: null };
+}
+/** 只在单测里用：v3 → v4 的过渡（正式版不迁移 v0.4 存档，见下面的 incompatible 测试），用来继续验证 v1→v3 的老迁移 */
+const ctxOld = { ...ctx, migrations: { ...MIGRATIONS, 3: s => ({ ...s, saveVersion: 4, run: sampleRun() }) } };
 const metaOf = s => ({ saveVersion: s.saveVersion, balanceVersion: s.balanceVersion, mapSeed: s.mapSeed, savedAt: s.savedAt, reason: s.reason });
 
 test('往返：snapshot → 存档 → JSON → 读档，与原快照深度相等（含进行中的战斗 / 抽卡待选择 / 随机数流）', () => {
@@ -143,7 +151,7 @@ test('损坏数据：非 JSON / 截断 / 非对象 / 缺版本号 / 字段非法
     badGachaPending: mod(o => { o.state.gachaPending = { next: 'item_full', itemId: 'laser_gun' }; })
   };
   for (const [name, text] of Object.entries(cases)) {
-    s.set('sanguo-save', text);
+    s.set(SAVE_KEY, text);
     const r = loadSave(ctx, s);
     assert.equal(r.ok, false, name); assert.equal(r.code, 'corrupt', name); assert.ok(r.message.length > 0, name);
   }
@@ -170,7 +178,7 @@ test('迁移 v2 → v3：成长值 = 存档属性 − 当前配置基础值（�
   v2.ai[0].team.generals[0] = { ...v2.ai[0].team.generals[0] };
   const lowId = v2.ai.map(a => a.team.generals).flat().find(g => !g.generic && g.id !== 'hero').id;
   for (const a of v2.ai) for (const g of a.team.generals) if (g.id === lowId) g.str = 1; // 比配置还低 → 成长 0
-  const { save } = parseSave(serialize(v2), ctx);
+  const { save } = parseSave(serialize(v2), ctxOld);
   assert.equal(save.saveVersion, SAVE_VERSION);
   assert.deepEqual(save.player, json(snap.player));
   assert.deepEqual(save.state.pendingGenerals, json(snap.state.pendingGenerals));
@@ -190,7 +198,7 @@ test('迁移 v1 → v3：剩余时长换成绝对时刻，武将换成成长值'
   v1.spawn = { counter: v2.spawn.counter, nextMs: v2.timers.respawn - T };
   delete v1.timers;
   v1.pairCooldowns = v2.pairCooldowns.map(([k, u]) => [k, u - T]);
-  const { save } = parseSave(serialize(v1), ctx);
+  const { save } = parseSave(serialize(v1), ctxOld);
   assert.equal(save.saveVersion, SAVE_VERSION);
   assert.deepEqual(save.player, json(snap.player));
   assert.deepEqual(save.ai, json(snap.ai));
@@ -222,4 +230,22 @@ test('平台存储：LocalStorageAdapter 包装 get/set/remove；node 里没有 
   const snap = sampleSnapshot();
   const save = makeSave(snap, { balance, mapSeed: MAP_SEED });
   writeSave(save, a); assert.deepEqual(loadSave(ctx, a).save, { ...metaOf(save), ...json(snap) });
+});
+
+test('v0.5：v3（v0.4）存档不迁移 → incompatible；旧键 sanguo-save 归档为 sanguo-save-legacy、不读取', async () => {
+  const { archiveLegacySave, LEGACY_KEY, LEGACY_ARCHIVE_KEY, SAVE_KEY } = await import('../src/systems/save.js');
+  const v3 = { ...makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED }), saveVersion: 3 }; delete v3.run;
+  assert.throws(() => parseSave(serialize(v3), ctx), e => e.code === 'incompatible');
+  const st = memStorage();
+  st.set(LEGACY_KEY, serialize(v3));
+  assert.equal(SAVE_KEY, 'sanguo-run-v1');
+  assert.equal(archiveLegacySave(st), true);
+  assert.equal(st.get(LEGACY_KEY), null); assert.equal(st.get(LEGACY_ARCHIVE_KEY), serialize(v3));
+  assert.equal(hasSave(st), false, '旧档不当作进行中的 run');
+  assert.equal(archiveLegacySave(st), false, '只归档一次');
+});
+
+test('v0.5：run 存档缺 run 字段 → corrupt', () => {
+  const save = makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED }); delete save.run;
+  assert.throws(() => parseSave(serialize(save), ctx), e => e.code === 'corrupt');
 });

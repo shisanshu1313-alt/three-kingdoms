@@ -15,9 +15,13 @@ import combatJson from '../data/combat_v05.json' with { type: 'json' };
 import { createGameState, pushLog } from '../systems/gameState.js';
 import { buildRespawnTeam } from '../systems/teams.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
-import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
+import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom, run as runCfg } from '../data/index.js';
 import { mulberry32 } from '../systems/rng.js';
-import { makeSave, writeSave, memFromSave, restoreGameState } from '../systems/save.js';
+import { makeSave, writeSave, clearSave, memFromSave, restoreGameState, META_KEY } from '../systems/save.js';
+import { createRun, runTick, checkFail, onPlayerBattleEnd, onNamedDefeated, runSummary, recordUnit, targetUnitFor } from '../systems/run.js';
+import { spawnPowerRange, counterAddOf } from '../systems/runConfig.js';
+import { applyRunResult, loadMeta, saveMeta } from '../systems/meta.js';
+import { DEBUG_HOOKS } from '../debug.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
 import { getLifecycle } from '../platform/lifecycle.js';
@@ -25,9 +29,11 @@ import { getLifecycle } from '../platform/lifecycle.js';
 export default class WorldScene extends Phaser.Scene {
   constructor() { super('World'); }
 
-  /** data.save：读档（已经过 parseSave 校验/迁移）；否则新游戏 */
+  /** data.save：读档（已经过 parseSave 校验/迁移）；否则新一局（data.newRun = 开局选项 { unit, general, item, hard }） */
   create(data = {}) {
     this.loadWarnings = data.warnings ?? [];
+    this.newRunOpts = data.newRun ?? {};
+    this.pendingEnd = null; this.ended = false;
     try {
       this.build(data.save ?? null);
     } catch (e) {
@@ -69,11 +75,19 @@ export default class WorldScene extends Phaser.Scene {
     this.fixedAcc = 0;
     this.fx = this.add.graphics().setDepth(9);
     this.minimap.ignore(this.fx);
+    // ---- 一局（systems/run.js）：runSeed（crypto）→ 各随机数流的种子（save_v05.new_fields：runSeed + 分流 RNG）----
+    const opts = this.newRunOpts;
+    if (save?.run) this.run = structuredClone(save.run);
+    else {
+      const runSeed = cryptoSeed();
+      this.run = createRun({ runId: `run-${Date.now().toString(36)}-${runSeed.toString(36)}`, runSeed, hard: !!opts.hard, startUnit: opts.unit ?? combatJson.confirmed.player_start_unit, cfg: runCfg });
+      this.run.opts = { ...opts };
+    }
+    const seedRng = mulberry32(this.run.runSeed >>> 0);
+    const newSeed = () => (seedRng() * 4294967296) >>> 0;
     // 存档决定 3：抽卡与战斗结算用各自的种子随机数流，状态随存档保存（读档不能重掷）
-    const newSeed = () => (Math.random() * 4294967296) >>> 0;
-    this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()) };
-    if (save?.rng?.gacha !== undefined) this.rngs.gacha.setState(save.rng.gacha);
-    if (save?.rng?.combat !== undefined) this.rngs.combat.setState(save.rng.combat);
+    this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()), spawn: mulberry32(newSeed()) };
+    for (const k of ['gacha', 'combat', 'spawn']) if (save?.rng?.[k] !== undefined) this.rngs[k].setState(save.rng[k]);
     const initField = () => {
       // v0.5 实时战斗（systems/fieldBattle.js + melee.step）；读档时恢复战斗快照
       this.field = new FieldBattle({ combatJson, balance, gameState: this.state, rng: this.rngs.combat, seed: newSeed(),
@@ -99,13 +113,15 @@ export default class WorldScene extends Phaser.Scene {
       initField();
       this.spawnCounter = 0;
       const teams = loadInitialTeams();
-      this.player = this.addParty(assignUnit(teams.player, combatJson, unitRng));
+      applyStartOptions(teams, opts);
+      this.player = this.addParty(assignUnit(teams.player, combatJson, unitRng, { playerUnit: this.run.startUnit }));
       teams.ai.forEach(t => this.addParty(assignUnit(t, combatJson, unitRng)));
     }
 
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s（游戏时间）检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
     const T = save?.timers ?? {};
+    this.applyChapter();
     this.clock.every('respawn', balance.spawn.respawn_interval_s * 1000, () => this.respawn(), T.respawn);
 
     // ---- 存档：定时（游戏时间）+ 事件后请求，战斗中/弹窗中延后；页面隐藏/关闭时能存就存 ----
@@ -167,7 +183,7 @@ export default class WorldScene extends Phaser.Scene {
    * 读档后原样继续 / 重新弹出选择窗口，不会回滚抽卡。
    */
   canSaveNow() {
-    return !!(this.player && this.field);
+    return !!(this.player && this.field && this.run && !this.run.over); // 一局结束后绝不再写（删档后不能被定时存档写回来）
   }
 
   /** 纯数据快照（存档格式见 systems/save.js；逻辑在 systems/world.js） */
@@ -175,7 +191,7 @@ export default class WorldScene extends Phaser.Scene {
     return snapshotWorld({
       clock: this.clock, state: this.state, player: this.player, aiParties: this.aiParties, spawnCounter: this.spawnCounter,
       names: nextBanditName.getState(), rngs: { team: teamRng, ...this.rngs }, combat: this.field.serialize(),
-      cameraZoom: this.cameras.main.zoom, balance
+      cameraZoom: this.cameras.main.zoom, balance, run: this.run
     });
   }
 
@@ -230,32 +246,134 @@ export default class WorldScene extends Phaser.Scene {
 
   /** 补充刷新：落点规则见 WorldModel.respawnPosition（spawn.position_rule） */
   respawn() {
-    if (this.aiParties.length >= balance.spawn.max_ai_teams) return null;
-    const pos = this.model.respawnPosition(this.player, balance, Math.random);
+    if (this.aiParties.length >= balance.spawn.max_ai_teams || this.run.over) return null;
+    const rng = this.rngs.spawn;
+    const pos = this.model.respawnPosition(this.player, balance, rng);
     if (!pos) { console.log('[spawn] 10 次未找到合法位置，跳过本次刷新'); return null; }
-    const n = ++this.spawnCounter;
+    const n = ++this.spawnCounter, r = this.run, tS = this.clock.now / 1000;
+    // 章节缩放（chapters.spawn_power_vs_player，群雄模式 +0.1）+ 黄巾兵种分布（第 3 章起针对玩家 60 s 前的兵种）
     const team = assignUnit(buildRespawnTeam({
-      id: `spawn_${n}`, position: pos, playerPower: this.player.power,
-      balance, rng: Math.random, idx: index, nextName: nextBanditName
-    }), combatJson, Math.random);
+      id: `spawn_${n}`, position: pos, playerPower: this.player.power, powerRange: spawnPowerRange(r.chapter, runCfg, r.hard),
+      balance, rng, idx: index, nextName: nextBanditName
+    }), combatJson, rng, { mix: runCfg.chapters[r.chapter].bandit_units, targetUnit: targetUnitFor(r, tS, runCfg, combatJson.move.counters) });
     const p = this.addParty(team);
-    console.log(`[spawn] ${p.name} 兵${team.soldiers} 战${Math.round(p.power)} (目标 ${Math.round(team.targetPower)})`);
+    console.log(`[spawn] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)} (目标 ${Math.round(team.targetPower)}, 第${r.chapter + 1}章)`);
     return p;
   }
+
+  /** 开局遭遇战（fast_pace.first_battle）：20 s 时在玩家 350–450 px 处刷一支 0.6–0.8 倍战力的黄巾，直冲玩家，无视新手保护 */
+  spawnRaid() {
+    const fb = runCfg.first_battle, rng = this.rngs.spawn, pl = this.player;
+    let pos = null;
+    for (let i = 0; i < 40 && !pos; i++) {
+      const ang = rng() * Math.PI * 2, d = fb.dist_px[0] + rng() * (fb.dist_px[1] - fb.dist_px[0]);
+      const x = pl.x + Math.cos(ang) * d, y = pl.y + Math.sin(ang) * d;
+      if (x > 20 && y > 20 && x < this.worldW - 20 && y < this.worldH - 20 && this.model.isPassable(x, y) && this.model.pathTo(pl, x, y)) pos = { x, y };
+    }
+    if (!pos) { console.log('[raid] 找不到落点，跳过开局遭遇战'); return null; }
+    const n = ++this.spawnCounter;
+    const team = assignUnit(buildRespawnTeam({ id: `raid_${n}`, position: pos, playerPower: pl.power, powerRange: fb.power_vs_player,
+      balance, rng, idx: index, nextName: nextBanditName }), combatJson, rng, { mix: runCfg.chapters[0].bandit_units });
+    team.raid = true;
+    const p = this.addParty(team);
+    this.run.raidId = p.id;
+    pushLog(this.state, `${p.name} 来袭！`, this.gameTime());
+    this.game.events.emit('run-event', { type: 'raid', name: p.name });
+    console.log(`[raid] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)} 距 ${Math.round(Math.hypot(pos.x - pl.x, pos.y - pl.y))}px`);
+    return p;
+  }
+
+  // ================= 一局（章节 / 失败 / 胜利） =================
+  /** 当前章节 → 战斗克制倍率、群雄模式加成、AI 追击规则（新手保护 90 s、名将军追击范围） */
+  applyChapter() {
+    const r = this.run, ch = runCfg.chapters[r.chapter];
+    this.field.state.chapter = r.chapter;
+    this.field.cfg.counterAdd = counterAddOf(runCfg, r.hard);
+    this.aiSystem.rules = { graceUntilS: runCfg.grace_s, namedIds: new Set(runCfg.run_goal.named), namedLeashPx: ch.named_chase_home_px };
+  }
+
+  inCity(p) {
+    const T = TILE_SIZE, R = runCfg.failure.city_radius_px;
+    return this.mapData.cities.some(c => Math.hypot((c.x + 0.5) * T - p.x, (c.y + 0.5) * T - p.y) <= R);
+  }
+
+  runStep(dt) {
+    const r = this.run, pl = this.player;
+    if (r.over) return;
+    const tS = this.clock.now / 1000;
+    recordUnit(r, tS, pl.team.unit);
+    const ev = runTick(r, tS, dt, { soldiers: pl.team.soldiers, cap: pl.cap, power: pl.power, inBattle: pl.inBattle, inCity: this.inCity(pl) }, runCfg);
+    for (const e of ev) {
+      if (e.type === 'chapter') {
+        this.applyChapter();
+        pushLog(this.state, `进入${e.chapter.name}`, this.gameTime());
+        this.game.events.emit('run-event', e);
+        this.requestSave('chapter'); // save_v05.autosave：换章时
+      } else if (e.type === 'raid') this.spawnRaid();
+      else if (e.type === 'recruit') { pl.team.soldiers += e.n; pl.refresh(); this.field.refresh(pl); }
+      else if (e.type === 'fail') this.endRun();
+    }
+  }
+
+  /** 放弃本局（暂停菜单）= 失败 */
+  abandonRun() {
+    if (this.run.over) return;
+    this.run.over = { result: 'defeat', reason: 'abandon', atS: this.clock.now / 1000 };
+    this.endRun();
+  }
+
+  /**
+   * 一局结束（save_v05.death）：先同步删除 run 存档 → 再写局外数据（按 runId 去重）→ 再显示结算。
+   * 胜利时 delete_on_victory 决定是否删档。
+   */
+  endRun() {
+    if (this.ended) return;
+    this.ended = true;
+    const r = this.run, tS = this.clock.now / 1000;
+    const summary = runSummary(r, r.over?.atS ?? tS, runCfg);
+    const st = getStorage();
+    if (r.over?.result !== 'victory' || runCfg.save.delete_on_victory) clearSave(st);
+    const { meta, newUnlocks } = applyRunResult(loadMeta(st, META_KEY), summary, runCfg);
+    saveMeta(st, META_KEY, meta);
+    console.log(`[run] 结束 ${summary.result} (${summary.reason}) 存活 ${Math.round(tS)}s 名望 ${summary.fame} 新解锁 ${newUnlocks.map(u => u.id).join(',') || '无'}`);
+    this.pendingEnd = { summary, newUnlocks: newUnlocks.map(u => ({ id: u.id, name: u.name })), meta, opts: r.opts ?? {} };
+  }
+
+  // ---- 开发 / 冒烟测试钩子（只在 DEBUG_HOOKS 构建里有效）----
+  /** 快进游戏时钟：按固定 tick 跑完整模拟 sec 秒（不是跳时间，战斗 / AI / 章节都照常发生） */
+  debugAdvance(sec) {
+    if (!DEBUG_HOOKS) return null;
+    const TICK = this.field.cfg.tick_s;
+    for (let i = 0; i < Math.round(sec / TICK) && !this.pendingEnd; i++) { for (const v of this.views.values()) v.beforeTick(); this.fixedTick(TICK); }
+    return this.clock.now / 1000;
+  }
+  debugSetHeroHp(hp) { if (!DEBUG_HOOKS) return null; this.run.heroHp = hp; return hp; }
 
   // ================= v0.5 实时战斗回调（FieldBattle 调用；这里只做表现 / 移除队伍 / 存档） =================
   combatHooks() {
     const playerIn = (...ps) => ps.some(p => p?.isPlayer);
     return {
       onEngage: (a, b) => {
+        for (const x of [a, b]) if (x?.team.raid) x.team.raid = false; // 来袭队接战后按普通 AI 行动
         EventBus.emit(EVENTS.BATTLE_START, { battle: { a, b } });
         if (playerIn(a, b)) this.trySaveNow('battle-start'); // 存档决定 1：开战即存（含战斗快照）
       },
       onEffect: (type, p, e) => { if (p) this.combatEffect(type, p, e); },
-      onBattleEnd: (battle, outcome) => {
+      onBattleEnd: (battle, outcome, e) => {
         for (const id of outcome.removeIds) { const p = this.parties.find(x => x.id === id); if (p) this.removeParty(p); }
         pushLog(this.state, outcome.text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
+        // 名将军被击败（玩家有伤害份额）→ 讨伐进度 / 胜利
+        const L = battle.b;
+        if (L && runCfg.run_goal.named.includes(L.id)) {
+          const share = e?.shares?.[this.player.id] ?? 0;
+          const ev = onNamedDefeated(this.run, L.id, share, this.clock.now / 1000, runCfg);
+          if (ev) {
+            pushLog(this.state, ev.type === 'victory' ? '四路名将尽数讨平！' : `讨平 ${L.name}（还剩 ${ev.left} 路）`, this.gameTime());
+            this.game.events.emit('run-event', { ...ev, name: L.name });
+            if (ev.type === 'victory') { this.endRun(); return; }
+          }
+        }
         this.requestSave('battle');
       },
       onEscape: (esc, from) => {
@@ -270,11 +388,22 @@ export default class WorldScene extends Phaser.Scene {
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
       },
-      onCombatEnd: (p) => { if (p.isPlayer) this.requestSave('battle'); },
+      onCombatEnd: (p, e) => {
+        if (!p.isPlayer || this.run.over) return;
+        // 失败规则 B：每场结束扣主角 HP
+        const tS = this.clock.now / 1000, dmg = onPlayerBattleEnd(this.run, e, tS, runCfg);
+        if (dmg > 0) {
+          pushLog(this.state, `主角负伤 −${Math.round(dmg)} HP（剩 ${Math.round(this.run.heroHp)}）`, this.gameTime());
+          this.game.events.emit('run-event', { type: 'hero-hit', dmg, hp: this.run.heroHp });
+        }
+        if (checkFail(this.run, p.team.soldiers, tS)) { this.endRun(); return; }
+        this.requestSave('battle');
+      },
       onPlayerWiped: (p) => {
-        const text = `全军覆没！（原型：v0.5 这里应进入失败结算；暂时保留 ${p.team.soldiers} 兵继续）`;
+        const text = '全军覆没！';
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a: p, b: null }, outcome: { text, playerDefeat: true } });
+        if (checkFail(this.run, 0, this.clock.now / 1000)) this.endRun(); // 兵力 0 → 本局失败
       }
     };
   }
@@ -399,6 +528,9 @@ export default class WorldScene extends Phaser.Scene {
     this.targetMarker.setVisible(!!pl.path);
     this.aiSystem.update(this.aiParties, this.parties, dt, time, this.model);
     this.field.tick(dt, this.combatEnv(), time);
+    if (this.pendingEnd) return;
+    this.runStep(dt);
+    if (this.pendingEnd) return;
     // save_v05.in_battle：玩家交战中每 1 s 写一次战斗快照
     if (pl.inBattle && time - (this.lastSaveAt ?? -1e9) >= 1000) this.trySaveNow('battle-snapshot');
   }
@@ -440,10 +572,16 @@ export default class WorldScene extends Phaser.Scene {
     // 本场景暂停时 update 不执行 → 全部冻结（v0.4 pause_scope）
     const TICK = this.field.cfg.tick_s * 1000;
     this.fixedAcc += Math.min(delta, 250);
-    while (this.fixedAcc >= TICK) {
+    while (this.fixedAcc >= TICK && !this.pendingEnd) {
       this.fixedAcc -= TICK;
       for (const v of this.views.values()) v.beforeTick();
       this.fixedTick(TICK / 1000);
+    }
+    if (this.pendingEnd) { // 结算（存档已删、局外数据已写）→ 结算画面
+      const d = this.pendingEnd; this.pendingEnd = null;
+      for (const k of ['Gacha', 'Roster', 'UI']) this.scene.stop(k);
+      this.scene.start('RunEnd', d);
+      return;
     }
     if (this.saveDirty && this.canSaveNow()) {
       const reason = this.saveDirty; this.saveDirty = null;
@@ -456,4 +594,20 @@ export default class WorldScene extends Phaser.Scene {
     this.layoutLabels();
     if (this.debugVision) this.drawDebug();
   }
+}
+
+/** 32 位随机种子：优先 crypto（save_v05：runSeed 用 crypto 生成） */
+function cryptoSeed() {
+  try { return globalThis.crypto.getRandomValues(new Uint32Array(1))[0]; } catch { return (Math.random() * 4294967296) >>> 0; }
+}
+
+/** 局外解锁的开局选项：随从（从原队伍移到玩家队）、开局物品（替换战鼓） */
+function applyStartOptions(teams, opts) {
+  const pl = teams.player;
+  if (opts.general) {
+    for (const t of teams.ai) t.generals = t.generals.filter(g => g.id !== opts.general);
+    const g = index.generalsById[opts.general];
+    if (g && !pl.generals.some(x => x.id === g.id)) pl.generals.push({ id: g.id, name: g.name, ...(g.tier ? { tier: g.tier } : {}), lead: g.lead, str: g.str, int: g.int, cha: g.cha });
+  }
+  if (opts.item && opts.item !== 'war_drum') pl.items = pl.items.map(i => (i === 'war_drum' ? opts.item : i));
 }

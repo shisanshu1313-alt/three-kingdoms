@@ -27,8 +27,27 @@
  * v1（存剩余时长）→ v2 见 MIGRATIONS[1]；v2（完整属性）→ v3（成长值）见 MIGRATIONS[2]。
  */
 
-export const SAVE_VERSION = 3;
-export const SAVE_KEY = 'sanguo-save';
+import runCfg from '../data/run_v05.json' with { type: 'json' };
+/**
+ * v4（v0.5 roguelike，save_v05）：单槽 run 存档（键 sanguo-run-v1），多了 run（runId / runSeed / 章节 / 主角 HP …）
+ * 和 combat（战斗快照）。v3 及更早（v0.4 键 sanguo-save）不迁移：首次启动改名为 sanguo-save-legacy 归档，不读取。
+ */
+export const SAVE_VERSION = 4;
+export const SAVE_KEY = runCfg.save.keys.run;
+export const META_KEY = runCfg.save.keys.meta;
+export const LEGACY_KEY = runCfg.save.keys.legacy_from;
+export const LEGACY_ARCHIVE_KEY = runCfg.save.keys.legacy_to;
+
+/** save_v05.keys.legacy：旧版（v0.4）存档改名归档，不读取。返回是否归档了旧档 */
+export function archiveLegacySave(storage) {
+  try {
+    const t = storage?.get(LEGACY_KEY);
+    if (t === null || t === undefined) return false;
+    storage.set(LEGACY_ARCHIVE_KEY, t);
+    storage.remove(LEGACY_KEY);
+    return true;
+  } catch { return false; }
+}
 
 /**
  * 迁移钩子：MIGRATIONS[v] 把 saveVersion=v 的存档升级到 v+1（返回新对象）。
@@ -227,6 +246,11 @@ export function validateSave(s, balance) {
   const cb = s.combat;
   need(cb == null || (cb.state && typeof cb.state.bodies === 'object' && isNum(cb.state.t) && typeof cb.state.pairs === 'object' &&
     Object.values(cb.state.bodies).every(b => b && ids.includes(b.id) && isNum(b.x) && isNum(b.y) && isNum(b.N0) && isNum(b.raw))), '战斗快照非法');
+  // v4：一局的状态（save_v05.fields_add）
+  if (s.saveVersion >= 4) {
+    const r = s.run;
+    need(r && typeof r === 'object' && typeof r.runId === 'string' && isNum(r.heroHp) && isInt(r.chapter) && Array.isArray(r.namedDefeated), '缺 run（一局的状态）');
+  }
   const gp = s.state?.gachaPending;
   need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)), '抽卡待选择非法');
   return errs;

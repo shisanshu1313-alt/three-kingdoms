@@ -38,8 +38,15 @@ export function teamStats(team, balance, cfg) {
   const n0 = Math.max(1e-9, team.soldiers);
   const M = team.soldiers > 0 ? (computePower(team, balance) - genTerm) / n0 : (computePower({ ...team, soldiers: 1 }, balance) - genTerm);
   const lead = mainGeneral(team, balance)?.lead ?? 50;
+  // v0.5 克制物品（units.counter_items）：dmg_taken_from {兵种: 减伤}；拒马（对骑兵）额外抵消冲锋
+  const takenFrom = {};
+  for (const id of team.items || []) {
+    const eff = balance.items.find(i => i.id === id)?.effect?.dmg_taken_from;
+    if (eff) for (const [k, v] of Object.entries(eff)) takenFrom[k] = (takenFrom[k] ?? 0) + v;
+  }
+  const noCharge = (team.items || []).includes('juma') ? ['cav'] : [];
   return {
-    M, genTerm,
+    M, genTerm, takenFrom, noCharge, drill: team.drill ?? 0,
     red: Math.min(balance.power.loss_reduction_total_cap, lossReduction(team, balance) + (u.red ?? 0)),
     leadMult: 1 + cfg.move.lead_speed_k * (lead - 50),
     // v0.4 速度公式的参数（兵数在 vmaxOf 里按当前值代入）
@@ -84,10 +91,17 @@ export function counterMult(cfg, chapter) {
   const arr = cfg.move.counter_mult_by_chapter;
   return arr[clamp(chapter | 0, 0, arr.length - 1)];
 }
+/** X 克 Y 时的倍率：counter_mult[章节] + 群雄模式加成 + 操练（drill × 0.05）；不克 = 1 */
+export function counterFactor(X, Y, cfg, chapter) {
+  if (cfg.move.counters[X.unit] !== Y.unit) return 1;
+  return counterMult(cfg, chapter) + (cfg.counterAdd ?? 0) + (X.stats?.drill ?? 0) * (cfg.drillAdd ?? 0.05);
+}
+/** Y 受 X 伤害的倍率（克制物品：1 − dmg_taken_from[X 兵种]） */
+export const takenMult = (Y, X) => 1 - Math.min(0.9, Y.stats?.takenFrom?.[X.unit] ?? 0);
 /** X 对 Y 的有效战力 */
 export function effPower(X, Y, cfg, chapter) {
   const u = unitDef(cfg, X.unit);
-  const counter = cfg.move.counters[X.unit] === Y.unit ? counterMult(cfg, chapter) : 1;
+  const counter = counterFactor(X, Y, cfg, chapter);
   return powerOf(X) * X.roll * u.sustain * counter;
 }
 
@@ -215,6 +229,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
     if (g.contact && !p.wasContact) {
       for (const [X, Y] of [[B[p.a], B[p.b]], [B[p.b], B[p.a]]]) {
         if (X.cd > 0 || X.routed) continue;
+        if (Y.stats?.noCharge?.includes(X.unit)) continue; // 拒马：抵消骑兵冲锋
         const vc = closing(X, Y, g.d);
         if (vc < MP.impact_min_closing * vmax[X.id]) continue;
         const ux = unitDef(cfg, X.unit), uy = unitDef(cfg, Y.unit);
@@ -225,7 +240,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
           X.shock += MP.impact_shock * (vc / 100); X.dis = MP.disorder_s;
           ev({ type: 'braced', id: X.id, by: Y.id, raw: dmg, vc });
         } else {
-          const dmg = MP.impact_k * (vc / 100) * ratio * (ux.charge ?? 1);
+          const dmg = MP.impact_k * (vc / 100) * ratio * (ux.charge ?? 1) * takenMult(Y, X);
           Y.raw += dmg; Y.contrib[X.id] = (Y.contrib[X.id] ?? 0) + dmg;
           Y.shock += MP.impact_shock * (vc / 100) * (ux.charge ?? 1); Y.dis = MP.disorder_s;
           ev({ type: 'impact', id: X.id, on: Y.id, raw: dmg, vc });
@@ -249,6 +264,8 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
       R += term; parts[y] = term;
     }
     let rate = Math.min(MP.rate_cap, MP.lam * Math.pow(R, MP.a));
+    // 克制物品：按各对手伤害份额加权的减伤（单个对手 = 1 − dmg_taken_from[对手兵种]）
+    rate *= C.reduce((sum, y) => sum + parts[y] * takenMult(X, B[y]), 0) / Math.max(1e-9, R);
     const rear = C.some(y => Math.abs(angDiff(Math.atan2(B[y].y - X.y, B[y].x - X.x), X.h)) > MP.rear_angle_deg * Math.PI / 180) && X.v > AS.rear_min_speed_frac * vmax[id];
     if (rear) rate *= MP.rear_mult;
     rawAdd[id] = { d: rate * dt, parts, R, rear };
@@ -265,7 +282,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
     const X = B[id], Y = B[tid], u = unitDef(cfg, X.unit);
     X.ammo = Math.max(0, X.ammo - dt);
     const mv = X.v > AS.arrow_moving_frac * vmax[id] ? u.move_shoot_mult : 1;
-    const rate = Math.min(MP.rate_cap, MP.lam * Math.pow(eff(id, tid) / Math.max(1e-9, eff(tid, id)), MP.a)) * u.shoot_mult * mv * (unitDef(cfg, Y.unit).arrow_taken ?? 1);
+    const rate = Math.min(MP.rate_cap, MP.lam * Math.pow(eff(id, tid) / Math.max(1e-9, eff(tid, id)), MP.a)) * u.shoot_mult * mv * (unitDef(cfg, Y.unit).arrow_taken ?? 1) * takenMult(Y, X);
     Y.raw += rate * dt; Y.contrib[id] = (Y.contrib[id] ?? 0) + rate * dt;
     X.shooting = tid;
   }
@@ -411,6 +428,7 @@ export function makeCombatConfig(combatJson, balance) {
   return {
     ...combatJson,
     rollMin: bt.random_min, rollMax: bt.random_max, drawRatio: bt.draw_ratio,
+    counterAdd: 0, drillAdd: balance.v05?.units?.drill?.add ?? 0.05,
     loserBase: bt.loser_loss_base, loserPer: bt.loser_loss_per_ratio, loserMax: bt.loser_loss_max
   };
 }

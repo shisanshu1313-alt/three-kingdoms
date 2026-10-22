@@ -4,7 +4,8 @@ import { MINIMAP_SIZE, TILE_SIZE, MAP_SEED } from '../config.js';
 import { loadSave } from '../systems/save.js';
 import { getStorage } from '../platform/storage.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
-import { balance } from '../data/index.js';
+import { balance, run as runCfg } from '../data/index.js';
+import { DEBUG_HOOKS } from '../debug.js';
 import { button } from '../ui/widgets.js';
 import { pullCost } from '../systems/gacha.js';
 import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
@@ -21,7 +22,7 @@ export default class UIScene extends Phaser.Scene {
     this.world = this.scene.get('World');
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · F5 存档 · F9 读档 · F1 调试（视野/路径）' + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -35,18 +36,30 @@ export default class UIScene extends Phaser.Scene {
     const openKey = KEY_CODES[(UI_CFG.open_key ?? 'G').toUpperCase()] ?? Phaser.Input.Keyboard.KeyCodes[(UI_CFG.open_key ?? 'G').toUpperCase()];
     const act = createSceneInput(this, {
       bindings: withKeys(DEFAULT_BINDINGS, ACTIONS.OPEN_GACHA, [openKey]), pointer: false,
-      capture: import.meta.env.DEV ? ['F2', 'F5', 'F9'] : ['F5', 'F9']
+      capture: DEBUG_HOOKS ? (import.meta.env.DEV ? ['F2', 'F5', 'F9'] : ['F5', 'F9']) : []
     });
-    act.on(ACTIONS.OPEN_GACHA, () => this.openGacha());
-    act.on(ACTIONS.SAVE, () => this.manualSave());
-    act.on(ACTIONS.LOAD, () => this.manualLoad());
+    act.on(ACTIONS.OPEN_GACHA, () => { if (!this.pauseUi) this.openGacha(); });
+    // save_v05.dev：F5 / F9 只在开发 / 冒烟构建里有（正式版只有自动存档）
+    if (DEBUG_HOOKS) { act.on(ACTIONS.SAVE, () => this.manualSave()); act.on(ACTIONS.LOAD, () => this.manualLoad()); }
+    // 暂停菜单：P 打开 / 关闭；菜单里 Y = 放弃本局（按失败结算）
+    act.on(ACTIONS.PAUSE, () => this.togglePause());
+    act.on(ACTIONS.YES, () => { if (this.pauseUi) { this.closePause(false); this.world.abandonRun(); return true; } });
+    act.on(ACTIONS.CANCEL, () => { if (this.pauseUi) { this.closePause(); return true; } });
+    const onRun = e => this.onRunEvent(e);
+    this.game.events.on('run-event', onRun);
+    this.events.once('shutdown', () => this.game.events.off('run-event', onRun));
     if (import.meta.env.DEV) { // 只在开发模式（npm run dev）注册；生产构建里整段被移除
       act.on(ACTIONS.DEBUG_POINTS, () => { this.world.debugGrantPoints(DEBUG_POINTS); this.toast(`【调试】点数 +${DEBUG_POINTS}`, '#88ccff', 14); });
     }
     const onSaved = ({ reason }) => { if (reason === 'manual') this.toast('已存档', '#aaffaa', 16); };
     this.game.events.on('game-saved', onSaved);
     this.events.once('shutdown', () => this.game.events.off('game-saved', onSaved));
-    if (data.loaded) this.time.delayedCall(100, () => { this.toast('已读取存档', '#aaffaa', 16); this.reopenPendingChoice(); });
+    if (data.loaded) this.time.delayedCall(100, () => {
+      this.toast('已读取存档', '#aaffaa', 16);
+      // save_v05.in_battle：读档时正在交战 → 暂停，倒计时 3 s 后“继续战斗”
+      if (this.world.player?.inBattle) this.resumeCountdown(runCfg.save.resume_countdown_s);
+      else this.reopenPendingChoice();
+    });
     for (const w of data.warnings ?? []) this.time.delayedCall(200, () => this.toast(w, '#ffdd55', 14));
     this.game.events.on('modal-closed', this.onModalClosed, this);
     this.events.once('shutdown', () => this.game.events.off('modal-closed', this.onModalClosed, this));
@@ -71,6 +84,58 @@ export default class UIScene extends Phaser.Scene {
     };
     for (const [ev, fn] of Object.entries(handlers)) EventBus.on(ev, fn);
     this.events.once('shutdown', () => { for (const [ev, fn] of Object.entries(handlers)) EventBus.off(ev, fn); });
+  }
+
+  // ================= v0.5 一局 =================
+  onRunEvent(e) {
+    if (e.type === 'chapter') this.banner(e.chapter.name, `克制倍率 ×${e.chapter.counter_mult} · 敌军更强了`, '#ffdd55');
+    else if (e.type === 'raid') this.toast(`⚠ ${e.name} 来袭！`, '#ff7744', 18);
+    else if (e.type === 'hero-hit') this.toast(`主角负伤 −${Math.round(e.dmg)} HP（剩 ${Math.round(e.hp)}）`, e.hp < 30 ? '#ff5555' : '#ffaa88', 16);
+    else if (e.type === 'named') this.banner(`讨平 ${e.name}`, `还剩 ${e.left} 路名将`, '#aaffaa');
+  }
+
+  /** 屏幕中央大字横幅（换章 / 讨平名将） */
+  banner(title, sub, color) {
+    const { width: w, height: h } = this.scale;
+    const c = this.add.container(w / 2, h * 0.3).setDepth(50);
+    c.add(this.add.rectangle(0, 0, 520, 90, 0x000000, 0.65).setStrokeStyle(2, 0xf1c40f));
+    c.add(this.add.text(0, -16, title, { fontFamily: 'sans-serif', fontSize: '30px', color, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5));
+    c.add(this.add.text(0, 22, sub, { fontFamily: 'sans-serif', fontSize: '15px', color: '#dddddd' }).setOrigin(0.5));
+    this.tweens.add({ targets: c, alpha: 0, delay: 2200, duration: 600, onComplete: () => c.destroy() });
+  }
+
+  togglePause() {
+    if (this.pauseUi) return this.closePause();
+    if (this.modalOpen() || this.countdownUi) return;
+    this.scene.pause('World');
+    const { width: w, height: h } = this.scale;
+    const c = this.add.container(0, 0).setDepth(60);
+    c.add(this.add.rectangle(0, 0, w, h, 0x000000, 0.6).setOrigin(0));
+    c.add(this.add.text(w / 2, h * 0.36, '暂停', { fontFamily: 'sans-serif', fontSize: '36px', color: '#ffffff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5));
+    c.add(button(this, w / 2 - 120, h * 0.45, 240, 44, '继续 [P / Esc]', () => this.closePause(), { color: 0x8e5a00, size: 17 }));
+    c.add(button(this, w / 2 - 120, h * 0.45 + 56, 240, 44, '放弃本局 [Y]', () => { this.closePause(false); this.world.abandonRun(); }, { color: 0x7f3b3b, size: 17 }));
+    c.add(this.add.text(w / 2, h * 0.45 + 116, '放弃 = 本局失败（存档删除，名望照常计入）', { fontFamily: 'sans-serif', fontSize: '13px', color: '#ffaaaa' }).setOrigin(0.5));
+    this.pauseUi = c;
+  }
+
+  closePause(resume = true) {
+    this.pauseUi?.destroy(); this.pauseUi = null;
+    if (resume && !this.modalOpen()) this.scene.resume('World');
+  }
+
+  /** 读档回到战斗中：暂停 n 秒倒计时（真实时间），然后继续 */
+  resumeCountdown(n) {
+    this.scene.pause('World');
+    const { width: w, height: h } = this.scale;
+    const t = this.add.text(w / 2, h * 0.4, '', { fontFamily: 'sans-serif', fontSize: '34px', color: '#ffdd55', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(60);
+    this.countdownUi = t;
+    let left = n;
+    const tick = () => {
+      if (left <= 0) { t.destroy(); this.countdownUi = null; this.scene.resume('World'); this.reopenPendingChoice(); return; }
+      t.setText(`继续战斗 ${left}`); left--;
+      this.time.delayedCall(1000, tick);
+    };
+    tick();
   }
 
   manualSave() {
@@ -174,7 +239,11 @@ export default class UIScene extends Phaser.Scene {
     }
     const shownN = b && inCombat(b) ? shownSoldiers(b) : p.soldiers;
     const spd = b ? vmaxOf(b, f.cfg) : p.moveSpeed();
+    const r = this.world.run, tS = now / 1000, ch = runCfg.chapters[r.chapter];
+    const grace = tS < runCfg.grace_s ? `  新手保护 ${Math.ceil(runCfg.grace_s - tS)}s` : '';
+    const fmt = x => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
     this.info.setText([
+      `${ch.name} ${fmt(tS)}/${runCfg.duration_min}:00  主角HP ${Math.ceil(r.heroHp)}/${runCfg.failure.hero_hp_max}  讨平名将 ${r.namedDefeated.length}/${runCfg.run_goal.named.length}${r.hard ? '  群雄模式' : ''}${grace}${this.world.inCity(p) ? '  城中（回血/征兵）' : ''}`,
       `坐标: (${tx}, ${ty})  像素: (${Math.round(p.x)}, ${Math.round(p.y)})`,
       `地形: ${t ? t.name : '-'}  速度×${t ? t.speed : 0}`,
       `点数: ${st.points}（下一抽 ${pullCost(st.gachaDraws, balance.gacha)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,

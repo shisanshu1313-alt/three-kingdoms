@@ -596,8 +596,8 @@
       ],
       "recommend": "A",
       "chosen": "A",
-      "status": "pending",
-      "note": "v0.3 先按 A 实现（ai.chase_max_ratio），待用户确认"
+      "status": "decided",
+      "note": "v0.3 先按 A 实现（ai.chase_max_ratio），待用户确认；2026-10-22 用户亲口确认按推荐"
     },
     {
       "id": "main_general",
@@ -608,8 +608,8 @@
       ],
       "recommend": "A",
       "chosen": "A",
-      "status": "pending",
-      "note": "v0.3 先按 A 实现（team_rules.main_general_rule），待用户确认"
+      "status": "decided",
+      "note": "v0.3 先按 A 实现（team_rules.main_general_rule），待用户确认；2026-10-22 用户亲口确认按推荐"
     },
     {
       "id": "chase_threshold_tuning",
