@@ -1,0 +1,1764 @@
+{
+ "_meta": {
+  "name": "三国像素开放世界 · v0.5 正式版（roguelike + 可撤退 + 兵种克制）",
+  "version": "0.5",
+  "date": "2026-10-22",
+  "status": "已定（2026-10-22 用户在群里亲口确认：全部按策划推荐来）",
+  "based_on": "balance_v0.4.json（本文件只写与 v0.4 不同或新增的部分；未提到的字段沿用 v0.4）",
+  "note": "v0.5 正式版，程序可按本文件实现；数值为初版，试玩后再调。r2 改动：战斗改为移动接触式（battle_move 取代 r1 的逐 tick 站桩战斗 battle_v05）、快节奏单局（fast_pace）、并入打磨清单第 1–4 条（polish_merged）、兵种克制按移动战斗重新验证。模拟：tools/sim_v05_move.py（2D 战斗）、tools/sim_v05_world.py（全图节奏/成长/死亡/通关）、tools/calc_move_mvp.py（算例）。结果在 tools/v05_runs/。",
+  "supersedes_pending": {
+   "defeat_penalty": "轻惩罚 → 失败即重开（failure）",
+   "battle_control": "纯数值结算 → 移动接触式实时战斗，撤退 = 拉开距离脱离接触（battle_move）",
+   "unit_counter": "不做克制 → 4 兵种循环克制（units）",
+   "run_length": "r1 推荐 45–60 分钟 → 20 分钟（fast_pace）",
+   "r1_tick_battle": "r1 的『两队停下按 tick 损兵 + 撤退掷骰』整体作废，由 battle_move 取代"
+  },
+  "removed_from_v04": [
+   "battle.player_defeat（keep_survivor_ratio / min_soldiers / invincible_s）",
+   "battle.zero_soldier_rule.player（兵数不少于 5 的保底）",
+   "battle.duration_*（时长不再由公式给定，由 tick 自然结束）",
+   "F5 手动存档、F9 任意读档（发布版）"
+  ],
+  "pending_from_v04": "已定（2026-10-22 用户在群里亲口确认\"按推荐\"）：主将 = 队内统率最高的武将（并列取数组靠前者）；ai.chase_max_ratio = 3",
+  "open_tuning": [
+   "弓兵风筝步兵在 0.9–1.0× 战力时胜负波动大",
+   "多队混战未模拟"
+  ]
+ },
+ "positioning": {
+  "genre": "roguelike：一局一条命，失败即删档重开",
+  "in_battle_control": "战斗中照常操控队伍移动：冲击、穿过、拉开再回头冲；只有接触时结算损伤；撤退就是拉开距离",
+  "status": "已定"
+ },
+ "failure": {
+  "options": [
+   {
+    "id": "A",
+    "title": "只看兵力",
+    "rule": "兵力归零即失败；没有主角 HP",
+    "pros": "最简单",
+    "cons": "连败几场只要还剩兵就没事，城池征兵后可无限重来，『打不过』不构成威胁"
+   },
+   {
+    "id": "B",
+    "title": "兵力 + 主角 HP（推荐）",
+    "rule": "兵力归零或主角 HP 归零即失败；HP 由本场伤亡、溃退和撤退失败扣减，脱战缓慢回复",
+    "pros": "一场惨败不一定死，但短时间连败会死；HP 让『打不过』有累积代价",
+    "cons": "多一条 HUD 和一套回复规则"
+   },
+   {
+    "id": "C",
+    "title": "只看主角 HP",
+    "rule": "兵力归零后主角单骑仍可逃，HP 归零才失败",
+    "pros": "最宽容",
+    "cons": "和『兵力归零即失败』矛盾，单骑状态要额外做表现"
+   }
+  ],
+  "recommend": "B",
+  "rules_B": {
+   "fail_when": "player.soldiers == 0 或 hero_hp <= 0（任一 tick 结束时检查，立即进入结算画面）",
+   "hero_hp_max": 100,
+   "hp_damage": "每场战斗结束时：hero_hp −= （不是胜利 ? 35 × 本场阵亡 / 战前兵数 : 0） + (发生溃逃 ? 20 : 0)",
+   "hero_hp_per_dead": 35,
+   "hero_hp_rout": 20,
+   "hero_hp_esc_fail": 5,
+   "hp_regen": {
+    "out_of_battle_per_min": 10,
+    "in_city_per_s": 2,
+    "_note": "在城池 200 px 内视为在城；战斗中和脱离后 5 s 内不回复"
+   },
+   "hp_example": "ex2：120 兵打夏侯惇 150 兵，打到溃退平均阵亡 54 → 约 −22 −20 −4 ≈ −46 HP；开局即撤平均阵亡 18、失败 0.4 次 → 约 −7.5 −2 ≈ −10 HP",
+   "soldier_floor_redesign": {
+    "v04": "玩家兵数任何时候不少于 5（删除）",
+    "v05": "兵数可以归零（= 失败）；改为城池征兵：玩家兵数 < recruit_floor 时，停留在任一城池 200 px 内，每 recruit_interval_s 秒 +1 兵，直到 recruit_floor",
+    "recruit_floor": 40,
+    "recruit_interval_s": 2,
+    "city_radius_px": 200,
+    "why": "保留『残部能慢慢恢复』的兜底，但不再免死；顺便给原型里只当地标的城池一个用途（小改代码）"
+   },
+   "hero_capture": "主角永不被俘（同 v0.4）",
+   "on_fail": "删除本局存档 → 写入局外数据（名望、战绩）→ 显示结算画面（存活时长、击败名将、最高战力、获得名望）→ 新的一局"
+  }
+ },
+ "units": {
+  "composition": {
+   "mvp": "单一兵种：一支队伍只有一个兵种字段 unit，全队士兵同兵种",
+   "later": "混编：按比例 2 种兵（例如 70% 枪 + 30% 弓），克制按比例加权；需要分兵界面，放到 MVP 之后",
+   "why_single": "实时战斗里一眼能看懂（一个图标一种颜色），克制计算和 AI 判断都只有一个变量；混编的收益主要在中后期配队，等 MVP 验证克制有感后再加"
+  },
+  "types": {
+   "inf": {
+    "name": "步兵（刀盾）",
+    "speed": 0.9,
+    "accel_s": 0.5,
+    "turn_dps": 270,
+    "charge": 0.4,
+    "sustain": 1.0,
+    "red": 0.05,
+    "arrow_taken": 0.6,
+    "role": "慢、耐打（减免 +0.05，受箭 ×0.6）；克枪兵，被弓兵克"
+   },
+   "cav": {
+    "name": "骑兵",
+    "speed": 1.25,
+    "accel_s": 1.0,
+    "turn_dps": 150,
+    "charge": 1.4,
+    "sustain": 0.95,
+    "red": 0.0,
+    "role": "最快，冲击 ×1.4；冲击-回撤；克弓兵，被枪兵克（撞列阵枪兵自己掉兵）"
+   },
+   "arc": {
+    "name": "弓兵",
+    "speed": 1.0,
+    "accel_s": 0.5,
+    "turn_dps": 270,
+    "charge": 0.4,
+    "sustain": 0.9,
+    "red": 0.0,
+    "range_px": 120,
+    "shoot_mult": 0.5,
+    "move_shoot_mult": 0.6,
+    "ammo_s": 12,
+    "role": "射程 120 px，边退边射（移动 ×0.6），弹药 12 s；克步兵，被骑兵克（骑兵比弓快，追得上）"
+   },
+   "spr": {
+    "name": "枪兵",
+    "speed": 0.95,
+    "accel_s": 0.6,
+    "turn_dps": 210,
+    "charge": 0.4,
+    "sustain": 1.0,
+    "red": 0.0,
+    "anti_charge": true,
+    "brace_reflect": 0.4,
+    "role": "反冲锋：骑兵冲击伤害 ×0.4 反弹给骑兵；克骑兵，被步兵克"
+   }
+  },
+  "counter_cycle": "枪 → 骑 → 弓 → 步 → 枪（箭头指向被克的一方）；骑-步、弓-枪 之间无克制",
+  "counters": {
+   "cav": "arc",
+   "arc": "inf",
+   "inf": "spr",
+   "spr": "cav"
+  },
+  "counter_apply": "克制方的有效战力 E × counter_mult(章节)；被克制方不额外削弱（单向）",
+  "counter_mult_by_chapter": [
+   1.0,
+   1.1,
+   1.25,
+   1.45
+  ],
+  "why_ramp": "倍率 1.0 → 1.1 → 1.25 → 1.45（20 分钟局在 0/4/9/14 分钟换章）。第 1 章倍率 1.0，克制只来自兵种机制（冲锋、风筝），而且第 1 章敌人只有玩家 0.4–0.9 倍、70% 是步兵，被克制和无克制胜率一样",
+  "general_affinity": {
+   "rule": "主将的擅长兵种 = 队伍兵种时，M（士兵战力系数）+0.10",
+   "table": {
+    "lvbu": "cav",
+    "zhangfei": "cav",
+    "huaxiong": "cav",
+    "guanyu": "spr",
+    "zhaoyun": "spr",
+    "caocao": "inf",
+    "xiahoudun": "inf",
+    "liaohua": "inf",
+    "zhouyu": "arc",
+    "zhugeliang": "arc",
+    "hero": null
+   }
+  },
+  "named_army_units": {
+   "wei_caocao": "inf",
+   "shu_guanyu": "spr",
+   "wu_zhouyu": "arc",
+   "qun_lvbu": "cav"
+  },
+  "change_unit": {
+   "gacha": "抽到『兵种令』：选择全队改为任一兵种（可选不改，返还 25 点）",
+   "city": "在城池 200 px 内『整编』：花 30 点，全队改为任一兵种，原地 5 s 不能移动",
+   "start": "开局兵种：步兵；其他开局兵种是局外解锁项（见 meta_progression B）"
+  },
+  "counter_items": [
+   {
+    "id": "juma",
+    "name": "拒马",
+    "effect": {
+     "dmg_taken_from": {
+      "cav": 0.25
+     }
+    },
+    "note": "受骑兵伤害 −25%，并抵消冲锋"
+   },
+   {
+    "id": "tengjia",
+    "name": "藤甲",
+    "effect": {
+     "dmg_taken_from": {
+      "arc": 0.25
+     }
+    },
+    "note": "受弓兵伤害 −25%（含齐射和放箭）"
+   },
+   {
+    "id": "zhongkai",
+    "name": "重铠",
+    "effect": {
+     "dmg_taken_from": {
+      "spr": 0.25
+     }
+    },
+    "note": "受枪兵伤害 −25%"
+   },
+   {
+    "id": "scout_flag",
+    "name": "斥候旗",
+    "effect": {
+     "scout_px": 200
+    },
+    "note": "侦察距离 +200 px"
+   }
+  ],
+  "scouting": {
+   "vision_px": 300,
+   "scout_px": 500,
+   "tiers": [
+    {
+     "range": "≤ 300 px（视野）",
+     "show": "兵种图标、精确兵数、战力对比色（绿 = 我方 ≥ 1.2 倍，黄 = 0.8~1.2，红 = < 0.8，按克制后的有效战力算）、克制箭头（绿↑ 我克他 / 红↓ 他克我）"
+    },
+    {
+     "range": "300~500 px（侦察）",
+     "show": "兵种图标、兵数约数（取整到 10）"
+    },
+    {
+     "range": "> 500 px 但在屏幕内",
+     "show": "只显示势力色旗，不显示兵种"
+    }
+   ],
+   "hover": "鼠标悬停队伍：在视野内显示完整面板（武将、兵种、物品、预计胜算 高/中/低）"
+  },
+  "counter_by_chapter_equal_power": [
+   {
+    "chapter": 1,
+    "counter_mult": 1.0,
+    "countering_win_equal": 74.3,
+    "countered_win_equal": 15.5,
+    "countered_need_x": 1.15,
+    "countered_need_by_pair": {
+     "arc被cav克": 1.31,
+     "inf被arc克": 1.16,
+     "spr被inf克": 1.02,
+     "cav被spr克": 1.1
+    }
+   },
+   {
+    "chapter": 2,
+    "counter_mult": 1.1,
+    "countering_win_equal": 92.0,
+    "countered_win_equal": 2.7,
+    "countered_need_x": 1.26,
+    "countered_need_by_pair": {
+     "arc被cav克": 1.43,
+     "inf被arc克": 1.28,
+     "spr被inf克": 1.12,
+     "cav被spr克": 1.22
+    }
+   },
+   {
+    "chapter": 3,
+    "counter_mult": 1.25,
+    "countering_win_equal": 100.0,
+    "countered_win_equal": 0.0,
+    "countered_need_x": 1.43,
+    "countered_need_by_pair": {
+     "arc被cav克": 1.64,
+     "inf被arc克": 1.46,
+     "spr被inf克": 1.25,
+     "cav被spr克": 1.39
+    }
+   },
+   {
+    "chapter": 4,
+    "counter_mult": 1.45,
+    "countering_win_equal": 100.0,
+    "countered_win_equal": 0.0,
+    "countered_need_x": 1.67,
+    "countered_need_by_pair": {
+     "arc被cav克": 1.92,
+     "inf被arc克": 1.7,
+     "spr被inf克": 1.46,
+     "cav被spr克": 1.61
+    }
+   }
+  ],
+  "counter_vs_typical_enemy": [
+   {
+    "chapter": 1,
+    "countered": 88.8,
+    "neutral": 85.8,
+    "countering": 100.0
+   },
+   {
+    "chapter": 2,
+    "countered": 60.8,
+    "neutral": 72.5,
+    "countering": 99.6
+   },
+   {
+    "chapter": 3,
+    "countered": 24.6,
+    "neutral": 60.8,
+    "countering": 99.2
+   },
+   {
+    "chapter": 4,
+    "countered": 0.8,
+    "neutral": 47.1,
+    "countering": 100.0
+   }
+  ],
+  "counter_conclusion": "对当期典型敌人：第 1 章被克制 88.8% 胜 / 无克制 85.8% / 克制对方 100%；第 4 章 0.8% / 47.1% / 100%。开局靠操作和人数能赢，后期不配队几乎必败"
+ },
+ "chapters": {
+  "rule": "按局内时间分 4 章（时长随 fast_pace.duration 缩放；20 分钟局 0/4/9/14 分钟）",
+  "list": [
+   {
+    "id": 1,
+    "name": "黄巾之乱",
+    "start_min_20": 0,
+    "counter_mult": 1.0,
+    "spawn_power_vs_player": [
+     0.4,
+     0.9
+    ],
+    "bandit_units": "70% 步兵，30% 四种均匀",
+    "named": "坐镇：不追玩家"
+   },
+   {
+    "id": 2,
+    "name": "群雄并起",
+    "start_min_20": 4,
+    "counter_mult": 1.1,
+    "spawn_power_vs_player": [
+     0.5,
+     1.0
+    ],
+    "bandit_units": "四种均匀",
+    "named": "坐镇"
+   },
+   {
+    "id": 3,
+    "name": "诸侯割据",
+    "start_min_20": 9,
+    "counter_mult": 1.25,
+    "spawn_power_vs_player": [
+     0.6,
+     1.15
+    ],
+    "bandit_units": "35% 取克制玩家『60 s 前兵种』的兵种",
+    "named": "领地内（home 420 px）追击"
+   },
+   {
+    "id": 4,
+    "name": "天下三分",
+    "start_min_20": 14,
+    "counter_mult": 1.45,
+    "spawn_power_vs_player": [
+     0.7,
+     1.3
+    ],
+    "bandit_units": "50% 针对",
+    "named": "领地内追击"
+   }
+  ],
+  "named_growth": "名将军按时间补兵（见 polish_merged.named_reinforce）",
+  "spawn_unit_targeting": "针对玩家 60 s 前的兵种（不是实时），换兵种后有 60 s 窗口；大地图上看得到"
+ },
+ "gacha_v05": {
+  "cost": "min(30 + 3n, 90)",
+  "weights": {
+   "attr_small": 44,
+   "attr_big": 13,
+   "item": 22,
+   "unit_order": 10,
+   "drill": 5,
+   "general_B": 0,
+   "general_A": 5,
+   "general_S": 1
+  },
+  "pool_notes": {
+   "attr_small": "attr_amount 2",
+   "attr_big": "attr_amount 5",
+   "item": "物品表 9 件等概率（含拒马/藤甲/重铠/斥候旗）",
+   "unit_order": "兵种令：全队改为任选兵种；不改返还 25 点",
+   "drill": "操练：克制倍率 +0.05，每局最多 3 次，换兵种清零"
+  },
+  "result_screen": "抽卡结果页显示 战力 旧 → 新（+差值），兵种令/操练显示对当前视野敌人的胜算变化",
+  "note": "2026-10-22 统一：唯一来源，旧的 50+5n/上限 200 和 38/12/25 权重已删除"
+ },
+ "meta_progression": {
+  "options": [
+   {
+    "id": "A",
+    "title": "纯 roguelike",
+    "keeps": "只留战绩：最高存活时长、最高战力、击败过的名将图鉴",
+    "pros": "最纯粹，平衡最好控",
+    "cons": "每局完全一样，前 10 分钟重复感强"
+   },
+   {
+    "id": "B",
+    "title": "解锁型 roguelite（推荐）",
+    "keeps": "名望 + 解锁项（只横向，不加数值）",
+    "unlocks": [
+     {
+      "item": "开局兵种：枪兵",
+      "cond": "任一局进入第 2 章（20 分钟局第 4 分钟）"
+     },
+     {
+      "item": "开局兵种：弓兵",
+      "cond": "击败周瑜军"
+     },
+     {
+      "item": "开局兵种：骑兵",
+      "cond": "击败吕布军"
+     },
+     {
+      "item": "开局随从：廖化（B）",
+      "cond": "累计名望 300"
+     },
+     {
+      "item": "开局物品可选：良马 / 兵书 / 招降旗 之一（替代战鼓）",
+      "cond": "累计名望 600"
+     },
+     {
+      "item": "群雄模式（难度 +1：刷新区间 +0.1、克制倍率 +0.05）",
+      "cond": "首次通关"
+     }
+    ],
+    "fame": "名望 = round(存活分钟 × 2 + 击败名将数 × 50 + 最高战力 / 10)；只用于判定累计门槛，不消耗",
+    "pros": "每局有新开局选择，难度曲线不被永久加成冲掉",
+    "cons": "要做局外界面和解锁存档（小）"
+   },
+   {
+    "id": "C",
+    "title": "数值型 roguelite",
+    "keeps": "名望可消耗，购买永久加成：开局兵 +5/级（5 级）、主角四项 +1/级（5 级）、开局点数 +25/级（4 级）",
+    "pros": "挫败感最低，菜也能慢慢变强",
+    "cons": "10 局后开局战力约 +40%，前期难度和死亡率要重调；克制前期『影响小』会更不明显"
+   }
+  ],
+  "recommend": "B"
+ },
+ "run_goal": {
+  "recommend": "A",
+  "options": [
+   {
+    "id": "A",
+    "title": "讨伐诸侯（推荐）",
+    "win": "击败曹操、关羽、周瑜、吕布 4 支名将军",
+    "expected_min": "12–20（20 分钟局）"
+   },
+   {
+    "id": "B",
+    "title": "章节生存 + 终战董卓",
+    "expected_min": "20"
+   },
+   {
+    "id": "C",
+    "title": "无尽 + 战功分"
+   }
+  ],
+  "named_power_v04": {
+   "wei_caocao": 297,
+   "qun_lvbu": 294,
+   "shu_guanyu": 266,
+   "wu_zhouyu": 181
+  }
+ },
+ "save_v05": {
+  "verdict": "同意 PM 建议：只保留一个进行中存档、死亡删档、发布版去掉 F9（以及 F5 手动存档），全部改为自动存档。补充 5 条细节，防止用刷新页面绕过死亡。",
+  "keys": {
+   "run": "sanguo-run-v1",
+   "meta": "sanguo-meta-v1",
+   "legacy": "sanguo-save（v0.4 旧档）：首次启动 v0.5 时提示『旧版存档不兼容，已归档』，改名为 sanguo-save-legacy，不读取"
+  },
+  "autosave_when": [
+   "战斗结束结算完（含待处理武将选完）",
+   "抽卡每次结果确认后",
+   "章节切换",
+   "战斗外每 30 s 游戏时间",
+   "visibilitychange 变为 hidden、pagehide"
+  ],
+  "in_battle": "战斗中每 1 s 写一次战斗快照（双方 N0/raw/brk/rolls/状态/撤退次数 + 所有 rng 状态）",
+  "close_page": "关页面或刷新：重开后读到快照，直接回到这场战斗并暂停，显示『继续战斗』3 s 倒计时；不能通过刷新回到战前",
+  "death": "先同步删除 run 存档，再写 meta（名望、战绩、解锁，带 runId 防重复累计），最后显示结算画面",
+  "seed": "新局用 crypto 随机生成 runSeed；地图、刷新、战斗、抽卡、AI 各用 hash(runSeed, 流名) 派生独立 rng，存档保存每条流的状态，读档不重新随机（沿用 v0.4）。种子显示在结算画面，以后可做『同种子挑战』",
+  "abandon": "暂停菜单『放弃本局』= 失败，同样删档并结算名望",
+  "dev": "开发版（import.meta.env.DEV 或 ?debug=1）保留 F5/F9 和任意快照，方便测试；发布版移除",
+  "fields_add": [
+   "runId",
+   "runSeed",
+   "rngStates{map,spawn,battle,gacha,ai}",
+   "gameTimeS",
+   "chapter",
+   "heroHp",
+   "player.unit",
+   "drillLevel",
+   "battleSnapshot|null",
+   "schemaVersion"
+  ],
+  "limitation": "玩家手动备份 localStorage 仍可绕过，单机网页不防"
+ },
+ "numeric_impact": {
+  "chase": "chase_max_ratio 保持 3；新手保护 90 s；名将军第 1–2 章坐镇（不追玩家），第 3 章起只在领地 420 px 内追",
+  "after_escape": "见 battle_move.mvp_fields.3_cooldown",
+  "recruit_capture": "只有敌方溃败才收编和俘获；头目不可俘"
+ },
+ "mvp": {
+  "must": [
+   "移动接触战斗：step(state,inputs,dt) 纯函数；接触判定、冲击、持续伤害、弓兵射击、士气/溃逃、撤退=拉开 150 px 持续 2 s、脱战保护 8 s、第三方加入与火力分配",
+   "4 兵种单一兵种 + 4 循环克制 + 章节倍率 1.0/1.1/1.25/1.45",
+   "AI 战术：骑兵冲击-回撤、弓兵风筝、枪兵列阵、按性格撤退、追击 3/6 s",
+   "快节奏：1600 地图、10 队、12 s 刷新、开局 20 s 来袭、90 s 保护、20 分钟章节表",
+   "打磨 1–4：头目不可俘、新卡池+结果页战力变化、校尉军、名将补兵",
+   "失败判定（兵 0 或 HP 0）、城池征兵、存档（单槽自动、战斗快照、死亡删档）",
+   "大地图兵种图标、视野/侦察显示、克制箭头、战斗 HUD（兵数条、士气条）"
+  ],
+  "later": [
+   "混编",
+   "主动绕后 AI、阵型、地形",
+   "操练卡、武将擅长兵种加成",
+   "局外解锁界面",
+   "同种子挑战",
+   "15/30 分钟模式（先只做 20）"
+  ]
+ },
+ "user_decisions": [
+  {
+   "id": "roguelike_pivot",
+   "title": "定位改为 roguelike，取代『战败轻惩罚』和『纯数值结算』",
+   "options": [
+    "改",
+    "不改"
+   ],
+   "recommend": "改",
+   "reason": "战败有代价才紧张；撤退让失败可以靠操作避免",
+   "status": "decided",
+   "decided": "改",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "battle_move",
+   "title": "战斗形式",
+   "options": [
+    "A 移动接触式（冲击 + 接触持续伤害，撤退=拉开距离）",
+    "B r1 的停下按 tick 损兵 + 撤退掷骰"
+   ],
+   "recommend": "A",
+   "reason": "克制能在操作里体现（骑兵冲锋、弓兵风筝、枪兵反冲锋）；站桩时结果与 v0.4 一致 96%",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "third_party",
+   "title": "第三方能否中途加入战斗",
+   "options": [
+    "A 允许，火力按对手战力比例分配",
+    "B 锁定，只能 1 对 1"
+   ],
+   "recommend": "A",
+   "reason": "实时移动下锁定要额外做穿透/隔离；一个公式统一，2 打 1 等价于合并",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "unit_counter_pivot",
+   "title": "做兵种克制，取代『不做克制』",
+   "options": [
+    "做",
+    "不做"
+   ],
+   "recommend": "做",
+   "reason": "后期必须提前配队，有具体抓手",
+   "status": "decided",
+   "decided": "做",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "counter_cycle",
+   "title": "克制关系",
+   "options": [
+    "A 4 循环 枪>骑>弓>步>枪",
+    "B 三角 + 步兵无克制"
+   ],
+   "recommend": "A",
+   "reason": "人人有天敌，后期针对对谁都有效",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "counter_ramp",
+   "title": "克制倍率随章节",
+   "options": [
+    "A 1.0/1.1/1.25/1.45",
+    "B 固定 1.25",
+    "C 固定 1.45"
+   ],
+   "recommend": "A",
+   "reason": "第 1 章被克制胜率与无克制相同（89% / 86%），第 4 章 1% / 47%",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "unit_composition",
+   "title": "队伍兵种",
+   "options": [
+    "A 单一兵种",
+    "B 混编"
+   ],
+   "recommend": "A",
+   "reason": "一眼看懂，实现简单",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "duration",
+   "title": "单局时长",
+   "options": [
+    "15 分钟",
+    "20 分钟",
+    "30 分钟"
+   ],
+   "recommend": "20 分钟",
+   "reason": "会换兵种的玩家 26% 通关（中位 12 分钟）；15 分钟太急，30 分钟太长",
+   "status": "decided",
+   "decided": "20 分钟",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "first_battle",
+   "title": "首战保证",
+   "options": [
+    "A 开局 20 s 来袭黄巾 + 90 s 不被追",
+    "B 只靠高密度刷新（92.5% 在 60 s 内）"
+   ],
+   "recommend": "A",
+   "reason": "100% 保证且仍保护新手",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "failure",
+   "title": "失败判定",
+   "options": [
+    "A 只看兵力",
+    "B 兵力 + 主角 HP",
+    "C 只看 HP"
+   ],
+   "recommend": "B",
+   "reason": "惨败一次不一定死，连败会死",
+   "status": "decided",
+   "decided": "B",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "meta_progression",
+   "title": "局外成长",
+   "options": [
+    "A 纯 roguelike",
+    "B 解锁型",
+    "C 数值型"
+   ],
+   "recommend": "B",
+   "reason": "每局有新开局，不冲掉难度曲线",
+   "status": "decided",
+   "decided": "B",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "run_goal",
+   "title": "一局目标",
+   "options": [
+    "A 讨伐 4 路名将",
+    "B 生存 + 终战董卓",
+    "C 无尽"
+   ],
+   "recommend": "A",
+   "reason": "复用现有名将队，后期必须靠克制",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  },
+  {
+   "id": "save",
+   "title": "存档",
+   "options": [
+    "A 单槽自动、死亡删档、战斗快照",
+    "B 保留手动存档"
+   ],
+   "recommend": "A",
+   "reason": "能读档 roguelike 就不成立",
+   "status": "decided",
+   "decided": "A",
+   "decided_on": "2026-10-22"
+  }
+ ],
+ "sim_results": {
+  "tools": [
+   "tools/sim_v05_move.py",
+   "tools/sim_v05_world.py",
+   "tools/calc_move_mvp.py"
+  ],
+  "files": [
+   "v05_runs/move_battle.json",
+   "v05_runs/move_counter.json",
+   "v05_runs/move_typical.json",
+   "v05_runs/move_mvp_examples.json",
+   "v05_runs/world_all.json"
+  ]
+ },
+ "move_params": {
+  "dt": 0.1,
+  "lam": 0.045,
+  "a": 1.1,
+  "rate_cap": 0.45,
+  "winner_break": 0.3,
+  "draw_break": 0.2,
+  "radius_base": 12,
+  "radius_per_sqrt_n": 0.6,
+  "contact_speed_mult": 0.6,
+  "units": {
+   "inf": {
+    "speed": 0.9,
+    "accel_s": 0.5,
+    "turn_dps": 270,
+    "charge": 0.4,
+    "sustain": 1.0,
+    "red": 0.05,
+    "arrow_taken": 0.6
+   },
+   "cav": {
+    "speed": 1.25,
+    "accel_s": 1.0,
+    "turn_dps": 150,
+    "charge": 1.4,
+    "sustain": 0.95,
+    "red": 0.0
+   },
+   "arc": {
+    "speed": 1.0,
+    "accel_s": 0.5,
+    "turn_dps": 270,
+    "charge": 0.4,
+    "sustain": 0.9,
+    "red": 0.0,
+    "range_px": 120,
+    "shoot_mult": 0.5,
+    "move_shoot_mult": 0.6,
+    "ammo_s": 12
+   },
+   "spr": {
+    "speed": 0.95,
+    "accel_s": 0.6,
+    "turn_dps": 210,
+    "charge": 0.4,
+    "sustain": 1.0,
+    "red": 0.0,
+    "anti_charge": true,
+    "brace_reflect": 0.4
+   }
+  },
+  "counters": {
+   "cav": "arc",
+   "arc": "inf",
+   "inf": "spr",
+   "spr": "cav"
+  },
+  "lead_speed_k": 0.002,
+  "impact_k": 0.02,
+  "impact_min_closing": 0.5,
+  "impact_shock": 14,
+  "charge_cd_s": 4.0,
+  "runup_px": 90,
+  "disorder_s": 1.5,
+  "disorder_mult": 0.75,
+  "rear_mult": 1.3,
+  "rear_angle_deg": 120,
+  "morale_rout": 30,
+  "morale_loss_span": 70,
+  "shock_regen_per_s": 5,
+  "escape_gap_px": 150,
+  "escape_s": 2.0,
+  "record_keep_s": 10,
+  "pursue_max_s": 3.0,
+  "pursue_fast_s": 6.0,
+  "rout_control_loss_s": 2.0,
+  "rout_speed_mult": 1.1,
+  "counter_mult_by_chapter": [
+   1.0,
+   1.1,
+   1.25,
+   1.45
+  ]
+ },
+ "battle_move": {
+  "status": "已定",
+  "summary": "战斗不再停下结算。双方队伍是圆形单位，在大地图上自由移动；两圆相交（接触）时才互相掉兵。接触瞬间按冲击速度结算一次冲击伤害，之后持续接触按每秒伤害结算（复用 r1 的 tick 公式，只在接触时生效）。撤退 = 拉开距离：离开接触且间隔 > 150 px 持续 2 s 即脱战。",
+  "pure_function": "step(state, inputs, dt=0.1) → state'：输入为每支队伍的期望朝向和期望速度（玩家来自摇杆/点击，AI 来自 ai_tactics），不读 Phaser；随机只用 state 里的 rng 流。渲染层每帧插值显示。",
+  "tick_s": 0.1,
+  "mvp_fields": {
+   "1_contact_damage": {
+    "contact": "两队距离 ≤ r_A + r_B 为接触；r = 12 + 0.6 × √兵数（px）。60 兵 r = 16.6，150 兵 r = 19.3",
+    "eff_power": "E_X = P_X(当前兵数) × roll_X × sustain_X × (X 克 Y ? counter_mult(章节) : 1)；roll 在首次接触时每方掷一次 U(0.9,1.1)，本场一直用",
+    "break_line": "首次接触时算 R0 = max(E)/min(E)：R0 < 1.05 两方 brk = 0.2（平局）；否则弱方 brk = min(0.8, 0.3 + 0.2 × (R0 − 1))，强方 0.3",
+    "sustain_formula": "每 tick：raw_X += min(0.45, 0.045 × (E_opp(X) / E_X)^1.1) × taken_X × (背击 ? 1.3 : 1) × (Y 阵型被冲散 ? 由 Y 的 E × 0.75 计) × dt",
+    "soldiers": "N_X = N0_X − N0_X × raw_X × (1 − 减免_X)；减免沿用 v0.4，步兵 +0.05，总和封顶 0.5；显示 round_half_up(N)",
+    "impact": "从不接触变为接触的那一 tick，若 X 的接近速度 vc ≥ 0.5 × X 最大速度 且 冲锋冷却已好：raw_Y += 0.02 × (vc/100) × (E_X/E_Y)^1.1 × charge_X × taken_Y；Y 冲击值 shock += 14 × (vc/100) × charge_X，Y 阵型冲散 1.5 s（期间 Y 输出 × 0.75）；X 冲锋冷却 4 s",
+    "anti_charge": "冲击方 charge > 1（骑兵）撞上枪兵：伤害反弹到骑兵 raw_X += 0.02 × (vc/100) × 0.4 ÷ (E_X/E_Y)^1.1，骑兵自己被冲散 1.5 s",
+    "archer": "弓兵不接触且间隙 ≤ 120 px：对目标每秒 raw += min(0.45, 0.045 × (E_A/E_T)^1.1) × 0.5 × (移动中 ? 0.6 : 1) × 目标 arrow_taken（步兵 0.6）；每场弹药 12 s，用完只能近战",
+    "rear": "Y 在 X 身后（X 朝向与 X→Y 方向夹角 > 120°）且 X 在移动：X 受到的持续伤害 × 1.3（撤退时被追砍就是这条）",
+    "example_sustain": "主角(统40武45，即基础主角)+30 步兵+战鼓 E=63.6 对 黄巾头目+25 步兵 E=50.75：R0=1.253，敌 brk=0.351。每秒 我方 raw +0.0351 → 掉 0.87 兵/s；敌 raw +0.0577 → 掉 1.28 兵/s；约 6.1 s 敌溃。站桩模拟：6.2 s 敌溃，我亡 5、敌亡 7（v0.4 一次性：5 / 8）",
+    "example_impact": "骑兵 60 以 118.8 px/s 撞步兵 60（同将）：raw +0.0314 → 步兵立刻掉 1.57 兵，shock +23.3，步兵 1.5 s 输出 ×0.75；同样速度撞列阵枪兵：骑兵自己 raw +0.0101"
+   },
+   "2_retreat": {
+    "how": "没有撤退按钮判定：玩家直接把队伍往外开即撤退（HUD 可给『撤退』快捷键 = 自动朝远离敌人方向全速）。AI 按 ai_tactics.retreat 条件开走",
+    "contact_speed": "接触中最大速度 × 0.6（被缠住）；离开接触后恢复",
+    "escape_rule": "双方间隙 > escape_gap_px(150) 持续 escape_s(2.0) 秒 → 战斗结束，撤离方 = 逃脱",
+    "time_needed": "同速对手追：约 5–8 s（含接触中拖慢）；被更快的骑兵追：对方追满 pursue_fast_s(6) 秒才放弃，约 9–12 s",
+    "damage_during": "撤退期间照常按接触公式掉兵，背对敌人且移动 → × 1.3（背击）；不接触就不掉兵（弓兵追射除外）",
+    "pursuit": "AI 追击 pursue_max_s = 3 s；若自己速度 ≥ 1.1 × 对方则追 pursue_fast_s = 6 s，然后放弃",
+    "rout": "士气 = 100 − 70 × raw/brk − shock；士气 < 30 溃逃：AI 直接判负（整队移除，溃兵可收编，武将判俘获）；玩家失控 2 s，自动以 × 1.1 速度逃离，2 s 后恢复操控",
+    "expected_cost_inf60": {
+     "被inf ×1.0 追": {
+      "loss_pct_mean": 19.0,
+      "escape_pct": 52.7,
+      "wipe_pct": 0.0,
+      "t_mean_s": 7.0
+     },
+     "被inf ×1.5 追": {
+      "loss_pct_mean": 36.0,
+      "escape_pct": 100.0,
+      "wipe_pct": 0.0,
+      "t_mean_s": 9.1
+     },
+     "被cav ×1.0 追": {
+      "loss_pct_mean": 23.2,
+      "escape_pct": 58.7,
+      "wipe_pct": 0.0,
+      "t_mean_s": 9.7
+     },
+     "被cav ×1.5 追": {
+      "loss_pct_mean": 52.0,
+      "escape_pct": 100.0,
+      "wipe_pct": 0.0,
+      "t_mean_s": 12.3
+     },
+     "被arc ×1.0 追": {
+      "loss_pct_mean": 15.3,
+      "escape_pct": 85.3,
+      "wipe_pct": 0.0,
+      "t_mean_s": 11.6
+     },
+     "被arc ×1.5 追": {
+      "loss_pct_mean": 6.8,
+      "escape_pct": 100.0,
+      "wipe_pct": 0.0,
+      "t_mean_s": 8.6
+     },
+     "被spr ×1.0 追": {
+      "loss_pct_mean": 19.1,
+      "escape_pct": 52.7,
+      "wipe_pct": 0.0,
+      "t_mean_s": 7.0
+     },
+     "被spr ×1.5 追": {
+      "loss_pct_mean": 36.7,
+      "escape_pct": 100.0,
+      "wipe_pct": 0.0,
+      "t_mean_s": 9.1
+     }
+    },
+    "expected_cost_note": "玩家步兵 60，开战 2 s 后撤，对手按最佳打法追。×1.0 时 escape_pct 只有 50–60% 是因为其余场次对手先被打溃（同战力 2 s 内就分出胜负）；×1.5 时 100% 逃脱但要付出 36%（步/枪追）到 52%（骑追）的兵"
+   },
+   "3_cooldown": {
+    "protect_s": 8,
+    "protect": "逃脱方 8 s『脱战保护』：不与任何敌队开始新接触（穿过不结算），队伍半透明；自己主动接触敌人（冲击或弓兵放箭）则立即取消",
+    "ignore_s": 20,
+    "ignore": "被甩掉的一方 20 s 内不把逃脱方当追击目标（AI 忽略名单）；同时正在追玩家的其他 AI 放弃 8 s",
+    "pair_cd_s": 10,
+    "pair_cd": "平局/分开（双方都没撤但间隙 > 150 px 持续 2 s）后，这一对 10 s 内再接触不结算",
+    "reengage": "保护结束后再被追上 = 新的一场：用当前兵数重算 R0 和 brk，士气重置为 100，raw 清零（损失已经体现在兵数上）；roll 重掷",
+    "charge_cd_s": 4,
+    "no_hp_regen_s": 5
+   },
+   "4_third_party": {
+    "recommend": "允许中途加入（MVP 就做）。大地图实时移动下锁定第三方需要额外的『穿透/隔离』表现，反而更难做；加入规则用一个公式就能统一",
+    "who_joins": "任何敌对队伍接触到任一参战方就加入（同势力不打，不同 AI 势力互相敌对，黄巾敌对所有人）。AI 只在下列情况主动加入：同势力友军在 vision 内处于劣势（r < 1）且自己赶到后合计 r ≥ chase_ratio；黄巾不救援",
+    "damage_split": "每 tick 对每支队伍 X：E_opp(X) = Σ_Y∈接触X E_Y × share_Y(X)，share_Y(X) = E_X / Σ_Z∈接触Y E_Z（Y 把火力按对手战力比例分给它接触的每个敌人）；raw_X += min(0.45, 0.045 × (E_opp(X)/E_X)^1.1) × dt。1 对 1 时退化为原公式；2 打 1 等价于把两队合并成一队",
+    "break_line": "参战成员变化时，对每方重算 brk（用新的 R），且不低于 已有 raw + 0.05",
+    "rewards": "敌队溃败时，点数按各方对它造成的 raw 份额分；收编和俘获归溃败瞬间与其接触、份额最大的一方",
+    "examples": {
+     "1v1 E=100 vs 100": {
+      "X": 0.045,
+      "Y": 0.045,
+      "R": {
+       "X": 1.0,
+       "Y": 1.0
+      }
+     },
+     "2v1 X=100 vs Y1=50,Y2=50": {
+      "X": 0.045,
+      "Y1": 0.045,
+      "Y2": 0.045,
+      "R": {
+       "X": 1.0,
+       "Y1": 1.0,
+       "Y2": 1.0
+      }
+     },
+     "2v1 X=100 vs Y1=100,Y2=60": {
+      "X": 0.0755,
+      "Y1": 0.0268,
+      "Y2": 0.0268,
+      "R": {
+       "X": 1.6,
+       "Y1": 0.625,
+       "Y2": 0.625
+      }
+     },
+     "merged check: X=100 vs Y=160": {
+      "X": 0.0755,
+      "Y": 0.0268,
+      "R": {
+       "X": 1.6,
+       "Y": 0.625
+      }
+     },
+     "三方混战 P=100 打 A=80，A 同时被 B=60 接触，B 只碰 A": {
+      "P": 0.021,
+      "A": 0.0965,
+      "B": 0.021,
+      "R": {
+       "P": 0.5,
+       "A": 2.0,
+       "B": 0.5
+      }
+     }
+    }
+   }
+  },
+  "speed": {
+   "formula": "v = v0.4 速度(兵数, 物品) × 兵种 speed × (1 + 0.002 × (主将统率 − 50))；加速到满速 accel_s 秒，转向 turn_dps，低于 30% 速度时转向 ×2",
+   "px_s_by_n": {
+    "inf": {
+     "20": 87.3,
+     "40": 86.4,
+     "60": 85.6,
+     "100": 83.8,
+     "150": 81.6
+    },
+    "cav": {
+     "20": 121.3,
+     "40": 120.0,
+     "60": 118.8,
+     "100": 116.4,
+     "150": 113.3
+    },
+    "arc": {
+     "20": 97.0,
+     "40": 96.0,
+     "60": 95.1,
+     "100": 93.1,
+     "150": 90.6
+    },
+    "spr": {
+     "20": 92.2,
+     "40": 91.2,
+     "60": 90.3,
+     "100": 88.4,
+     "150": 86.1
+    }
+   },
+   "units": {
+    "inf": {
+     "speed": 0.9,
+     "accel_s": 0.5,
+     "turn_dps": 270,
+     "charge": 0.4,
+     "sustain": 1.0,
+     "red": 0.05,
+     "arrow_taken": 0.6
+    },
+    "cav": {
+     "speed": 1.25,
+     "accel_s": 1.0,
+     "turn_dps": 150,
+     "charge": 1.4,
+     "sustain": 0.95,
+     "red": 0.0
+    },
+    "arc": {
+     "speed": 1.0,
+     "accel_s": 0.5,
+     "turn_dps": 270,
+     "charge": 0.4,
+     "sustain": 0.9,
+     "red": 0.0,
+     "range_px": 120,
+     "shoot_mult": 0.5,
+     "move_shoot_mult": 0.6,
+     "ammo_s": 12
+    },
+    "spr": {
+     "speed": 0.95,
+     "accel_s": 0.6,
+     "turn_dps": 210,
+     "charge": 0.4,
+     "sustain": 1.0,
+     "red": 0.0,
+     "anti_charge": true,
+     "brace_reflect": 0.4
+    }
+   }
+  },
+  "ai_tactics": {
+   "charge": "骑兵：距离 > 两半径 + 90 px 且冲锋冷却好 → 全速冲；接触 1 s 后穿过/拉开到 90 px 再冲（冲击-回撤）。目标是枪兵时改为 40% 速度慢慢贴上（不触发反冲锋）",
+   "flank": "MVP 不做主动绕后；背击只在对手转身撤退时触发",
+   "kite": "弓兵：对方不是骑兵时保持 72–114 px 间隙边退边射；弹药用完或对方是骑兵（更快）则站桩近战",
+   "hold": "枪兵：对方是骑兵时原地列阵等对方来",
+   "retreat": "当前有效战力比 r = E_self/E_opp ≤ r_th 且 raw ≥ loss_th → 朝远离方向全速撤：激进 0.5/0.25（群雄、黄巾）、普通 0.7/0.15（魏、吴）、谨慎 0.9/0.10（蜀）",
+   "chase": "r ≥ chase_ratio 才追；名将军只在自己领地（home 420 px）内追"
+  },
+  "validation": {
+   "tool": "tools/sim_v05_move.py battle（每格 120 场）",
+   "stand_vs_v04": {
+    "N": 600,
+    "outcome_agree_pct": 96.3,
+    "loss_err_median_pp": 1.19,
+    "loss_err_p90_pp": 4.0
+   },
+   "breakeven_ratio": {
+    "站桩对拼 步 vs 步": 1.01,
+    "步兵冲击-重整 vs 站桩步": 1.46,
+    "骑兵冲一次后站桩 vs 步": 0.81,
+    "骑兵反复冲锋 vs 站桩步": 0.74,
+    "骑兵反复冲锋 vs 列阵枪": 2.0,
+    "骑兵慢速接近 vs 列阵枪": 1.16,
+    "骑兵直追 vs 放风筝弓": 0.65,
+    "弓放风筝 vs 追击步": 0.69,
+    "弓站桩 vs 步": 1.05,
+    "枪 vs 步": 1.06
+   },
+   "conclusion": "等战力站桩对拼 50% 胜（与 v0.4 一致 96.3%）。骑兵反复冲击打站桩步兵，战力只要 0.74 倍就能 50% 胜：速度优势能赢；但 0.6 倍只有 4% 胜，不能无视战力差。步兵学骑兵冲击-回撤反而要 1.46 倍：冲击只对骑兵划算。骑兵冲列阵枪兵要 2.0 倍，慢慢贴上去要 1.16 倍"
+  },
+  "later": [
+   "主动绕后 AI",
+   "阵型（横阵/锥形）",
+   "地形减速",
+   "多兵种混编",
+   "士气受主将阵亡/友军溃败影响",
+   "冲锋路径上的多目标穿透"
+  ]
+ },
+ "fast_pace": {
+  "status": "已定",
+  "duration_options": [
+   {
+    "min": 15,
+    "chapters_min": [
+     0,
+     3,
+     6.75,
+     10.5
+    ]
+   },
+   {
+    "min": 20,
+    "chapters_min": [
+     0,
+     4,
+     9,
+     14
+    ],
+    "recommend": true
+   },
+   {
+    "min": 30,
+    "chapters_min": [
+     0,
+     6,
+     13.5,
+     21
+    ]
+   }
+  ],
+  "recommend": 20,
+  "why": "20 分钟局：会换兵种的玩家 26% 在 20 分钟内通关（中位 12 分钟）、36% 死亡；15 分钟局稳健玩家 15 分钟内死亡 58%，太急；30 分钟又回到『长』",
+  "scaling": "章节时间、名将补兵速度按 时长/20 缩放；抽卡价格和产出、刷新区间、克制倍率按章节走（不随时长变）",
+  "map": {
+   "map_px": 1600,
+   "v04_map_px": 3200,
+   "cities_scaled": 0.5,
+   "layout": {
+    "luoyang": [
+     800,
+     560
+    ],
+    "changan": [
+     300,
+     620
+    ],
+    "xuchang": [
+     1100,
+     900
+    ],
+    "chengdu": [
+     250,
+     1300
+    ],
+    "jianye": [
+     1400,
+     1300
+    ]
+   }
+  },
+  "density": {
+   "max_ai_teams": 10,
+   "respawn_s": 12,
+   "spawn_dist_px": [
+    400,
+    800
+   ],
+   "vision_px": 300,
+   "ai_wander_r_px": 300
+  },
+  "first_battle": {
+   "rule": "开局 20 s 刷一支『来袭』黄巾：玩家战力 0.6–0.8 倍、距离 350–450 px，直接冲向玩家（不受新手保护限制）",
+   "expected_s": "约 22–25 s（模拟用 5 s 触发，首战中位 7 s，100% 在 60 s 内）",
+   "without_raid": {
+    "first_battle_s_median": 15.5,
+    "first_battle_within_60s_pct": 92.5,
+    "idle_s_median": 13.5,
+    "idle_s_mean": 23.0,
+    "battles_per_10min": 19.2,
+    "dead_by_10": 1.2,
+    "dead_by_15": 1.2,
+    "dead_by_20": 1.2,
+    "dead_by_30": 1.2,
+    "clear_by_15": 2.5,
+    "clear_by_20": 2.5,
+    "clear_by_30": 2.5,
+    "clear_min_median": 9.5,
+    "switches_mean": 0,
+    "P5": [
+     98,
+     120,
+     172
+    ],
+    "P10": [
+     104,
+     150,
+     229
+    ]
+   }
+  },
+  "grace": {
+   "rule": "开局 90 s 内除『来袭』外 AI 不主动追玩家（r1 的 180 s 缩短）；玩家主动去打不受限",
+   "reconcile": "『1 分钟内必有战斗』靠来袭队保证，『不被追』照旧保护新手；两条不冲突"
+  },
+  "idle_by_map": {
+   "v0.4 地图（3200，12 队，30 s，700~1400）": {
+    "first_battle_s_median": 37.5,
+    "first_battle_within_60s_pct": 61.2,
+    "idle_s_median": 18.5,
+    "idle_s_mean": 38.7,
+    "battles_per_10min": 11.7,
+    "dead_by_10": 5.0,
+    "dead_by_15": 5.0,
+    "dead_by_20": 5.0,
+    "dead_by_30": 5.0,
+    "clear_by_15": 0.0,
+    "clear_by_20": 0.0,
+    "clear_by_30": 0.0,
+    "clear_min_median": null,
+    "switches_mean": 0,
+    "P5": [
+     86,
+     98,
+     139
+    ],
+    "P10": [
+     104,
+     134,
+     176
+    ]
+   },
+   "中间（2000，10 队，15 s，500~1000）": {
+    "first_battle_s_median": 7.5,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 14.5,
+    "idle_s_mean": 25.8,
+    "battles_per_10min": 17.1,
+    "dead_by_10": 1.2,
+    "dead_by_15": 1.2,
+    "dead_by_20": 1.2,
+    "dead_by_30": 1.2,
+    "clear_by_15": 0.0,
+    "clear_by_20": 0.0,
+    "clear_by_30": 0.0,
+    "clear_min_median": null,
+    "switches_mean": 0,
+    "P5": [
+     92,
+     108,
+     143
+    ],
+    "P10": [
+     97,
+     131,
+     202
+    ]
+   },
+   "推荐（1600，10 队，12 s，400~800）": {
+    "first_battle_s_median": 7.5,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 13.0,
+    "idle_s_mean": 22.8,
+    "battles_per_10min": 20.3,
+    "dead_by_10": 8.8,
+    "dead_by_15": 8.8,
+    "dead_by_20": 8.8,
+    "dead_by_30": 8.8,
+    "clear_by_15": 1.2,
+    "clear_by_20": 1.2,
+    "clear_by_30": 1.2,
+    "clear_min_median": 9.0,
+    "switches_mean": 0,
+    "P5": [
+     98,
+     118,
+     203
+    ],
+    "P10": [
+     116,
+     165,
+     422
+    ]
+   },
+   "推荐但不加首战来袭": {
+    "first_battle_s_median": 15.5,
+    "first_battle_within_60s_pct": 92.5,
+    "idle_s_median": 13.5,
+    "idle_s_mean": 23.0,
+    "battles_per_10min": 19.2,
+    "dead_by_10": 1.2,
+    "dead_by_15": 1.2,
+    "dead_by_20": 1.2,
+    "dead_by_30": 1.2,
+    "clear_by_15": 2.5,
+    "clear_by_20": 2.5,
+    "clear_by_30": 2.5,
+    "clear_min_median": 9.5,
+    "switches_mean": 0,
+    "P5": [
+     98,
+     120,
+     172
+    ],
+    "P10": [
+     104,
+     150,
+     229
+    ]
+   }
+  },
+  "runs": {
+   "15min_steady": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 12.0,
+    "idle_s_mean": 26.4,
+    "battles_per_10min": 19.5,
+    "dead_by_10": 20.0,
+    "dead_by_15": 57.5,
+    "dead_by_20": 66.2,
+    "dead_by_30": 76.2,
+    "clear_by_15": 2.5,
+    "clear_by_20": 5.0,
+    "clear_by_30": 6.2,
+    "clear_min_median": 15.0,
+    "switches_mean": 0,
+    "P5": [
+     99,
+     135,
+     189
+    ],
+    "P10": [
+     96,
+     151,
+     289
+    ],
+    "P15": [
+     80,
+     162,
+     950
+    ],
+    "P20": [
+     103,
+     173,
+     434
+    ]
+   },
+   "15min_switcher": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 10.5,
+    "idle_s_mean": 22.5,
+    "battles_per_10min": 21.4,
+    "dead_by_10": 8.8,
+    "dead_by_15": 28.8,
+    "dead_by_20": 35.0,
+    "dead_by_30": 43.8,
+    "clear_by_15": 17.5,
+    "clear_by_20": 21.2,
+    "clear_by_30": 23.8,
+    "clear_min_median": 11.9,
+    "switches_mean": 2.46,
+    "P5": [
+     104,
+     145,
+     241
+    ],
+    "P10": [
+     83,
+     143,
+     291
+    ],
+    "P15": [
+     81,
+     147,
+     461
+    ],
+    "P20": [
+     83,
+     158,
+     238
+    ]
+   },
+   "15min_rash": {
+    "first_battle_s_median": 5.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 8.0,
+    "idle_s_mean": 12.4,
+    "battles_per_10min": 49.2,
+    "dead_by_10": 98.8,
+    "dead_by_15": 98.8,
+    "dead_by_20": 98.8,
+    "dead_by_30": 98.8,
+    "clear_by_15": 0.0,
+    "clear_by_20": 0.0,
+    "clear_by_30": 0.0,
+    "clear_min_median": null,
+    "switches_mean": 0,
+    "P5": [
+     78,
+     81,
+     91
+    ],
+    "P10": [
+     526,
+     526,
+     526
+    ],
+    "P15": [
+     526,
+     526,
+     526
+    ],
+    "P20": [
+     526,
+     526,
+     526
+    ]
+   },
+   "20min_steady": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 13.0,
+    "idle_s_mean": 26.6,
+    "battles_per_10min": 18.4,
+    "dead_by_10": 6.2,
+    "dead_by_15": 28.8,
+    "dead_by_20": 51.2,
+    "dead_by_30": 67.5,
+    "clear_by_15": 6.2,
+    "clear_by_20": 10.0,
+    "clear_by_30": 11.2,
+    "clear_min_median": 14.0,
+    "switches_mean": 0,
+    "P5": [
+     103,
+     130,
+     181
+    ],
+    "P10": [
+     110,
+     167,
+     243
+    ],
+    "P15": [
+     115,
+     162,
+     492
+    ],
+    "P20": [
+     109,
+     138,
+     182
+    ]
+   },
+   "20min_switcher": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 10.5,
+    "idle_s_mean": 23.0,
+    "battles_per_10min": 21.8,
+    "dead_by_10": 3.8,
+    "dead_by_15": 17.5,
+    "dead_by_20": 36.2,
+    "dead_by_30": 47.5,
+    "clear_by_15": 22.5,
+    "clear_by_20": 26.2,
+    "clear_by_30": 28.8,
+    "clear_min_median": 12.2,
+    "switches_mean": 2.88,
+    "P5": [
+     108,
+     145,
+     231
+    ],
+    "P10": [
+     132,
+     186,
+     425
+    ],
+    "P15": [
+     89,
+     162,
+     485
+    ],
+    "P20": [
+     78,
+     170,
+     425
+    ]
+   },
+   "20min_rash": {
+    "first_battle_s_median": 5.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 8.0,
+    "idle_s_mean": 14.4,
+    "battles_per_10min": 49.2,
+    "dead_by_10": 92.5,
+    "dead_by_15": 97.5,
+    "dead_by_20": 100.0,
+    "dead_by_30": 100.0,
+    "clear_by_15": 0.0,
+    "clear_by_20": 0.0,
+    "clear_by_30": 0.0,
+    "clear_min_median": null,
+    "switches_mean": 0,
+    "P5": [
+     78,
+     84,
+     304
+    ],
+    "P10": [
+     89,
+     93,
+     508
+    ],
+    "P15": [
+     193,
+     726,
+     1258
+    ]
+   },
+   "30min_steady": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 12.5,
+    "idle_s_mean": 27.0,
+    "battles_per_10min": 18.3,
+    "dead_by_10": 2.5,
+    "dead_by_15": 6.2,
+    "dead_by_20": 31.2,
+    "dead_by_30": 51.2,
+    "clear_by_15": 8.8,
+    "clear_by_20": 13.8,
+    "clear_by_30": 22.5,
+    "clear_min_median": 18.0,
+    "switches_mean": 0,
+    "P5": [
+     100,
+     127,
+     197
+    ],
+    "P10": [
+     116,
+     164,
+     292
+    ],
+    "P15": [
+     122,
+     196,
+     475
+    ],
+    "P20": [
+     157,
+     229,
+     580
+    ]
+   },
+   "30min_switcher": {
+    "first_battle_s_median": 7.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 11.0,
+    "idle_s_mean": 24.5,
+    "battles_per_10min": 22.1,
+    "dead_by_10": 2.5,
+    "dead_by_15": 5.0,
+    "dead_by_20": 17.5,
+    "dead_by_30": 28.8,
+    "clear_by_15": 16.2,
+    "clear_by_20": 26.2,
+    "clear_by_30": 36.2,
+    "clear_min_median": 17.8,
+    "switches_mean": 3.96,
+    "P5": [
+     101,
+     140,
+     222
+    ],
+    "P10": [
+     131,
+     203,
+     441
+    ],
+    "P15": [
+     165,
+     244,
+     676
+    ],
+    "P20": [
+     165,
+     299,
+     751
+    ]
+   },
+   "30min_rash": {
+    "first_battle_s_median": 5.0,
+    "first_battle_within_60s_pct": 100.0,
+    "idle_s_median": 8.0,
+    "idle_s_mean": 18.2,
+    "battles_per_10min": 48.8,
+    "dead_by_10": 92.5,
+    "dead_by_15": 93.8,
+    "dead_by_20": 100.0,
+    "dead_by_30": 100.0,
+    "clear_by_15": 0.0,
+    "clear_by_20": 0.0,
+    "clear_by_30": 0.0,
+    "clear_min_median": null,
+    "switches_mean": 0,
+    "P5": [
+     77,
+     80,
+     91
+    ],
+    "P10": [
+     77,
+     80,
+     91
+    ],
+    "P15": [
+     101,
+     113,
+     118
+    ]
+   }
+  },
+  "idle_note": "空闲 = 上一场结束到下一场开始；中位 11–13 s、平均 23–27 s（偶尔回城休整拉高平均）。v0.4 地图中位 18.5 s、首战 60 s 内只有 61%",
+  "growth_tuning": {
+   "gacha_cost": "min(30 + 3 × 已抽次数, 90)（v0.4：50 + 5n 封顶 200）",
+   "points": "round_half_up(8 + 0.45 × 敌战力)（约 v0.4 的 1.5 倍）",
+   "recruit_base": 0.45,
+   "recruit_floor": 40,
+   "city_recruit_per_s": 0.5,
+   "hero_hp_per_dead": 35,
+   "hp_regen_per_min": 10,
+   "city_hp_per_s": 2
+  },
+  "strategies": {
+   "steady": "看战力和克制挑仗，劣势就撤，去打能赢的名将军",
+   "switcher": "同 steady，另外用兵种令换成克制敌人针对兵种的兵种；点数 ≥ 30 时去城池整编成克制最弱名将军的兵种",
+   "rash": "见谁打谁（包括名将军），从不撤退：下限参考"
+  },
+  "caveat": "全图模拟用站桩等价的快速结算（不含冲击/风筝的操作收益），模拟玩家也比真人笨，死亡率偏高、通关率偏低，看相对差异"
+ },
+ "polish_merged": {
+  "status": "已定（随 v0.5 一起，用户 2026-10-22 说\"全部按策划推荐来\"）",
+  "1_bandit_head_no_capture": {
+   "rule": "黄巾头目不可俘获：factions.bandit.generic_capturable = false；头目不进卡池",
+   "effect": "成长模拟按不可俘重跑（world sim capture_heads=False）；r1 成长偏快的主因去掉了"
+  },
+  "2_gacha": {
+   "see": "gacha_v05"
+  },
+  "3_faction_refill": {
+   "rule": "势力（魏蜀吴群）没被讨伐且场上没有该势力队伍时，下一次刷新改为在其大本营刷一支『校尉军』：武将统武 60–80、智魅 40–70，兵种 = 势力兵种，战力 = max(120, 玩家战力) × U(0.8,1.2)",
+   "note": "击败名将军（主力）才算讨伐该势力；校尉军不计入通关",
+   "counts_when_named_lost": true,
+   "counts_note": "名将军被其他 AI 打掉后，该势力之后的校尉军被玩家击败即算讨伐该势力（否则无法通关）"
+  },
+  "4_named_reinforce": {
+   "rule": "名将军每分钟 +3 兵（20 分钟局；按 20/时长 缩放），不超过兵力上限；被打掉的兵按同一速度慢慢补回",
+   "v04": "不补兵",
+   "in_battle": "交战中暂停补兵计时，战斗结束后不补算错过的时间"
+  }
+ },
+ "_sim_params": {
+  "tick_s": 0.5,
+  "lam": 0.045,
+  "a": 1.1,
+  "rate_cap": 0.45,
+  "winner_break": 0.3,
+  "draw_break": 0.2,
+  "disengage_s": 1.5,
+  "disengage_loss_mult": 1.25,
+  "esc_base": 0.6,
+  "esc_k_speed": 1.0,
+  "esc_min": 0.25,
+  "esc_max": 0.95,
+  "esc_fail_bonus": 0.15,
+  "esc_fail_loss": 0.06,
+  "rout_esc_mult": 0.7,
+  "pursuit_window_s": 10,
+  "fled_dmg_mult": 0.6,
+  "hero_hp": 100,
+  "hero_hp_per_dead": 50,
+  "hero_hp_rout": 20,
+  "hero_hp_esc_fail": 5,
+  "hero_regen_per_min": 10,
+  "units": {
+   "inf": {
+    "speed": 0.9,
+    "charge": 1.0,
+    "sustain": 1.0,
+    "red": 0.05
+   },
+   "cav": {
+    "speed": 1.25,
+    "charge": 1.5,
+    "sustain": 0.95,
+    "red": 0.0
+   },
+   "arc": {
+    "speed": 1.0,
+    "charge": 1.0,
+    "sustain": 0.9,
+    "red": 0.0,
+    "volley_s": 1.2,
+    "volley_mult": 0.5
+   },
+   "spr": {
+    "speed": 0.95,
+    "charge": 1.0,
+    "sustain": 1.0,
+    "red": 0.0,
+    "anti_charge": true
+   }
+  },
+  "counters": {
+   "cav": "arc",
+   "arc": "inf",
+   "inf": "spr",
+   "spr": "cav"
+  },
+  "charge_s": 1.5,
+  "chapters": [
+   {
+    "start_min": 0,
+    "counter_mult": 1.05
+   },
+   {
+    "start_min": 10,
+    "counter_mult": 1.15
+   },
+   {
+    "start_min": 25,
+    "counter_mult": 1.3
+   },
+   {
+    "start_min": 40,
+    "counter_mult": 1.5
+   }
+  ],
+  "ai_retreat": {
+   "aggressive": [
+    0.5,
+    0.25
+   ],
+   "normal": [
+    0.7,
+    0.15
+   ],
+   "cautious": [
+    0.9,
+    0.1
+   ]
+  },
+  "named_soldier_mult": [
+   1.0,
+   1.5,
+   2.2,
+   3.0
+  ],
+  "spawn_v05": [
+   [
+    0.5,
+    1.1
+   ],
+   [
+    0.5,
+    1.2
+   ],
+   [
+    0.6,
+    1.35
+   ],
+   [
+    0.7,
+    1.5
+   ]
+  ],
+  "_note": "仅供 tools/sim_v05_world.py 的站桩等价快速结算使用（全图模拟），程序实现看 battle_move / move_params"
+ },
+ "confirmed_assumptions": {
+  "date": "2026-10-22",
+  "source": "程序原型 proto/v0.5-combat 的 src/data/assumptions.json combat_v05（21 条）",
+  "status": "策划确认：全部按程序的假设值写入正式版",
+  "answers": {
+   "draw_within_5pct": "是想要的手感：R0<1.05 双方 brk=0.2，打一会儿各自脱离，之后同对 10 s 冷却",
+   "player_rout_once_per_battle": "一场最多溃一次；战斗中士气不恢复，新的一场（保护结束后再接触）士气重置为 100",
+   "both_retreating": "双方都给 8 s 保护",
+   "retreat_by_personality": "激进 0.5/0.25（群雄、黄巾）、普通 0.7/0.15（魏、吴）、谨慎 0.9/0.10（蜀），与 ai_tactics.retreat 一致",
+   "player_wipe_keep_soldiers": "仅限原型；正式版按 failure 规则 B（兵力 + 主角 HP）"
+  }
+ }
+}

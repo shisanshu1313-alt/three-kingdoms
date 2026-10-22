@@ -1,7 +1,7 @@
 // v0.5 一局：配置覆盖 / 章节 / 克制 × 章节 / 偏好兵种 / 克制物品 / 追击规则 / 失败 B / 胜利 / 名望 / 局外解锁 / 删档
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import * as M from '../src/systems/melee.js';
 import { applyRunConfig, chapterIndexAt, spawnPowerRange, counterAddOf, counterOf } from '../src/systems/runConfig.js';
 import { createRun, runTick, checkFail, heroDamage, onPlayerBattleEnd, onNamedDefeated, runSummary, recordUnit, unitAt, targetUnitFor } from '../src/systems/run.js';
@@ -17,7 +17,9 @@ import { SAVE_KEY, META_KEY, clearSave, hasSave, writeSave } from '../src/system
 
 const J = f => JSON.parse(readFileSync(new URL(f, import.meta.url)));
 const b04 = J('../src/data/balance.json'), cfg = J('../src/data/run_v05.json'), cj = J('../src/data/combat_v05.json');
-const design = J('../../design/balance_v0.5.json');
+// 优先读工作区里策划的正式配置；CI 里没有就读仓库里的副本 tests/fixtures/
+const designUrl = new URL('../../design/balance_v0.5.json', import.meta.url);
+const design = J(existsSync(designUrl) ? designUrl : './fixtures/balance_v0.5.json');
 const balance = applyRunConfig(b04, cfg);
 const mc = { ...M.makeCombatConfig(cj, balance), fixedRoll: 1 };
 
