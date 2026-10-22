@@ -1,3 +1,4 @@
+import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { MAP_SEED } from '../config.js';
@@ -20,20 +21,27 @@ export default class TitleScene extends Phaser.Scene {
   create() {
     this.result = this.forcedError ? { ok: false, code: 'corrupt', message: this.forcedError } : loadSave({ balance, mapSeed: MAP_SEED }, getStorage());
     this.root = this.add.container(0, 0);
-    this.input.keyboard.on('keydown', e => this.onKey(e.key));
+    const act = createSceneInput(this, { pointer: false });
+    act.on(ACTIONS.CONFIRM, () => this.onAction('confirm'));
+    act.on(ACTIONS.CANCEL, () => this.onAction('cancel'));
+    act.on(ACTIONS.YES, () => this.onAction('yes'));
+    act.on(ACTIONS.NO, () => this.onAction('no'));
+    act.on(ACTIONS.CHOOSE, ({ n }) => this.onAction(n === 1 ? 'continue' : n === 2 ? 'new' : null));
     this.render();
     this.scale.on('resize', this.render, this);
     this.events.once('shutdown', () => this.scale.off('resize', this.render, this));
   }
 
-  onKey(k) {
+  /** 键位不变：确认框里 Y/Enter=开新档，N/Esc=取消；主菜单 Enter/1=继续，N/2=新游戏 */
+  onAction(a) {
+    if (!a) return;
     if (this.confirming) {
-      if (k === 'y' || k === 'Y' || k === 'Enter') this.newGame();
-      if (k === 'n' || k === 'N' || k === 'Escape') { this.confirming = false; this.render(); }
+      if (a === 'yes' || a === 'confirm') this.newGame();
+      if (a === 'no' || a === 'cancel') { this.confirming = false; this.render(); }
       return;
     }
-    if ((k === 'Enter' || k === '1') && this.result.ok) this.continueGame();
-    if (k === 'n' || k === 'N' || k === '2') { this.confirming = true; this.render(); }
+    if ((a === 'confirm' || a === 'continue') && this.result.ok) this.continueGame();
+    if (a === 'no' || a === 'new') { this.confirming = true; this.render(); }
   }
 
   continueGame() { this.scene.start('World', { save: this.result.save, warnings: this.result.warnings }); }

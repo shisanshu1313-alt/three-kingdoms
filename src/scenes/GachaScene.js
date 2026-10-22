@@ -1,3 +1,4 @@
+import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { canPull, pull, oddsTable, freeByTier, resolveAttrChoice, resolveItemFull, resultFromPending, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
@@ -31,7 +32,15 @@ export default class GachaScene extends Phaser.Scene {
     this.add.rectangle(this.ox, this.oy, W, H, 0x1b1f2a, 0.97).setOrigin(0).setStrokeStyle(2, 0xf1c40f);
     text(this, this.ox + 20, this.oy + 14, '抽卡', 24, '#f1c40f');
     this.dyn = this.add.container(0, 0);
-    this.input.keyboard.on('keydown', e => this.onKey(e));
+    const act = createSceneInput(this);
+    // ROLLING 时任意键（含 Esc）只用于跳过动画，返回 true 不再分发同一次按键的其它动作
+    act.on(ACTIONS.ANY, () => { if (this.uiState === 'ROLLING') { this.finishRoll(); return true; } });
+    act.on(ACTIONS.TAP, () => { if (this.uiState === 'ROLLING' && UI.roll_anim_skippable !== false) this.finishRoll(); });
+    act.on(ACTIONS.CANCEL, () => this.onCancel());
+    act.on(ACTIONS.CONFIRM, () => this.onPrimary());
+    act.on(ACTIONS.PRIMARY, () => this.onPrimary());
+    act.on(ACTIONS.CHOOSE, ({ n }) => this.onChoose(n));
+    act.on(ACTIONS.RELEASE, () => { if (this.uiState === 'ITEM_FULL') this.itemFull(null); });
     this.events.on('resume', () => this.afterRoster());
     // 读档后有未完成的选择：直接回到对应选择状态（抽卡不回滚）
     const pending = resultFromPending(this.st, this.team, balance);
@@ -48,8 +57,8 @@ export default class GachaScene extends Phaser.Scene {
 
   /** gacha_ui.esc_rule（配置是中文说明，这里是它的逐条实现；配置里没有列出的状态按“忽略”处理） */
   escAction(state) {
-    const ACTIONS = { IDLE: 'close', ROLLING: 'skip', RESULT: 'confirm', CHOOSE_GENERAL: 'ignore', ITEM_FULL: 'ignore', ROSTER_FULL: 'ignore' };
-    return UI.esc_rule && !(state in UI.esc_rule) ? 'ignore' : ACTIONS[state] ?? 'ignore';
+    const ESC = { IDLE: 'close', ROLLING: 'skip', RESULT: 'confirm', CHOOSE_GENERAL: 'ignore', ITEM_FULL: 'ignore', ROSTER_FULL: 'ignore' };
+    return UI.esc_rule && !(state in UI.esc_rule) ? 'ignore' : ESC[state] ?? 'ignore';
   }
 
   /** RESULT 确认：有待选择 → 进入对应选择状态；否则回 IDLE */
@@ -62,25 +71,28 @@ export default class GachaScene extends Phaser.Scene {
     this.render();
   }
 
-  onKey(e) {
-    const k = e.key;
-    if (this.uiState === 'ROLLING') { this.finishRoll(); return; } // 任意键（含 Esc）跳过
-    if (k === 'Escape') {
-      const a = this.escAction(this.uiState);
-      if (a === 'close') return this.close();
-      if (a === 'confirm') return this.confirmResult();
-      return;
-    }
+  /** Esc（cancel）：按 esc_rule */
+  onCancel() {
+    const a = this.escAction(this.uiState);
+    if (a === 'close') return this.close();
+    if (a === 'confirm') return this.confirmResult();
+  }
+
+  /** Enter / 空格（confirm / primary）：有待选择先确认结果，否则再抽一次 */
+  onPrimary() {
     const pendingChoice = this.uiState === 'RESULT' && this.result?.next;
-    if (pendingChoice && (k === 'Enter' || k === ' ')) return this.confirmResult();
-    if ((k === ' ' || k === 'Enter') && (this.uiState === 'IDLE' || this.uiState === 'RESULT')) return this.doPull();
-    const n = Number(k);
+    if (pendingChoice) return this.confirmResult();
+    if (this.uiState === 'IDLE' || this.uiState === 'RESULT') return this.doPull();
+  }
+
+  /** 数字键（choose N）：选武将 1~3 / 物品栏 1~N，0 = 放弃新物品 */
+  onChoose(n) {
     if (this.uiState === 'CHOOSE_GENERAL' && n >= 1 && n <= 3) {
       const i = n - 1; if (this.result.targets.includes(i)) this.chooseGeneral(i);
     }
     if (this.uiState === 'ITEM_FULL') {
       if (n >= 1 && n <= this.team.items.length) this.itemFull(n - 1);
-      if (k === '0' || k === 'r' || k === 'R') this.itemFull(null);
+      if (n === 0) this.itemFull(null);
     }
   }
 
@@ -110,7 +122,6 @@ export default class GachaScene extends Phaser.Scene {
     this.render();
     this.rollTimer = this.time.addEvent({ delay: 80, loop: true, callback: () => this.rollCard?.setFillStyle(colors[i++ % colors.length]) });
     this.rollEnd = this.time.delayedCall(dur, () => this.finishRoll());
-    if (UI.roll_anim_skippable !== false) this.input.once('pointerdown', () => this.uiState === 'ROLLING' && this.finishRoll());
   }
 
   finishRoll() {

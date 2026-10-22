@@ -1,3 +1,4 @@
+import { createSceneInput, ACTIONS, DEFAULT_BINDINGS, KEY_CODES, withKeys } from '../platform/input.js';
 import Phaser from 'phaser';
 import { MINIMAP_SIZE, TILE_SIZE, MAP_SEED } from '../config.js';
 import { loadSave } from '../systems/save.js';
@@ -28,15 +29,18 @@ export default class UIScene extends Phaser.Scene {
 
     // 抽卡 HUD 按钮（gacha_ui.hud_button）+ 键盘 G；F2 = 调试加点
     this.gachaBtn = button(this, 0, 0, 120, 34, `抽卡 [${UI_CFG.open_key ?? 'G'}]`, () => this.openGacha(), { color: 0x8e5a00, size: 15 });
-    this.input.keyboard.on(`keydown-${UI_CFG.open_key ?? 'G'}`, () => this.openGacha());
+    // 动作：G 抽卡（键位取 gacha_ui.open_key）、F5 存档 / F9 读档（阻止浏览器默认的 F5 刷新）、F2 调试加点（仅开发模式）
+    const openKey = KEY_CODES[(UI_CFG.open_key ?? 'G').toUpperCase()] ?? Phaser.Input.Keyboard.KeyCodes[(UI_CFG.open_key ?? 'G').toUpperCase()];
+    const act = createSceneInput(this, {
+      bindings: withKeys(DEFAULT_BINDINGS, ACTIONS.OPEN_GACHA, [openKey]), pointer: false,
+      capture: import.meta.env.DEV ? ['F2', 'F5', 'F9'] : ['F5', 'F9']
+    });
+    act.on(ACTIONS.OPEN_GACHA, () => this.openGacha());
+    act.on(ACTIONS.SAVE, () => this.manualSave());
+    act.on(ACTIONS.LOAD, () => this.manualLoad());
     if (import.meta.env.DEV) { // 只在开发模式（npm run dev）注册；生产构建里整段被移除
-      this.input.keyboard.addCapture('F2');
-      this.input.keyboard.on('keydown-F2', () => { this.world.debugGrantPoints(DEBUG_POINTS); this.toast(`【调试】点数 +${DEBUG_POINTS}`, '#88ccff', 14); });
+      act.on(ACTIONS.DEBUG_POINTS, () => { this.world.debugGrantPoints(DEBUG_POINTS); this.toast(`【调试】点数 +${DEBUG_POINTS}`, '#88ccff', 14); });
     }
-    // 存档 F5 / 读档 F9（阻止浏览器默认的 F5 刷新）
-    this.input.keyboard.addCapture('F5,F9');
-    this.input.keyboard.on('keydown-F5', () => this.manualSave());
-    this.input.keyboard.on('keydown-F9', () => this.manualLoad());
     const onSaved = ({ reason }) => { if (reason === 'manual') this.toast('已存档', '#aaffaa', 16); };
     this.game.events.on('game-saved', onSaved);
     this.events.once('shutdown', () => this.game.events.off('game-saved', onSaved));

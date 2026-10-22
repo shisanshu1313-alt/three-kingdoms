@@ -60,6 +60,7 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 
 - `storage.js`：存储接口 `get / set / remove`。现在用 `LocalStorageAdapter`（localStorage 不可用时退回内存）；小游戏换 `WxStorageAdapter(wx | tt)`。**除这里以外不许直接用 localStorage。**
 - `lifecycle.js`：`onHide(cb)`。网页 = visibilitychange / pagehide / beforeunload；小游戏换 `WxLifecycleAdapter`（wx.onHide）。
+- `input.js`：输入动作层。场景只监听动作（`move` 向量、`moveTo` 点地面、`confirm`/`cancel`/`primary`/`choose N`/`release`/`yes`/`no`、`openGacha`、`save`/`load`、`debugVision`/`debugPoints`、`zoom`、`tap`、`any`），不碰原始按键。现在有 `KeyboardSource`（键位与以前完全一样，见 `DEFAULT_BINDINGS`）和 `PointerSource`（鼠标/触屏点按、滚轮）；触摸摇杆以后实现 `{ moveVector(), attach(emit), detach() }` 再 `actions.addSource()` 即可。
 - `systems/save.js` 是纯逻辑，存储由调用方传入（单测用 `MemoryStorageAdapter`）。
 
 ## 存档（systems/save.js）
@@ -95,7 +96,7 @@ src/
     teams.js     队伍构建、命名规则、补充刷新兵数反解
     collision.js AABB 碰撞 + 事件去抖（engine_debounce_ms）
     gameState.js 积分/自由池/待处理俘虏/战报
-  platform/storage.js / lifecycle.js  平台接口：存储、切后台/关闭
+  platform/storage.js / lifecycle.js / input.js  平台接口：存储、切后台/关闭、输入动作
   core/GameClock.js              游戏时钟 + 定时器（暂停即冻结，可存档）
     gacha.js     抽卡纯逻辑（价格/权重/武将/属性/物品/文案）
     roster.js    满编队列、替换/释放

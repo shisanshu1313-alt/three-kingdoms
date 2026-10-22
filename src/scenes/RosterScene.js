@@ -1,3 +1,4 @@
+import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { resolvePending, replaceableIndices } from '../systems/roster.js';
@@ -21,17 +22,18 @@ export default class RosterScene extends Phaser.Scene {
     this.add.rectangle(0, 0, width, height, 0x000000, 0.65).setOrigin(0).setInteractive();
     this.add.rectangle(this.ox, this.oy, W, H, 0x1f1b2a, 0.98).setOrigin(0).setStrokeStyle(2, 0xe67e22);
     this.dyn = this.add.container(0, 0);
-    this.input.keyboard.on('keydown', e => this.onKey(e));
+    const act = createSceneInput(this, { pointer: false });
+    act.on(ACTIONS.RELEASE, () => this.act('release'));
+    act.on(ACTIONS.CHOOSE, ({ n }) => this.chooseReplace(n));
     this.render();
   }
 
   get st() { return this.world.state; }
   get team() { return this.world.player.team; }
 
-  onKey(e) {
-    const k = e.key;
-    if (k === 'r' || k === 'R') return this.act('release');
-    const n = Number(k), reps = replaceableIndices(this.team, balance);
+  /** 数字 N：替换第 N 个可替换的武将 */
+  chooseReplace(n) {
+    const reps = replaceableIndices(this.team, balance);
     if (n >= 1 && n <= reps.length) this.act('replace', reps[n - 1]);
   }
 

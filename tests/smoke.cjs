@@ -34,6 +34,25 @@ const OUT = __dirname + '/../screenshot.png';
   const k1 = await pos();
   result.keyboard = { from: k0, to: k1, ok: k1.x !== k0.x || k1.y !== k0.y };
 
+  // 1b) 输入动作层：方向键移动、F1 切换调试视野（按住不重复切换）、滚轮缩放
+  {
+    const a0 = await pos();
+    await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(500); await page.keyboard.up('ArrowLeft');
+    const a1 = await pos();
+    const vis = () => ev(() => window.__game.scene.getScene('World').debugVision);
+    const v0 = await vis();
+    await page.keyboard.press('F1'); const v1 = await vis();
+    await page.keyboard.down('F1'); await page.keyboard.down('F1', { repeat: true }); await page.keyboard.down('F1', { repeat: true }); await page.keyboard.up('F1');
+    const v2 = await vis();
+    const zoom = () => ev(() => window.__game.scene.getScene('World').cameras.main.zoom);
+    const z0 = await zoom();
+    await page.mouse.move(300, 300); await page.mouse.wheel(0, 100); await page.waitForTimeout(200);
+    const z1 = await zoom();
+    await page.mouse.wheel(0, -100); await page.waitForTimeout(200);
+    const z2 = await zoom();
+    result.inputActions = { arrow: { from: a0, to: a1 }, vision: [v0, v1, v2], zoom: [z0, z1, z2], ok: a1.x < a0.x && v1 === !v0 && v2 === v0 && z1 < z0 && z2 === z0 };
+  }
+
   // 2) 点击寻路绕障：找一处“起点—障碍—终点”水平排列且可达的位置，把玩家放到起点
   const scen = await ev(() => {
     const w = window.__game.scene.getScene('World'), T = w.tileSize, pf = w.pathfinder, g = w.mapData.grid;
@@ -277,7 +296,7 @@ const OUT = __dirname + '/../screenshot.png';
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && result.keyboard.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.pauseFreeze.ok && result.pendingChoiceReload.ok && result.saveBeforeBattle.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
+  const ok = !errors.length && result.keyboard.ok && result.inputActions.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.pauseFreeze.ok && result.pendingChoiceReload.ok && result.saveBeforeBattle.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAIL');
   process.exit(ok ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });

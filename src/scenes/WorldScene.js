@@ -1,3 +1,4 @@
+import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import {
   TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX, MAP_SEED, SAVE_INTERVAL_S
@@ -122,24 +123,24 @@ export default class WorldScene extends Phaser.Scene {
     // ---- 调试 ----
     this.debugVision = false;
     this.debugGfx = this.add.graphics().setDepth(8);
-    this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F1).on('down', () => this.toggleVision());
 
     // ---- 输入 ----
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+    // 输入动作层（platform/input.js）：键盘 WASD/方向键 移动、左键点击寻路、滚轮缩放、F1 调试视野
+    this.actions = createSceneInput(this, { move: true, capture: ['F1'] });
+    this.actions.on(ACTIONS.DEBUG_VISION, ({ repeat }) => { if (!repeat) this.toggleVision(); }); // 与原 Key 'down' 一致：按住不重复切换
     this.targetMarker = this.add.rectangle(0, 0, 10, 10).setStrokeStyle(2, 0xffffff).setVisible(false).setDepth(9);
     this.pointerWorld = { x: -1e9, y: -1e9 };
 
-    this.input.on('pointerdown', (pointer) => {
-      if (!pointer.leftButtonDown() || this.isOverMinimap(pointer) || this.scene.get('UI')?.hitsHud?.(pointer)) return;
-      const wp = cam.getWorldPoint(pointer.x, pointer.y);
+    this.actions.on(ACTIONS.MOVE_TO, ({ x, y, pointer }) => {
+      if (this.isOverMinimap(pointer) || this.scene.get('UI')?.hitsHud?.(pointer)) return;
+      const wp = cam.getWorldPoint(x, y);
       this.setPlayerTarget(wp.x, wp.y);
     });
-    this.input.on('pointermove', (pointer) => {
-      const wp = cam.getWorldPoint(pointer.x, pointer.y);
+    this.actions.on(ACTIONS.POINTER_MOVE, ({ x, y }) => {
+      const wp = cam.getWorldPoint(x, y);
       this.pointerWorld = { x: wp.x, y: wp.y };
     });
-    this.input.on('wheel', (_p, _o, _dx, dy) => {
+    this.actions.on(ACTIONS.ZOOM, ({ dy }) => {
       cam.setZoom(Phaser.Math.Clamp(cam.zoom - Math.sign(dy) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX));
     });
 
@@ -460,9 +461,7 @@ export default class WorldScene extends Phaser.Scene {
 
     // 玩家：战斗中冻结；键盘优先（会取消点击路径）
     if (!pl.inBattle) {
-      const k = this.cursors, w = this.wasd;
-      const dx = (k.right.isDown || w.D.isDown ? 1 : 0) - (k.left.isDown || w.A.isDown ? 1 : 0);
-      const dy = (k.down.isDown || w.S.isDown ? 1 : 0) - (k.up.isDown || w.W.isDown ? 1 : 0);
+      const { x: dx, y: dy } = this.actions.moveVector();
       if (dx || dy) {
         pl.clearPath();
         const len = Math.hypot(dx, dy);
