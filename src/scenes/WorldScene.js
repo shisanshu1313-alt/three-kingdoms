@@ -15,6 +15,8 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
 import { makeSave, writeSave, memToSave, memFromSave, restoreGameState } from '../systems/save.js';
 import GameClock from '../core/GameClock.js';
+import { getStorage } from '../platform/storage.js';
+import { getLifecycle } from '../platform/lifecycle.js';
 
 export default class WorldScene extends Phaser.Scene {
   constructor() { super('World'); }
@@ -95,19 +97,14 @@ export default class WorldScene extends Phaser.Scene {
     this.saveDirty = null;
     this.lastSaveAt = null;
     this.clock.every('autosave', SAVE_INTERVAL_S * 1000, () => this.requestSave('interval'), T.autosave);
-    const onHide = () => { if (document.visibilityState === 'hidden' || !document.visibilityState) this.trySaveNow('unload'); };
-    const onUnload = () => this.trySaveNow('unload');
-    document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('pagehide', onUnload);
-    window.addEventListener('beforeunload', onUnload);
+    // 切后台 / 关闭：走平台生命周期接口（网页 = visibilitychange/pagehide/beforeunload；小游戏以后接 wx.onHide）
+    const offHide = getLifecycle().onHide(() => this.trySaveNow('unload'));
     const onRosterResolved = () => this.requestSave('roster');
     const onModalClosed = (which) => this.requestSave(which === 'Gacha' ? 'gacha' : 'roster');
     this.game.events.on('roster-resolved', onRosterResolved);
     this.game.events.on('modal-closed', onModalClosed);
     this.events.once('shutdown', () => {
-      document.removeEventListener('visibilitychange', onHide);
-      window.removeEventListener('pagehide', onUnload);
-      window.removeEventListener('beforeunload', onUnload);
+      offHide();
       this.game.events.off('roster-resolved', onRosterResolved);
       this.game.events.off('modal-closed', onModalClosed);
     });
@@ -194,7 +191,7 @@ export default class WorldScene extends Phaser.Scene {
   /** 立即尝试存档；不能存时返回 false（不会存半截状态） */
   trySaveNow(reason = 'auto') {
     if (!this.canSaveNow()) return false;
-    const ok = writeSave(makeSave(this.snapshot(), { balance, mapSeed: MAP_SEED, reason }));
+    const ok = writeSave(makeSave(this.snapshot(), { balance, mapSeed: MAP_SEED, reason }), getStorage());
     if (ok) {
       this.lastSaveAt = this.clock.now;
       console.log(`[save] ${reason} 存档完成`);

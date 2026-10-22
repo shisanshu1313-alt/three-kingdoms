@@ -56,6 +56,12 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 
 所有计时都走游戏时钟 `world.clock.now`，不用真实时间：战斗时长、战后保护、玩家无敌、平局冷却、AI 状态计时与忽略名单、补充刷新、自动存档间隔。时钟只在大地图 `update` 里按帧间隔推进（单帧最多 250ms）；打开抽卡/名册窗口时大地图暂停，时钟和全部计时一起冻结（单测 `tests/gameClock.test.js`，冒烟测试也会检查）。
 
+## 平台适配（src/platform/，为以后 iOS / 微信 / 抖音小游戏准备）
+
+- `storage.js`：存储接口 `get / set / remove`。现在用 `LocalStorageAdapter`（localStorage 不可用时退回内存）；小游戏换 `WxStorageAdapter(wx | tt)`。**除这里以外不许直接用 localStorage。**
+- `lifecycle.js`：`onHide(cb)`。网页 = visibilitychange / pagehide / beforeunload；小游戏换 `WxLifecycleAdapter`（wx.onHide）。
+- `systems/save.js` 是纯逻辑，存储由调用方传入（单测用 `MemoryStorageAdapter`）。
+
 ## 存档（systems/save.js）
 
 - **localStorage** 键 `sanguo-save`，JSON，带 `saveVersion`（当前 2）、`balanceVersion`、`mapSeed`、`savedAt`。
@@ -86,6 +92,7 @@ src/
     teams.js     队伍构建、命名规则、补充刷新兵数反解
     collision.js AABB 碰撞 + 事件去抖（engine_debounce_ms）
     gameState.js 积分/自由池/待处理俘虏/战报
+  platform/storage.js / lifecycle.js  平台接口：存储、切后台/关闭
   core/GameClock.js              游戏时钟 + 定时器（暂停即冻结，可存档）
     gacha.js     抽卡纯逻辑（价格/权重/武将/属性/物品/文案）
     roster.js    满编队列、替换/释放

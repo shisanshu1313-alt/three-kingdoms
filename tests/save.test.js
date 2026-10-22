@@ -14,8 +14,8 @@ const idx = indexBalance(balance);
 const MAP_SEED = 184;
 const ctx = { balance, mapSeed: MAP_SEED };
 
-/** 内存版 localStorage */
-const memStorage = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), m }; };
+import { MemoryStorageAdapter, LocalStorageAdapter, createDefaultStorage } from '../src/platform/storage.js';
+const memStorage = () => new MemoryStorageAdapter();
 
 /** 构造一份“玩过一会儿”的快照：强化过的属性、物品、待安排武将、AI 记忆、名字池消耗、随机数状态 */
 function sampleSnapshot() {
@@ -94,7 +94,8 @@ test('localStorage：写入 / 读取 / 清除；没有存档 → empty', () => {
   assert.equal(r.ok, true); assert.deepEqual(r.save, save);
   clearSave(s); assert.equal(hasSave(s), false);
   // setItem 抛异常（配额满等）不崩溃
-  assert.equal(writeSave(save, { setItem() { throw new Error('QuotaExceeded'); } }), false);
+  assert.equal(writeSave(save, { set() { throw new Error('QuotaExceeded'); }, get: () => null, remove() {} }), false);
+  assert.equal(loadSave(ctx, { get() { throw new Error('SecurityError'); } }).code, 'empty'); // get 抛异常 → 当作没有存档
 });
 
 test('损坏数据：非 JSON / 截断 / 非对象 / 缺版本号 / 字段非法 → corrupt，不抛异常', () => {
@@ -110,7 +111,7 @@ test('损坏数据：非 JSON / 截断 / 非对象 / 缺版本号 / 字段非法
     attrOver: (() => { const o = JSON.parse(good); o.player.team.generals[0].lead = 101; return JSON.stringify(o); })()
   };
   for (const [name, text] of Object.entries(cases)) {
-    s.setItem('sanguo-save', text);
+    s.set('sanguo-save', text);
     const r = loadSave(ctx, s);
     assert.equal(r.ok, false, name); assert.equal(r.code, 'corrupt', name); assert.ok(r.message.length > 0, name);
   }
@@ -158,4 +159,14 @@ test('迁移钩子：旧版本按 MIGRATIONS 逐级升级；缺迁移 → incomp
 
 test('validateSave：正常存档无错误', () => {
   assert.deepEqual(validateSave(makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED }), balance), []);
+});
+
+test('平台存储：LocalStorageAdapter 包装 get/set/remove；node 里没有 localStorage 时默认退回内存实现', () => {
+  const m = new Map();
+  const fake = { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v), removeItem: k => m.delete(k) };
+  const a = new LocalStorageAdapter(fake);
+  a.set('k', 'v'); assert.equal(a.get('k'), 'v'); a.remove('k'); assert.equal(a.get('k'), null);
+  assert.ok(createDefaultStorage() instanceof MemoryStorageAdapter);
+  const save = makeSave(sampleSnapshot(), { balance, mapSeed: MAP_SEED });
+  writeSave(save, a); assert.deepEqual(loadSave(ctx, a).save, save);
 });

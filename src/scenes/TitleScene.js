@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { MAP_SEED } from '../config.js';
 import { loadSave, clearSave } from '../systems/save.js';
+import { getStorage } from '../platform/storage.js';
 import { button, text } from '../ui/widgets.js';
 
 const fmtTime = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)} 分 ${s % 60} 秒`; };
@@ -17,7 +18,7 @@ export default class TitleScene extends Phaser.Scene {
   init(data) { this.forcedError = data?.error ?? null; this.confirming = false; }
 
   create() {
-    this.result = this.forcedError ? { ok: false, code: 'corrupt', message: this.forcedError } : loadSave({ balance, mapSeed: MAP_SEED });
+    this.result = this.forcedError ? { ok: false, code: 'corrupt', message: this.forcedError } : loadSave({ balance, mapSeed: MAP_SEED }, getStorage());
     this.root = this.add.container(0, 0);
     this.input.keyboard.on('keydown', e => this.onKey(e.key));
     this.render();
@@ -37,7 +38,7 @@ export default class TitleScene extends Phaser.Scene {
 
   continueGame() { this.scene.start('World', { save: this.result.save, warnings: this.result.warnings }); }
 
-  newGame() { clearSave(); this.scene.start('World', {}); }
+  newGame() { clearSave(getStorage()); this.scene.start('World', {}); }
 
   render() {
     this.root.removeAll(true);

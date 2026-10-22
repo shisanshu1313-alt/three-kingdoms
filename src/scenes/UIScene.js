@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { MINIMAP_SIZE, TILE_SIZE, MAP_SEED } from '../config.js';
 import { loadSave } from '../systems/save.js';
+import { getStorage } from '../platform/storage.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance } from '../data/index.js';
 import { button } from '../ui/widgets.js';
@@ -75,7 +76,7 @@ export default class UIScene extends Phaser.Scene {
 
   manualLoad() {
     if (this.modalOpen()) return this.toast('请先关闭当前窗口再读档', '#ff8888', 15);
-    const r = loadSave({ balance, mapSeed: MAP_SEED });
+    const r = loadSave({ balance, mapSeed: MAP_SEED }, getStorage());
     if (!r.ok) return this.toast(r.code === 'empty' ? '没有存档' : r.message, '#ff8888', 15);
     this.world.loadFrom(r.save, r.warnings);
   }

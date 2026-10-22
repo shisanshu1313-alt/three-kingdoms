@@ -1,5 +1,6 @@
 /**
- * 存档（纯逻辑 + localStorage 读写，无 Phaser；单测见 tests/save.test.js）。
+ * 存档（纯逻辑，无 Phaser / 浏览器依赖；单测见 tests/save.test.js）。
+ * 读写通过存储接口 storage = { get, set, remove }（src/platform/storage.js），由调用方传入。
  *
  * 存档结构（saveVersion 2，v0.4 起所有计时都用游戏时钟 core/GameClock.js）：
  * {
@@ -170,20 +171,18 @@ export function parseSave(text, { balance, mapSeed, migrations = MIGRATIONS }) {
   return { save, warnings };
 }
 
-// ---------------- localStorage ----------------
-const defaultStorage = () => (typeof localStorage !== 'undefined' ? localStorage : null);
-
-export function writeSave(save, storage = defaultStorage(), key = SAVE_KEY) {
+// ---------------- 存储（接口见 src/platform/storage.js：get / set / remove）----------------
+export function writeSave(save, storage, key = SAVE_KEY) {
   if (!storage) return false;
-  try { storage.setItem(key, serialize(save)); return true; } catch (e) { console.warn('[save] 写入失败', e); return false; }
+  try { storage.set(key, serialize(save)); return true; } catch (e) { console.warn('[save] 写入失败', e); return false; }
 }
 
-export function readSaveText(storage = defaultStorage(), key = SAVE_KEY) {
-  try { return storage ? storage.getItem(key) : null; } catch { return null; }
+export function readSaveText(storage, key = SAVE_KEY) {
+  try { return storage ? storage.get(key) : null; } catch { return null; }
 }
 
 /** 读档：返回 {ok:true, save, warnings} 或 {ok:false, code, message}，永不抛异常 */
-export function loadSave(ctx, storage = defaultStorage(), key = SAVE_KEY) {
+export function loadSave(ctx, storage, key = SAVE_KEY) {
   try {
     const r = parseSave(readSaveText(storage, key), ctx);
     return { ok: true, ...r };
@@ -192,11 +191,11 @@ export function loadSave(ctx, storage = defaultStorage(), key = SAVE_KEY) {
   }
 }
 
-export function clearSave(storage = defaultStorage(), key = SAVE_KEY) {
-  try { storage?.removeItem(key); } catch { /* ignore */ }
+export function clearSave(storage, key = SAVE_KEY) {
+  try { storage?.remove(key); } catch { /* ignore */ }
 }
 
-export const hasSave = (storage = defaultStorage(), key = SAVE_KEY) => readSaveText(storage, key) !== null;
+export const hasSave = (storage, key = SAVE_KEY) => readSaveText(storage, key) !== null;
 
 // ---------------- AI 记忆（游戏时钟上的绝对时间，原样保存）----------------
 /** 只保存决策记忆；过期的忽略项丢弃；personality 由阵营配置重新推出，nextReplan 不保存 */
