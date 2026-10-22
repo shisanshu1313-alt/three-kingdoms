@@ -1,0 +1,11 @@
+{
+  "_comment": "地形表现层（颜色/中文名）。速度倍率与可通行性来自 balance.json 的 terrain_speed（null = 不可通行），这里不再配置数值。",
+  "types": [
+    { "id": 0, "key": "grass",    "name": "平原", "color": "#6ab04c" },
+    { "id": 1, "key": "forest",   "name": "森林", "color": "#2d6a2d" },
+    { "id": 2, "key": "mountain", "name": "山脉", "color": "#7f7f7f" },
+    { "id": 3, "key": "water",    "name": "水域", "color": "#2e86de" },
+    { "id": 4, "key": "road",     "name": "官道", "color": "#c8a165" },
+    { "id": 5, "key": "city",     "name": "城池", "color": "#c0392b" }
+  ]
+}

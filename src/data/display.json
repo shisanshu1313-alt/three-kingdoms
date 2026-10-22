@@ -1,0 +1,4 @@
+{
+  "_comment": "表现层兜底配置（程序侧）。阵营颜色已由 balance.json 的 ai.factions[].color / player_faction.color 提供，这里只放兜底色。",
+  "defaultColor": "#bdc3c7"
+}

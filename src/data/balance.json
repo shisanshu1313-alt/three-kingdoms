@@ -1,0 +1,875 @@
+{
+  "_meta": {
+    "name": "三国像素开放世界 · 原型数值配置",
+    "version": "0.2",
+    "date": "2026-10-22",
+    "note": "全部数值为初版平衡建议值（原型用）。属性 1~100；距离 px，速度 px/s，时间 s。v0.2：5 项取舍于 2026-10-22 用户确认；补齐程序实现规则（rules_v0.2 段 + 各段新增字段）。",
+    "changelog": [
+      "v0.2 新增 map / cities / factions[].color / bandit_name_pool / terrain_speed / initial_teams / spawn / collision / decisions",
+      "v0.2 取整统一：损兵 round，收编/保留 floor，点数 round",
+      "v0.2 俘获率按败方每名武将自身魅力分别计算（不是只用主将）",
+      "v0.2 玩家战败：先保留 floor(溃兵×0.5)（至少 5），AI 再从剩余溃兵收编",
+      "v0.2 抽卡武将只从自由池（不在任何队伍中）出；该档空则改出属性 +5",
+      "v0.2 faction home 改为城池坐标，地图 3200×3200"
+    ]
+  },
+  "attributes": {
+    "lead": "统率：主将统率提升全队士兵战力；全队统率决定兵力上限",
+    "str": "武力：每名武将提供个人战力，并提升士兵战力",
+    "int": "智力：队内最高智力减少本方损兵",
+    "cha": "魅力：队内最高魅力提高收编率与俘获武将概率"
+  },
+  "team_example": {
+    "id": "player",
+    "faction": "player",
+    "is_player": true,
+    "soldiers": 30,
+    "generals": [
+      {
+        "id": "hero",
+        "lead": 40,
+        "str": 45,
+        "int": 40,
+        "cha": 50
+      }
+    ],
+    "items": [
+      "war_drum"
+    ],
+    "position": {
+      "x": 1200,
+      "y": 900
+    },
+    "state": "wander"
+  },
+  "team_rules": {
+    "max_generals": 3,
+    "main_general_index": 0,
+    "item_slots": 3,
+    "soldier_cap_base": 100,
+    "soldier_cap_per_lead": 2,
+    "speed_base": 100,
+    "speed_penalty_per_soldier": 0.0005,
+    "speed_min_mult": 0.6,
+    "speed_formula": "speed = speed_base × max(speed_min_mult, 1 − speed_penalty_per_soldier × N) × (1 + Σ物品speed_pct) × 地形倍率 × 状态倍率（战败脱离期 escape_speed_mult，否则 1）；只有兵数项有 0.6 下限，乘完不再整体截断；AI 同一公式"
+  },
+  "power": {
+    "formula": "P = N * (1 + k_lead*主将统率 + k_str*Σ武力 + 物品战力%) + k_gen*Σ武力",
+    "k_lead": 0.005,
+    "k_str": 0.002,
+    "k_gen": 0.5,
+    "k_int_loss_reduction": 0.003,
+    "int_loss_reduction_cap": 0.3,
+    "loss_reduction_total_cap": 0.5,
+    "loss_reduction_formula": "减免 = clamp(min(int_loss_reduction_cap, k_int × 队内最高智力) + Σ物品loss_reduction, 0, loss_reduction_total_cap)；智力部分范围 0~0.30，兵书在其上另加，总和封顶 0.50"
+  },
+  "battle": {
+    "random_min": 0.9,
+    "random_max": 1.1,
+    "draw_ratio": 1.05,
+    "winner_loss_base": 0.25,
+    "winner_loss_exp": 1.5,
+    "loser_loss_base": 0.3,
+    "loser_loss_per_ratio": 0.2,
+    "loser_loss_max": 0.8,
+    "draw_loss": 0.2,
+    "draw_pushback_px": 80,
+    "draw_pair_cooldown_s": 5,
+    "duration_base_s": 1.5,
+    "duration_k_s": 6,
+    "duration_min_s": 2,
+    "duration_max_s": 8,
+    "lock_third_party": true,
+    "player_defeat": {
+      "keep_survivor_ratio": 0.5,
+      "hero_never_captured": true,
+      "invincible_s": 8,
+      "escape_speed_mult": 1.3,
+      "min_soldiers": 5,
+      "kept_formula": "kept = max(min_soldiers, floor(溃兵 × keep_survivor_ratio))；剩余溃兵 = max(0, 溃兵 − kept) 供 AI 胜方收编"
+    },
+    "random_rule": "碰撞瞬间每方独立掷一次均匀分布 U(random_min, random_max)，乘到各自面板战力；用可复现 rng；本场只掷这一次",
+    "ratio_rule": "R = max(Pa',Pb') / min(Pa',Pb')，Pa'/Pb' 为乘随机后的战力；R < draw_ratio 为平局（含完全相等），否则 rolled 战力高者胜",
+    "loss_formula": {
+      "winner": "round(N_w × winner_loss_base × (1/R)^winner_loss_exp × (1 − 减免_w))",
+      "loser_dead": "round(N_l × min(loser_loss_max, loser_loss_base + loser_loss_per_ratio × (R − 1)) × (1 − 减免_l))",
+      "draw": "round(N × draw_loss × (1 − 减免))，双方各自计算",
+      "rounding": "Math.round（.5 进位），结果再 clamp 到 [0, N]",
+      "loser_survivors": "N_l − loser_dead（溃兵）"
+    },
+    "duration_formula": "T = clamp(duration_base_s + duration_k_s / R, duration_min_s, duration_max_s)，R 用乘随机后的比值；平局同一公式",
+    "during_battle": "T 秒内双方停止移动，不触发任何碰撞，AI 不把它们当目标；损兵数字线性播放，T 结束时一次性写入全部结果",
+    "post_battle_grace_s": 1,
+    "ai_loser": "disband：AI 败方整队移除；溃兵中未被收编的消失；物品消失；未被俘的名将回自由池，未被俘的黄巾头目消失"
+  },
+  "rewards": {
+    "points_base": 5,
+    "points_per_enemy_power": 0.3,
+    "bully_ratio": 4,
+    "bully_mult": 0.5,
+    "recruit_base": 0.2,
+    "recruit_per_cha": 0.004,
+    "recruit_max": 0.7,
+    "capture_base": 0.3,
+    "capture_per_cha_diff": 0.004,
+    "capture_per_ratio": 0.05,
+    "capture_min": 0.05,
+    "capture_max": 0.8,
+    "release_captive_points": 20,
+    "ai_also_recruits": true,
+    "points_formula": "round((points_base + points_per_enemy_power × 败方面板战力) × (R ≥ bully_ratio ? bully_mult : 1))；败方面板战力 = 战前、不乘随机；R 用乘随机后的比值；只有玩家胜利得分，平局/战败/AI 间战斗 0 分",
+    "recruit_formula": "收编 = floor(基数 × min(recruit_max, recruit_base + recruit_per_cha × 胜方队内最高魅力 + Σ物品recruit_pct))；基数 = 败方溃兵（玩家战败时为保留后的剩余溃兵）；胜方结算后兵数 = min(兵力上限, N_w − 胜方损兵 + 收编)",
+    "capture_formula": "败方每名武将单独掷：p = clamp(capture_base + capture_per_cha_diff × (胜方最高魅力 − 该武将魅力) + capture_per_ratio × (R − 1), capture_min, capture_max)",
+    "capture_rules": {
+      "hero_never_captured": true,
+      "ai_captures_generals": true,
+      "ai_full_team": "AI 胜方已有 3 名武将时，被俘武将改回自由池",
+      "player_full_team": "玩家选择替换一名随从（被替换者回自由池）或释放（+release_captive_points）",
+      "keep_attributes": "被俘武将保留当前属性（含抽卡加成）",
+      "generic_capturable": true
+    }
+  },
+  "gacha": {
+    "cost_base": 50,
+    "cost_step": 5,
+    "cost_cap": 200,
+    "cost_formula": "cost = min(cost_base + cost_step * 已抽次数, cost_cap)；cost_step=0 即固定价",
+    "pool": [
+      {
+        "type": "attr_small",
+        "weight": 45,
+        "effect": "玩家选 1 名队内武将，随机 1 项属性 +2"
+      },
+      {
+        "type": "attr_big",
+        "weight": 10,
+        "effect": "玩家选 1 名队内武将，随机 1 项属性 +5"
+      },
+      {
+        "type": "item",
+        "weight": 35,
+        "effect": "从物品表等概率抽 1 件"
+      },
+      {
+        "type": "general_B",
+        "weight": 6,
+        "effect": "B 级武将池随机 1 名"
+      },
+      {
+        "type": "general_A",
+        "weight": 3,
+        "effect": "A 级武将池随机 1 名"
+      },
+      {
+        "type": "general_S",
+        "weight": 1,
+        "effect": "S 级武将池随机 1 名"
+      }
+    ],
+    "attr_cap": 100,
+    "duplicate_item_refund_points": 25,
+    "duplicate_general": "自由池规则下不会重复；保留字段兼容",
+    "team_full_general": "玩家选择替换一名随从或释放（+20 点）",
+    "general_source": "只从自由池（不在任何队伍中的名将）按档位抽；该档位自由池为空时改出 attr_big",
+    "attr_full_rule": "选中属性已满 100 则在该武将其余未满属性中重抽；四项全满时提示玩家另选武将",
+    "item_full_rule": "物品栏满 3 件：玩家选择丢弃一件旧物品或放弃新物品；已拥有的同名物品直接返还 duplicate_item_refund_points"
+  },
+  "items": [
+    {
+      "id": "war_drum",
+      "name": "战鼓",
+      "effect": {
+        "power_pct": 0.08
+      }
+    },
+    {
+      "id": "fine_horse",
+      "name": "良马",
+      "effect": {
+        "speed_pct": 0.15
+      }
+    },
+    {
+      "id": "supply_cart",
+      "name": "粮草车",
+      "effect": {
+        "soldier_cap": 60
+      }
+    },
+    {
+      "id": "art_of_war",
+      "name": "兵书",
+      "effect": {
+        "loss_reduction": 0.08
+      }
+    },
+    {
+      "id": "banner",
+      "name": "招降旗",
+      "effect": {
+        "recruit_pct": 0.1
+      }
+    }
+  ],
+  "ai": {
+    "tick_s": 0.5,
+    "vision_px": 300,
+    "wander_radius_px": 600,
+    "wander_idle_s": [
+      2,
+      5
+    ],
+    "personality": {
+      "aggressive": {
+        "chase_ratio": 1.0,
+        "flee_ratio": 0.6
+      },
+      "normal": {
+        "chase_ratio": 1.2,
+        "flee_ratio": 0.8
+      },
+      "cautious": {
+        "chase_ratio": 1.5,
+        "flee_ratio": 1.0
+      }
+    },
+    "chase_give_up_px": 450,
+    "chase_max_s": 15,
+    "flee_safe_px": 450,
+    "flee_max_s": 10,
+    "ignore_target_s": 10,
+    "factions": [
+      {
+        "id": "wei",
+        "name": "魏",
+        "personality": "normal",
+        "home": {
+          "x": 2000,
+          "y": 1616
+        },
+        "color": "#3b5bdb",
+        "home_city": "xuchang",
+        "team_name_rule": "{主将名}军"
+      },
+      {
+        "id": "shu",
+        "name": "蜀",
+        "personality": "cautious",
+        "home": {
+          "x": 496,
+          "y": 2416
+        },
+        "color": "#2ecc71",
+        "home_city": "chengdu",
+        "team_name_rule": "{主将名}军"
+      },
+      {
+        "id": "wu",
+        "name": "吴",
+        "personality": "normal",
+        "home": {
+          "x": 2736,
+          "y": 2256
+        },
+        "color": "#e74c3c",
+        "home_city": "jianye",
+        "team_name_rule": "{主将名}军"
+      },
+      {
+        "id": "qun",
+        "name": "群雄",
+        "personality": "aggressive",
+        "home": {
+          "x": 816,
+          "y": 1232
+        },
+        "color": "#8e44ad",
+        "home_city": "changan",
+        "team_name_rule": "{主将名}军"
+      },
+      {
+        "id": "bandit",
+        "name": "黄巾",
+        "personality": "aggressive",
+        "home": null,
+        "generic_general": {
+          "lead": [
+            25,
+            45
+          ],
+          "str": [
+            30,
+            50
+          ],
+          "int": [
+            10,
+            30
+          ],
+          "cha": [
+            10,
+            30
+          ]
+        },
+        "color": "#e67e22",
+        "team_name_rule": "黄巾军·{头目名}"
+      }
+    ],
+    "bandit_name_pool": [
+      "程远志",
+      "邓茂",
+      "管亥",
+      "裴元绍",
+      "张曼成",
+      "波才",
+      "彭脱",
+      "卞喜",
+      "何仪",
+      "黄邵",
+      "龚都",
+      "刘辟"
+    ],
+    "bandit_name_rule": "不放回抽取；池空后用「黄巾头目N」（N 从 1 递增）。黄巾头目不进抽卡池，可被俘获",
+    "ratio_rule": "r = 我方面板战力 / 对方面板战力（不乘随机）；r ≤ flee_ratio → flee（优先）；r ≥ chase_ratio → chase；否则忽略。逃离视野内最近的威胁，追视野内最近的猎物",
+    "valid_target": "不同阵营；不在战斗中；不在 ignore 名单；玩家处于战败无敌期时不作为目标",
+    "return_home_radius_mult": 1.5,
+    "return_rule": "无目标且离 home 超过 wander_radius_px × return_home_radius_mult 时进入 return 走回家，进入 wander_radius_px 内转回 wander；黄巾 home = 出生点"
+  },
+  "generals": [
+    {
+      "id": "lvbu",
+      "name": "吕布",
+      "tier": "S",
+      "faction": "qun",
+      "lead": 88,
+      "str": 100,
+      "int": 26,
+      "cha": 40
+    },
+    {
+      "id": "guanyu",
+      "name": "关羽",
+      "tier": "S",
+      "faction": "shu",
+      "lead": 95,
+      "str": 97,
+      "int": 75,
+      "cha": 93
+    },
+    {
+      "id": "zhugeliang",
+      "name": "诸葛亮",
+      "tier": "S",
+      "faction": "shu",
+      "lead": 92,
+      "str": 38,
+      "int": 100,
+      "cha": 92
+    },
+    {
+      "id": "caocao",
+      "name": "曹操",
+      "tier": "S",
+      "faction": "wei",
+      "lead": 96,
+      "str": 72,
+      "int": 91,
+      "cha": 95
+    },
+    {
+      "id": "zhangfei",
+      "name": "张飞",
+      "tier": "A",
+      "faction": "shu",
+      "lead": 85,
+      "str": 98,
+      "int": 30,
+      "cha": 45
+    },
+    {
+      "id": "zhaoyun",
+      "name": "赵云",
+      "tier": "A",
+      "faction": "shu",
+      "lead": 91,
+      "str": 96,
+      "int": 76,
+      "cha": 81
+    },
+    {
+      "id": "zhouyu",
+      "name": "周瑜",
+      "tier": "A",
+      "faction": "wu",
+      "lead": 96,
+      "str": 71,
+      "int": 96,
+      "cha": 87
+    },
+    {
+      "id": "xiahoudun",
+      "name": "夏侯惇",
+      "tier": "A",
+      "faction": "wei",
+      "lead": 89,
+      "str": 90,
+      "int": 58,
+      "cha": 70
+    },
+    {
+      "id": "huaxiong",
+      "name": "华雄",
+      "tier": "B",
+      "faction": "qun",
+      "lead": 76,
+      "str": 88,
+      "int": 42,
+      "cha": 38
+    },
+    {
+      "id": "liaohua",
+      "name": "廖化",
+      "tier": "B",
+      "faction": "shu",
+      "lead": 68,
+      "str": 72,
+      "int": 60,
+      "cha": 62
+    }
+  ],
+  "hero": {
+    "id": "hero",
+    "name": "主角（无名小卒）",
+    "lead": 40,
+    "str": 45,
+    "int": 40,
+    "cha": 50
+  },
+  "decisions": [
+    {
+      "id": "unit_counter",
+      "title": "兵种克制",
+      "options": [
+        "不做",
+        "步/骑/弓三角克制 ×1.2"
+      ],
+      "chosen": "不做",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    },
+    {
+      "id": "gacha_cost",
+      "title": "抽卡单价",
+      "options": [
+        "固定 50",
+        "50 起每抽 +5，封顶 200"
+      ],
+      "chosen": "50 起每抽 +5，封顶 200",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认",
+      "config": {
+        "cost_base": 50,
+        "cost_step": 5,
+        "cost_cap": 200
+      }
+    },
+    {
+      "id": "defeat_penalty",
+      "title": "玩家战败惩罚",
+      "options": [
+        "轻：保留一半溃兵，随从可能被俘，主角不被俘",
+        "重：回到上次存档",
+        "无惩罚"
+      ],
+      "chosen": "轻：保留一半溃兵，随从可能被俘，主角不被俘",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    },
+    {
+      "id": "ai_strength",
+      "title": "AI 强度",
+      "options": [
+        "固定分布",
+        "新刷队伍按玩家战力 0.5~1.3 倍"
+      ],
+      "chosen": "新刷队伍按玩家战力 0.5~1.3 倍",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    },
+    {
+      "id": "battle_control",
+      "title": "战斗中能否操作",
+      "options": [
+        "纯数值结算",
+        "结算中可撤退，付 30% 兵脱离"
+      ],
+      "chosen": "纯数值结算",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    },
+    {
+      "id": "named_after_defeat",
+      "title": "名将被击败且未被俘后的去向",
+      "options": [
+        "回自由池，只能靠抽卡获得",
+        "回自由池，并每 5 分钟以原势力重新出兵"
+      ],
+      "recommend": "回自由池，只能靠抽卡获得",
+      "chosen": "回自由池，只能靠抽卡获得",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    },
+    {
+      "id": "loser_items",
+      "title": "AI 败方物品",
+      "options": [
+        "消失",
+        "玩家有空栏位时获得"
+      ],
+      "recommend": "消失",
+      "chosen": "消失",
+      "status": "decided",
+      "decided_note": "2026-10-22 用户确认"
+    }
+  ],
+  "map": {
+    "tiles_w": 100,
+    "tiles_h": 100,
+    "tile_px": 32,
+    "width_px": 3200,
+    "height_px": 3200,
+    "tile_to_px": "px = tile × 32 + 16（格中心）"
+  },
+  "cities": [
+    {
+      "id": "luoyang",
+      "name": "洛阳",
+      "tile": {
+        "x": 50,
+        "y": 35
+      },
+      "px": {
+        "x": 1616,
+        "y": 1136
+      },
+      "function": "原型仅为地标，可通行，无交互"
+    },
+    {
+      "id": "changan",
+      "name": "长安",
+      "tile": {
+        "x": 25,
+        "y": 38
+      },
+      "px": {
+        "x": 816,
+        "y": 1232
+      },
+      "function": "原型仅为地标，可通行，无交互"
+    },
+    {
+      "id": "xuchang",
+      "name": "许昌",
+      "tile": {
+        "x": 62,
+        "y": 50
+      },
+      "px": {
+        "x": 2000,
+        "y": 1616
+      },
+      "function": "原型仅为地标，可通行，无交互"
+    },
+    {
+      "id": "chengdu",
+      "name": "成都",
+      "tile": {
+        "x": 15,
+        "y": 75
+      },
+      "px": {
+        "x": 496,
+        "y": 2416
+      },
+      "function": "原型仅为地标，可通行，无交互"
+    },
+    {
+      "id": "jianye",
+      "name": "建业",
+      "tile": {
+        "x": 85,
+        "y": 70
+      },
+      "px": {
+        "x": 2736,
+        "y": 2256
+      },
+      "function": "原型仅为地标，可通行，无交互"
+    }
+  ],
+  "player_faction": {
+    "id": "player",
+    "name": "主角",
+    "color": "#f1c40f",
+    "team_name": "主角军",
+    "start": {
+      "x": 1616,
+      "y": 1136
+    },
+    "start_city": "luoyang"
+  },
+  "terrain_speed": {
+    "grass": 1.0,
+    "road": 1.25,
+    "forest": 0.5,
+    "city": 1.0,
+    "mountain": null,
+    "water": null,
+    "_note": "null = 不可通行。颜色等表现字段留在程序 terrain.json"
+  },
+  "spawn": {
+    "max_ai_teams": 12,
+    "_max": "含初始队伍",
+    "respawn_interval_s": 30,
+    "faction": "bandit",
+    "power_vs_player": [
+      0.5,
+      1.3
+    ],
+    "applies_to": "仅补充刷新的队伍；初始队伍和名将队伍用 initial_teams 固定配置，不缩放",
+    "soldiers_formula": "目标战力 P* = 玩家面板战力 × U(0.5,1.3)；先随机头目属性，再 N = max(min_soldiers, round((P* − k_gen×Σ武力) / M))，并 ≤ 兵力上限",
+    "min_soldiers": 5,
+    "dist_from_player_px": [
+      700,
+      1400
+    ],
+    "position_rule": "可通行格；不在玩家视野内；失败重试 10 次后跳过本次刷新",
+    "named_generals_respawn": false
+  },
+  "initial_teams": [
+    {
+      "id": "player",
+      "faction": "player",
+      "soldiers": 30,
+      "generals": [
+        "hero"
+      ],
+      "items": [
+        "war_drum"
+      ],
+      "position": {
+        "x": 1616,
+        "y": 1136
+      }
+    },
+    {
+      "id": "wei_caocao",
+      "faction": "wei",
+      "soldiers": 120,
+      "generals": [
+        "caocao",
+        "xiahoudun"
+      ],
+      "items": [],
+      "position": "home"
+    },
+    {
+      "id": "shu_guanyu",
+      "faction": "shu",
+      "soldiers": 100,
+      "generals": [
+        "guanyu",
+        "liaohua"
+      ],
+      "items": [],
+      "position": "home"
+    },
+    {
+      "id": "wu_zhouyu",
+      "faction": "wu",
+      "soldiers": 90,
+      "generals": [
+        "zhouyu"
+      ],
+      "items": [
+        "art_of_war"
+      ],
+      "position": "home"
+    },
+    {
+      "id": "qun_lvbu",
+      "faction": "qun",
+      "soldiers": 110,
+      "generals": [
+        "lvbu",
+        "huaxiong"
+      ],
+      "items": [
+        "fine_horse"
+      ],
+      "position": "home"
+    },
+    {
+      "id": "bandit_1",
+      "faction": "bandit",
+      "soldiers": 25,
+      "generals": [
+        "generic"
+      ],
+      "items": [],
+      "position": {
+        "x": 1900,
+        "y": 1250
+      }
+    },
+    {
+      "id": "bandit_2",
+      "faction": "bandit",
+      "soldiers": 40,
+      "generals": [
+        "generic"
+      ],
+      "items": [],
+      "position": {
+        "x": 1350,
+        "y": 1350
+      }
+    }
+  ],
+  "initial_free_pool": [
+    "zhugeliang",
+    "zhaoyun",
+    "zhangfei"
+  ],
+  "collision": {
+    "shape": "队伍色块 AABB 重叠（边长 20 px）即触发",
+    "skip_if": "任一方在战斗中 / 处于 post_battle_grace_s / 玩家战败无敌期 / 同阵营 / 该对在平局冷却中",
+    "multi_hit": "同一帧一支队伍与多队重叠时，只与中心距离最近的一队开战，其余忽略",
+    "engine_debounce_ms": 3000,
+    "_engine_debounce": "程序侧同一对事件去抖，保留；玩法冷却以 draw_pair_cooldown_s 为准",
+    "draw_pushback": "沿两队中心连线，双方各向外推 draw_pushback_px；落点不可通行则取最近可通行格",
+    "draw_cooldown_start": "战斗动画 T 结束时开始计时，只限制这一对，其他队伍照常可撞"
+  },
+  "worked_examples": [
+    {
+      "id": "ex1",
+      "desc": "开局打黄巾（随机系数 1.0/1.0）",
+      "a": {
+        "soldiers": 30,
+        "generals": [
+          "hero"
+        ],
+        "items": [
+          "war_drum"
+        ],
+        "is_player": true
+      },
+      "b": {
+        "soldiers": 25,
+        "generals": [
+          {
+            "name": "程远志",
+            "lead": 30,
+            "str": 40,
+            "int": 20,
+            "cha": 20
+          }
+        ],
+        "items": []
+      },
+      "rolls": [
+        1.0,
+        1.0
+      ],
+      "expect": {
+        "power_a": 63.6,
+        "power_b": 50.75,
+        "ratio": 1.2532,
+        "outcome": "a_wins",
+        "duration_s": 6.29,
+        "winner_losses": 5,
+        "loser_dead": 8,
+        "loser_survivors": 17,
+        "recruit_rate": 0.4,
+        "recruited": 6,
+        "winner_soldiers_after": 31,
+        "points": 20,
+        "capture": {
+          "程远志": 0.4327
+        }
+      }
+    },
+    {
+      "id": "ex1_rand",
+      "desc": "同 ex1，随机系数 0.92/1.08",
+      "rolls": [
+        0.92,
+        1.08
+      ],
+      "expect": {
+        "ratio": 1.0678,
+        "outcome": "a_wins",
+        "duration_s": 7.12,
+        "winner_losses": 6,
+        "loser_dead": 7,
+        "loser_survivors": 18,
+        "recruited": 7,
+        "winner_soldiers_after": 31,
+        "points": 20
+      }
+    },
+    {
+      "id": "ex2",
+      "desc": "玩家（主角+廖化+120 兵+战鼓）输给夏侯惇+150 兵",
+      "rolls": [
+        1.0,
+        1.0
+      ],
+      "expect": {
+        "power_a": 240.18,
+        "power_b": 288.75,
+        "ratio": 1.2019,
+        "outcome": "b_wins",
+        "duration_s": 6.49,
+        "winner_losses": 23,
+        "loser_dead": 33,
+        "loser_survivors": 87,
+        "player_kept": 43,
+        "recruit_base": 44,
+        "recruit_rate": 0.48,
+        "recruited": 21,
+        "winner_soldiers_after": 148,
+        "points": 0,
+        "capture": {
+          "hero": 0,
+          "廖化": 0.3421
+        }
+      }
+    },
+    {
+      "id": "ex3",
+      "desc": "赵云+主角+廖化+300 兵+战鼓 碾压 华雄+60 兵",
+      "rolls": [
+        1.0,
+        1.0
+      ],
+      "expect": {
+        "power_a": 694.8,
+        "power_b": 137.36,
+        "ratio": 5.0568,
+        "outcome": "a_wins",
+        "bully": true,
+        "duration_s": 2.69,
+        "winner_losses": 5,
+        "loser_dead": 42,
+        "loser_survivors": 18,
+        "recruit_rate": 0.524,
+        "recruited": 9,
+        "winner_soldiers_after": 304,
+        "points": 23,
+        "capture": {
+          "华雄": 0.6749
+        }
+      }
+    }
+  ]
+}
