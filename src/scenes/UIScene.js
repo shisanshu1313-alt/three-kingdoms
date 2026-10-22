@@ -7,6 +7,8 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance } from '../data/index.js';
 import { button } from '../ui/widgets.js';
 import { pullCost } from '../systems/gacha.js';
+import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
+import { UNIT_NAMES } from '../systems/units.js';
 
 const UI_CFG = balance.gacha_ui ?? {};
 const DEBUG_POINTS = 200;
@@ -153,18 +155,34 @@ export default class UIScene extends Phaser.Scene {
     const p = this.world.player;
     if (!p) return;
     const st = this.world.state, now = this.world.clock.now;
-    const inv = p.isInvincible(now) ? `  无敌${((p.invincibleUntil - now) / 1000).toFixed(1)}s` : '';
+    const f = this.world.field, b = f?.body(p.id);
+    const inv = p.isInvincible(now) ? `  保护${((p.invincibleUntil - now) / 1000).toFixed(1)}s` : '';
     const status = p.inBattle ? '交战中' : (p.path ? '行军' : '待命');
     const t = this.world.tileAt(p.x, p.y);
     const tx = Math.floor(p.x / TILE_SIZE), ty = Math.floor(p.y / TILE_SIZE);
+    // v0.5 战斗行：实时兵数 / 士气 / 对手（兵种、克制）/ 脱离进度
+    let battle = '';
+    if (b && (inCombat(b) || b.routed)) {
+      const foes = b.foes.map(id => f.body(id)).filter(Boolean);
+      const foeTxt = foes.map(y => {
+        const K = f.cfg.move.counters, c = K[b.unit] === y.unit ? '(克)' : K[y.unit] === b.unit ? '(被克)' : '';
+        return `${f.parties.get(y.id)?.team.name ?? y.id}[${UNIT_NAMES[y.unit] ?? '?'}]${c}`;
+      }).join('、');
+      const apart = Math.max(0, ...Object.values(f.state.pairs).filter(q => q.a === p.id || q.b === p.id).map(q => q.apartT || 0));
+      battle = `战斗: 兵${shownSoldiers(b)}/${b.N0start ?? b.N0}  士气${Math.round(moraleOf(b, f.cfg))}${b.routed ? '（溃逃！）' : ''}  对手: ${foeTxt}` +
+        (apart > 0 ? `  脱离 ${apart.toFixed(1)}/${f.cfg.move.escape_s}s` : '');
+    }
+    const shownN = b && inCombat(b) ? shownSoldiers(b) : p.soldiers;
+    const spd = b ? vmaxOf(b, f.cfg) : p.moveSpeed();
     this.info.setText([
       `坐标: (${tx}, ${ty})  像素: (${Math.round(p.x)}, ${Math.round(p.y)})`,
       `地形: ${t ? t.name : '-'}  速度×${t ? t.speed : 0}`,
-      `点数: ${st.points}（下一抽 ${pullCost(st.gachaDraws, balance.gacha)}）   兵力: ${p.soldiers}/${p.cap}   战力: ${Math.round(p.power)}`,
+      `点数: ${st.points}（下一抽 ${pullCost(st.gachaDraws, balance.gacha)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
-      `状态: ${status}${inv}  速度: ${Math.round(p.moveSpeed())}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
+      `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
       `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
-      `FPS: ${Math.round(this.game.loop.actualFps)}`
+      `FPS: ${Math.round(this.game.loop.actualFps)}`,
+      ...(battle ? [battle] : [])
     ]);
     const logLines = st.battleLog.slice(0, 5).map(e => `[${(e.time / 1000).toFixed(0)}s] ${e.text}`);
     this.log.setText(logLines.length ? ['战报：', ...logLines] : '战报：暂无');

@@ -39,7 +39,8 @@ const OUT = ART + '/screenshot.png';
   // 1b) 输入动作层：方向键移动、F1 切换调试视野（按住不重复切换）、滚轮缩放
   {
     const a0 = await pos();
-    await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(500); await page.keyboard.up('ArrowLeft');
+    // v0.5：有转向速率（turn_dps）和加速度，先前朝右下，掉头要时间 → 按 1.2 s
+    await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(1200); await page.keyboard.up('ArrowLeft');
     const a1 = await pos();
     const vis = () => ev(() => window.__game.scene.getScene('World').debugVision);
     const v0 = await vis();
@@ -120,19 +121,32 @@ const OUT = ART + '/screenshot.png';
   await page.waitForTimeout(700);
   await page.screenshot({ path: ART + '/screenshot-chase.png' });
   // 等战斗结束
-  let after = null;
+  let after = null, engagedSeen = false;
   for (let i = 0; i < 60; i++) {
     await page.waitForTimeout(250);
-    after = await ev(() => { const w = window.__game.scene.getScene('World'); return { player: w.player.soldiers, log: w.state.battleLog.map(e => e.text), invincible: w.player.isInvincible(w.time.now), points: w.state.points }; });
-    if (after.log.some(t => t.includes('主角军'))) break;
+    // v0.5 分支：战斗是持续的（弓兵会放风筝），不等结算；看到交战且兵数在掉就算
+    after = await ev(() => { const w = window.__game.scene.getScene('World'), b = w.field.body(w.player.id);
+      return { player: b ? Math.round(b.N0 - b.N0 * b.raw * (1 - b.stats.red)) : w.player.soldiers, engaged: !!w.player.inBattle, log: w.state.battleLog.map(e => e.text), invincible: w.player.isInvincible(w.clock.now), points: w.state.points }; });
+    if (after.engaged) engagedSeen = true;
+    if (after.log.some(t => t.includes('主角军')) || (engagedSeen && after.player < before.player)) break;
   }
   await page.waitForTimeout(600);
   await page.screenshot({ path: OUT });
   result.chase = { startDist: before.d, observed: chase, ok: !!chase };
   result.battle = { playerSoldiersBefore: before.player, playerSoldiersAfter: after.player, log: after.log, playerInvincibleAfter: after.invincible, points: after.points,
-    ok: after.log.some(t => t.includes('主角军')) && after.player !== before.player };
+    engaged: engagedSeen, ok: (after.log.some(t => t.includes('主角军')) || engagedSeen) && after.player !== before.player };
   // 4) M3 抽卡：等所有战斗结束，玩家无敌，避免被打断
-  await page.waitForFunction(() => { const w = window.__game.scene.getScene('World'); return !w.player.inBattle && !w.battleSystem.battles?.length; }, null, { timeout: 15000 }).catch(() => {});
+  // v0.5 分支：战斗是持续的（周瑜弓兵会放风筝），把玩家挪到远离所有 AI 的地方 → 间隙 > 150 px 持续 2 s 自然脱离
+  await ev(() => { const w = window.__game.scene.getScene('World'), pl = w.player, T = w.tileSize;
+    pl.clearPath(); pl.invincibleUntil = w.clock.now + 600000;
+    let best = null, bd = -1;
+    const G = w.mapData.grid; for (let ty = 5; ty < G.length - 5; ty += 6) for (let tx = 5; tx < G[0].length - 5; tx += 6) {
+      const s = w.findPassableNear(tx, ty); if (!s) continue;
+      const d = Math.min(...w.aiParties.map(p => Math.hypot(p.x - s.x, p.y - s.y))); if (d > bd) { bd = d; best = s; }
+    }
+    if (best) w.field.teleport(pl, best.x, best.y);
+  });
+  await page.waitForFunction(() => { const w = window.__game.scene.getScene('World'); return !w.player.inBattle && !Object.keys(w.field.state.pairs).length; }, null, { timeout: 15000 }).catch(() => {});
   await ev(() => { const w = window.__game.scene.getScene('World'); w.player.invincibleUntil = w.clock.now + 600000; w.state.points = 10; });
   const gs = () => ev(() => { const g = window.__game; const ga = g.scene.getScene('Gacha'); const w = g.scene.getScene('World');
     return { gacha: g.scene.isActive('Gacha'), gachaPaused: g.scene.isPaused('Gacha'), roster: g.scene.isActive('Roster'), worldPaused: g.scene.isPaused('World'), ui: ga?.uiState,
@@ -195,13 +209,14 @@ const OUT = ART + '/screenshot.png';
     escRule: { resultBeforeConfirm: rfResult.ui, next: rfResult.result?.next, afterEsc: rf.ui, afterSecondEsc: idle.ui, idleStillOpen: idle.gacha },
     ok: rfResult.ui === 'RESULT' && rfResult.result?.next === 'roster_full' && idle.ui === 'IDLE' && idle.gacha && rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
   // 4b) v0.4 pause_scope：打开抽卡时整个世界冻结（游戏时钟、AI 战斗计时、无敌、刷新、自动存档）
-  const freeze = () => ev(() => { const w = window.__game.scene.getScene('World'); const now = w.clock.now; const bt = w.battleSystem.battles[0];
-    return { now, battleLeft: bt ? bt.endAt - now : null, battles: w.battleSystem.battles.length, inv: w.player.invincibleUntil - now,
+  // v0.5 分支：战斗是 field（melee.step）里的持续接触；冻结 = 战斗时间 t / 各方 raw 都不动
+  const freeze = () => ev(() => { const w = window.__game.scene.getScene('World'); const now = w.clock.now; const f = w.field;
+    return { now, battleT: f.state.t, raw: Object.values(f.state.bodies).map(b => b.raw.toFixed(6)).join(' '), battles: Object.keys(f.state.pairs).length, inv: w.player.invincibleUntil - now,
       respawn: w.clock.remaining('respawn'), autosave: w.clock.remaining('autosave'), pos: w.aiParties.map(p => Math.round(p.x) + ',' + Math.round(p.y)).join(' ') }; });
   await ev(() => { const w = window.__game.scene.getScene('World');
     // 手动让两支不同阵营的 AI 开战，检验“别处的 AI 战斗计时”也被冻结
     const x = w.aiParties.find(p => !p.inBattle), y = w.aiParties.find(p => !p.inBattle && p.faction !== x.faction);
-    w.battleSystem.start(x, y, w.clock.now); });
+    w.field.teleport(y, x.x + w.views.get(x).radius + w.views.get(y).radius - 2, x.y); });
   await page.waitForTimeout(300);
   await page.keyboard.press('g'); await page.waitForTimeout(200);
   const f0 = await freeze();
@@ -209,9 +224,9 @@ const OUT = ART + '/screenshot.png';
   const f1 = await freeze();
   await page.keyboard.press('Escape'); await page.waitForTimeout(500);
   const f2 = await freeze();
-  result.pauseFreeze = { before: f0, after2sPaused: f1, afterResume: { now: f2.now, battleLeft: f2.battleLeft },
-    ok: f0.battles >= 1 && JSON.stringify(f0) === JSON.stringify(f1) && f2.now > f1.now && (f2.battleLeft === null || f2.battleLeft < f1.battleLeft) };
-  await page.waitForFunction(() => !window.__game.scene.getScene('World').battleSystem.battles.length, null, { timeout: 20000 }).catch(() => {});
+  result.pauseFreeze = { before: f0, after2sPaused: f1, afterResume: { now: f2.now, battleT: f2.battleT },
+    ok: f0.battles >= 1 && JSON.stringify(f0) === JSON.stringify(f1) && f2.now > f1.now && f2.battleT > f1.battleT };
+  await page.waitForFunction(() => !Object.keys(window.__game.scene.getScene('World').field.state.pairs).length, null, { timeout: 20000 }).catch(() => {});
 
   // 4c) 存档决定 1：抽卡结果产生后立即存档；未做的选择读档后重新弹出（不回滚）；读档后随机数流状态一致（不重掷）
   await ev(() => { const w = window.__game.scene.getScene('World'); w.state.points = 1000;

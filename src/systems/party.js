@@ -13,8 +13,8 @@ export function hexToInt(hex) {
  * 队伍逻辑模型（纯 JS，不依赖 Phaser / DOM）：包着纯数据 team 对象（结构 = balance.team_example），
  * 位置就是 team.position。AI / 战斗 / 碰撞 / 存档都只读写它；画面由 entities/PartyView.js 每帧同步。
  *
- * world 参数需要提供：clock.now、speedAt(x,y)、isPassable(x,y)（见 systems/world.js 的 WorldModel）。
- * 移动：move(dx,dy) 直接方向移动；setPath(points) + followPath() 沿 A* 路径移动。
+ * 移动（v0.5）：move / stepToward / followPath 只设置 intent（期望朝向与速度），真正的移动在 melee.step 里。
+ * _fits(x,y,world) 的 world 需要 isPassable(x,y)（见 systems/world.js 的 WorldModel）。
  */
 export default class PartyModel {
   constructor(team, balance, color = '#ffffff') {
@@ -53,36 +53,37 @@ export default class PartyModel {
     this.rev++;
   }
 
-  setPosition(x, y) { this.team.position.x = x; this.team.position.y = y; }
+  /** 位置。v0.5：战斗体（FieldBattle）是位置的权威；直接设位置（读档、刷新、调试）时同步过去 */
+  setPosition(x, y) {
+    this.team.position.x = x; this.team.position.y = y;
+    const b = this.combat?.body(this.id);
+    if (b && (b.x !== x || b.y !== y)) { b.x = x; b.y = y; }
+  }
 
   getBounds() {
     const h = this.size / 2;
     return { left: this.x - h, right: this.x + h, top: this.y - h, bottom: this.y + h };
   }
 
-  /** 按方向 (dx,dy)（长度≤1）移动 dt 秒；分轴移动可贴边滑动。返回是否被阻挡 */
-  move(dx, dy, dt, world) {
+  /**
+   * v0.5：队伍不再直接改位置，只给出“期望朝向 + 期望速度”（this.intent），由 melee.step 按加速度 / 转向 / 接触减速移动。
+   * 按方向 (dx,dy)（长度≤1）全速走。
+   */
+  move(dx, dy) {
     if (!dx && !dy) return false;
-    const speed = this.moveSpeed(world.clock.now) * world.speedAt(this.x, this.y);
-    const stepX = dx * speed * dt, stepY = dy * speed * dt;
-    let blocked = false;
-    let nx = this.x, ny = this.y;
-    if (stepX && this._fits(nx + stepX, ny, world)) nx += stepX; else if (stepX) blocked = true;
-    if (stepY && this._fits(nx, ny + stepY, world)) ny += stepY; else if (stepY) blocked = true;
-    this.setPosition(nx, ny);
-    return blocked;
+    this.intent = { h: Math.atan2(dy, dx), v: 1e6 * Math.min(1, Math.hypot(dx, dy)) };
+    return false;
   }
 
-  /** 朝某点直线走一步；返回 'arrived' | 'moving' | 'stuck' */
-  stepToward(tx, ty, dt, world) {
+  /** 朝某点走（最后一段按距离减速，避免冲过头）；返回 'arrived' | 'moving' | 'stuck'（两次调用之间几乎没动累计 0.4 s） */
+  stepToward(tx, ty, dt) {
     const ddx = tx - this.x, ddy = ty - this.y;
     const d = Math.hypot(ddx, ddy);
-    if (d <= CLICK_ARRIVE_DIST) return 'arrived';
-    const speed = this.moveSpeed(world.clock.now) * world.speedAt(this.x, this.y);
-    const k = Math.min(1, d / Math.max(1e-6, speed * dt));
-    const ox = this.x, oy = this.y;
-    this.move((ddx / d) * k, (ddy / d) * k, dt, world);
-    if (Math.abs(this.x - ox) < 0.01 && Math.abs(this.y - oy) < 0.01) {
+    if (d <= CLICK_ARRIVE_DIST) { this._last = null; return 'arrived'; }
+    this.intent = { h: Math.atan2(ddy, ddx), v: Math.max(20, d / Math.max(dt, 1e-3) * 0.5) };
+    const last = this._last;
+    this._last = { x: this.x, y: this.y };
+    if (last && Math.abs(this.x - last.x) < 0.01 && Math.abs(this.y - last.y) < 0.01) {
       this.stuckTime += dt;
       return this.stuckTime > 0.4 ? 'stuck' : 'moving';
     }
@@ -90,14 +91,14 @@ export default class PartyModel {
     return 'moving';
   }
 
-  setPath(points) { this.path = points && points.length ? points : null; this.stuckTime = 0; }
+  setPath(points) { this.path = points && points.length ? points : null; this.stuckTime = 0; this._last = null; }
   clearPath() { this.path = null; }
 
   /** 沿路径移动；返回 'none' | 'moving' | 'arrived' | 'stuck' */
   followPath(dt, world) {
     if (!this.path) return 'none';
     const wp = this.path[0];
-    const r = this.stepToward(wp.x, wp.y, dt, world);
+    const r = this.stepToward(wp.x, wp.y, dt);
     if (r === 'arrived') {
       this.path.shift();
       if (!this.path.length) { this.path = null; return 'arrived'; }

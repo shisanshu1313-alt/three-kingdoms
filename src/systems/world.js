@@ -139,7 +139,7 @@ export class WorldModel {
 
 /**
  * 纯数据快照（存档格式见 systems/save.js）。
- * s = { clock, state, player, aiParties, spawnCounter, names, rngs: {team, gacha, combat}, battleSystem, cameraZoom, balance }
+ * s = { clock, state, player, aiParties, spawnCounter, names, rngs: {team, gacha, combat}, battleSystem?(v0.4), combat?(v0.5 快照), cameraZoom, balance }
  */
 export function snapshotWorld(s) {
   const now = s.clock.now;
@@ -155,8 +155,9 @@ export function snapshotWorld(s) {
     timers: s.clock.getState().timers,
     names: s.names,
     rng: { team: s.rngs.team.getState(), gacha: s.rngs.gacha.getState(), combat: s.rngs.combat.getState() },
-    battles: s.battleSystem.serialize(),
-    pairCooldowns: [...s.battleSystem.pairCooldown].filter(([, until]) => until > now),
+    battles: s.battleSystem ? s.battleSystem.serialize() : [],
+    pairCooldowns: s.battleSystem ? [...s.battleSystem.pairCooldown].filter(([, until]) => until > now) : [],
+    combat: s.combat ?? null, // v0.5 实时战斗快照（melee state + AI 战术记忆），读档原样继续
     camera: { zoom: s.cameraZoom }
   };
 }

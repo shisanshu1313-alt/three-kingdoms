@@ -1,15 +1,17 @@
 import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import {
-  TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX, MAP_SEED, SAVE_INTERVAL_S
+  TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX, MAP_SEED, SAVE_INTERVAL_S, TEAM_SEED
 } from '../config.js';
 import { generateMap, TERRAIN } from '../world/MapGenerator.js';
 import PartyModel from '../systems/party.js';
 import PartyView from '../entities/PartyView.js';
 import { WorldModel, snapshotWorld } from '../systems/world.js';
 import AISystem from '../systems/ai.js';
-import CollisionSystem from '../systems/collision.js';
-import BattleSystem from '../systems/battle.js';
+import FieldBattle from '../systems/fieldBattle.js';
+import { inCombat, soldiersOf, shownSoldiers, moraleOf, radiusOf, vmaxOf } from '../systems/melee.js';
+import { assignUnit } from '../systems/units.js';
+import combatJson from '../data/combat_v05.json' with { type: 'json' };
 import { createGameState, pushLog } from '../systems/gameState.js';
 import { buildRespawnTeam } from '../systems/teams.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
@@ -63,40 +65,44 @@ export default class WorldScene extends Phaser.Scene {
     this.parties = [];
     this.views = new Map(); // PartyModel → PartyView
     this.aiParties = [];
-    this.collisions = new CollisionSystem();
     this.aiSystem = new AISystem(balance);
-    if (save) {
-      teamRng.setState(save.rng?.team ?? teamRng.getState());
-      nextBanditName.setState(save.names);
-      this.state = restoreGameState(save.state, createGameState(balance));
-      this.spawnCounter = save.spawn.counter;
-      this.player = this.addParty(structuredClone(save.player.team), { exact: true });
-      this.player.invincibleUntil = save.player.invincibleUntil ?? 0;
-      this.player.graceUntil = save.player.graceUntil ?? 0;
-      for (const a of save.ai) {
-        const p = this.addParty(structuredClone(a.team), { exact: true });
-        p.ai = { ...memFromSave(a.mem), personality: this.aiSystem.personalityOf(p) };
-        p.graceUntil = a.graceUntil ?? 0;
-      }
-    } else {
-      resetWorldRandom(); // 同一页面里再开新游戏也从相同的种子开始
-      this.state = createGameState(balance);
-      this.spawnCounter = 0;
-      const teams = loadInitialTeams();
-      this.player = this.addParty(teams.player);
-      teams.ai.forEach(t => this.addParty(t));
-    }
+    this.fixedAcc = 0;
+    this.fx = this.add.graphics().setDepth(9);
+    this.minimap.ignore(this.fx);
     // 存档决定 3：抽卡与战斗结算用各自的种子随机数流，状态随存档保存（读档不能重掷）
     const newSeed = () => (Math.random() * 4294967296) >>> 0;
     this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()) };
     if (save?.rng?.gacha !== undefined) this.rngs.gacha.setState(save.rng.gacha);
     if (save?.rng?.combat !== undefined) this.rngs.combat.setState(save.rng.combat);
-    this.battleSystem = new BattleSystem(this, balance, this.state, this.rngs.combat);
-    if (save?.battles?.length) {
-      const restored = this.battleSystem.restore(save.battles, new Map(this.parties.map(p => [p.id, p])));
-      for (const bt of restored) this.onBattleStart(bt, { restored: true });
+    const initField = () => {
+      // v0.5 实时战斗（systems/fieldBattle.js + melee.step）；读档时恢复战斗快照
+      this.field = new FieldBattle({ combatJson, balance, gameState: this.state, rng: this.rngs.combat, seed: newSeed(),
+        hooks: this.combatHooks(), restore: save?.combat ?? null });
+    };
+    const unitRng = mulberry32(TEAM_SEED ^ 0x5eed);
+    if (save) {
+      teamRng.setState(save.rng?.team ?? teamRng.getState());
+      nextBanditName.setState(save.names);
+      this.state = restoreGameState(save.state, createGameState(balance));
+      initField();
+      this.spawnCounter = save.spawn.counter;
+      this.player = this.addParty(assignUnit(structuredClone(save.player.team), combatJson, unitRng), { exact: true });
+      this.player.invincibleUntil = save.player.invincibleUntil ?? 0;
+      for (const a of save.ai) {
+        const p = this.addParty(assignUnit(structuredClone(a.team), combatJson, unitRng), { exact: true });
+        p.ai = { ...memFromSave(a.mem), personality: this.aiSystem.personalityOf(p) };
+      }
+      this.field.pruneOrphans(new Set(this.parties.map(p => p.id))); // 快照里多余的战斗体（理论上不会有）
+    } else {
+      resetWorldRandom(); // 同一页面里再开新游戏也从相同的种子开始
+      this.state = createGameState(balance);
+      initField();
+      this.spawnCounter = 0;
+      const teams = loadInitialTeams();
+      this.player = this.addParty(assignUnit(teams.player, combatJson, unitRng));
+      teams.ai.forEach(t => this.addParty(assignUnit(t, combatJson, unitRng)));
     }
-    for (const [k, until] of save?.pairCooldowns ?? []) this.battleSystem.pairCooldown.set(k, until);
+
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s（游戏时间）检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
     const T = save?.timers ?? {};
@@ -161,17 +167,14 @@ export default class WorldScene extends Phaser.Scene {
    * 读档后原样继续 / 重新弹出选择窗口，不会回滚抽卡。
    */
   canSaveNow() {
-    return !!(this.player && this.battleSystem);
+    return !!(this.player && this.field);
   }
-
-  /** BattleSystem 开战前回调：立即存档 */
-  beforeBattleStart() { this.trySaveNow('battle-start'); }
 
   /** 纯数据快照（存档格式见 systems/save.js；逻辑在 systems/world.js） */
   snapshot() {
     return snapshotWorld({
       clock: this.clock, state: this.state, player: this.player, aiParties: this.aiParties, spawnCounter: this.spawnCounter,
-      names: nextBanditName.getState(), rngs: { team: teamRng, ...this.rngs }, battleSystem: this.battleSystem,
+      names: nextBanditName.getState(), rngs: { team: teamRng, ...this.rngs }, combat: this.field.serialize(),
       cameraZoom: this.cameras.main.zoom, balance
     });
   }
@@ -211,6 +214,7 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.ignore(v.label);
     this.parties.push(p);
     if (!p.isPlayer) this.aiParties.push(p);
+    this.field.add(p);
     EventBus.emit(EVENTS.PARTY_SPAWNED, { party: p });
     return p;
   }
@@ -218,6 +222,7 @@ export default class WorldScene extends Phaser.Scene {
   removeParty(p) {
     this.parties = this.parties.filter(x => x !== p);
     this.aiParties = this.aiParties.filter(x => x !== p);
+    this.field.remove(p.id);
     this.views.get(p)?.destroy();
     this.views.delete(p);
     EventBus.emit(EVENTS.PARTY_REMOVED, { party: p });
@@ -229,46 +234,65 @@ export default class WorldScene extends Phaser.Scene {
     const pos = this.model.respawnPosition(this.player, balance, Math.random);
     if (!pos) { console.log('[spawn] 10 次未找到合法位置，跳过本次刷新'); return null; }
     const n = ++this.spawnCounter;
-    const team = buildRespawnTeam({
+    const team = assignUnit(buildRespawnTeam({
       id: `spawn_${n}`, position: pos, playerPower: this.player.power,
       balance, rng: Math.random, idx: index, nextName: nextBanditName
-    });
+    }), combatJson, Math.random);
     const p = this.addParty(team);
     console.log(`[spawn] ${p.name} 兵${team.soldiers} 战${Math.round(p.power)} (目标 ${Math.round(team.targetPower)})`);
     return p;
   }
 
-  // ================= 战斗回调（BattleSystem 调用）=================
-  /** opts.restored：读档恢复的进行中战斗，只画标记，不再发开战事件 */
-  onBattleStart(battle, opts = {}) {
-    const { a, b } = battle;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    const ring = this.add.circle(mx, my, 26).setStrokeStyle(3, 0xff4444).setDepth(12);
-    const icon = this.add.text(mx, my - 30, '⚔', { fontSize: '22px', color: '#ffdddd', stroke: '#000', strokeThickness: 4 })
-      .setOrigin(0.5).setDepth(13);
-    this.minimap.ignore([ring, icon]);
-    const tween = this.tweens.add({ targets: [ring], scale: 1.4, alpha: 0.4, yoyo: true, repeat: -1, duration: 300 });
-    battle.marker = { ring, icon, tween };
-    if (!opts.restored) EventBus.emit(EVENTS.BATTLE_START, { battle });
+  // ================= v0.5 实时战斗回调（FieldBattle 调用；这里只做表现 / 移除队伍 / 存档） =================
+  combatHooks() {
+    const playerIn = (...ps) => ps.some(p => p?.isPlayer);
+    return {
+      onEngage: (a, b) => {
+        EventBus.emit(EVENTS.BATTLE_START, { battle: { a, b } });
+        if (playerIn(a, b)) this.trySaveNow('battle-start'); // 存档决定 1：开战即存（含战斗快照）
+      },
+      onEffect: (type, p, e) => { if (p) this.combatEffect(type, p, e); },
+      onBattleEnd: (battle, outcome) => {
+        for (const id of outcome.removeIds) { const p = this.parties.find(x => x.id === id); if (p) this.removeParty(p); }
+        pushLog(this.state, outcome.text, this.gameTime());
+        EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
+        this.requestSave('battle');
+      },
+      onEscape: (esc, from) => {
+        const text = `${esc.name} 脱离了 ${from?.name ?? '敌军'}`;
+        pushLog(this.state, text, this.gameTime());
+        EventBus.emit(EVENTS.BATTLE_END, { battle: { a: esc, b: from }, outcome: { text, escape: true } });
+        this.combatEffect('escape', esc);
+        this.requestSave('battle');
+      },
+      onDraw: (a, b) => {
+        const text = `${a?.name} 与 ${b?.name} 平局，各自收兵`;
+        pushLog(this.state, text, this.gameTime());
+        EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
+      },
+      onCombatEnd: (p) => { if (p.isPlayer) this.requestSave('battle'); },
+      onPlayerWiped: (p) => {
+        const text = `全军覆没！（原型：v0.5 这里应进入失败结算；暂时保留 ${p.team.soldiers} 兵继续）`;
+        pushLog(this.state, text, this.gameTime());
+        EventBus.emit(EVENTS.BATTLE_END, { battle: { a: p, b: null }, outcome: { text, playerDefeat: true } });
+      }
+    };
   }
 
-  onBattleEnd(battle, outcome) {
-    const { a, b } = battle;
-    if (battle.marker) { battle.marker.tween.stop(); battle.marker.ring.destroy(); battle.marker.icon.destroy(); }
-    const now = this.clock.now;
-    if (outcome.outcome === 'draw') this.model.pushApart(a, b, outcome.pushback_px);
-    if (outcome.playerDefeat) {
-      this.player.invincibleUntil = now + outcome.playerDefeat.invincible_s * 1000;
-      this.player.clearPath();
-    }
-    for (const id of outcome.removeIds) {
-      const p = this.parties.find(x => x.id === id);
-      if (p) this.removeParty(p);
-    }
-    for (const p of [a, b]) if (this.parties.includes(p)) p.refresh();
-    pushLog(this.state, outcome.text, this.gameTime());
-    EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
-    this.requestSave('battle');
+  /** 战斗特效：冲击 / 反冲锋 / 溃逃 / 脱离 */
+  combatEffect(type, p) {
+    if (!p) return;
+    const map = { impact: ['冲!', '#ffdd55', 0xffdd55], braced: ['拒!', '#66ccff', 0x66ccff], rout: ['溃!', '#ff5555', 0xff5555],
+      escape: ['脱离', '#88ffff', 0x88ffff], 'rout-recover': ['重整', '#aaffaa', 0xaaffaa], 'protect-cancel': ['出击', '#ffaa66', 0xffaa66],
+      join: ['加入!', '#ff88ff', 0xff88ff], pursue: ['追!', '#ff9944', 0xff9944], giveup: ['不追了', '#cccccc', 0xcccccc], retreat: ['撤!', '#bbbbff', 0xbbbbff] };
+    const [txt, col, ring] = map[type] ?? [type, '#ffffff', 0xffffff];
+    const r = radiusOf(p.soldiers, this.field.cfg);
+    const c = this.add.circle(p.x, p.y, r + 4).setStrokeStyle(3, ring).setDepth(12);
+    const t = this.add.text(p.x, p.y - r - 18, txt, { fontSize: '18px', color: col, stroke: '#000', strokeThickness: 4, fontStyle: 'bold' }).setOrigin(0.5).setDepth(13);
+    this.minimap.ignore([c, t]);
+    this.tweens.add({ targets: c, scale: 1.8, alpha: 0, duration: 450, onComplete: () => c.destroy() });
+    this.tweens.add({ targets: t, y: t.y - 24, alpha: 0, duration: 900, onComplete: () => t.destroy() });
+    console.log(`[fx] ${type} ${p.name}`);
   }
 
   setPlayerTarget(x, y) {
@@ -338,58 +362,97 @@ export default class WorldScene extends Phaser.Scene {
     for (const p of order) {
       const v = this.views.get(p);
       const hovered = Math.abs(pw.x - p.x) < p.size && Math.abs(pw.y - p.y) < p.size;
-      if (p.inBattle) {
-        // during_battle：损兵数字在 T 秒内线性播放，结束时一次性写入结果
-        const bt = p.inBattle, t = Math.min(1, (this.clock.now - bt.startAt) / (bt.endAt - bt.startAt));
-        v.setBattleLabel(Math.round(bt.startSoldiers[p.id] - bt.lossOf[p.id] * t));
+      const b = this.field.body(p.id);
+      if (p.inBattle && b) {
+        v.setBattleLabel(shownSoldiers(b)); // 兵数随 tick 实时下降
       } else {
         v.setLabelMode(p.isPlayer || hovered || Math.hypot(p.x - pl.x, p.y - pl.y) < NEAR_PLAYER_FULL_LABEL_PX);
       }
       const w = v.label.width, h = v.label.height;
-      let bottom = p.y - p.size / 2 - 2;
+      let bottom = v.body.y - v.radius - 12; // 留出兵数条 / 士气条
       for (let iter = 0; iter < 8; iter++) {
-        const hit = placed.find(r => p.x - w / 2 < r.right && p.x + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
+        const hit = placed.find(r => v.body.x - w / 2 < r.right && v.body.x + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
         if (!hit) break;
         bottom = hit.top - 1;
       }
-      v.label.setPosition(p.x, bottom);
-      placed.push({ left: p.x - w / 2, right: p.x + w / 2, top: bottom - h, bottom });
+      v.label.setPosition(v.body.x, bottom);
+      placed.push({ left: v.body.x - w / 2, right: v.body.x + w / 2, top: bottom - h, bottom });
       // 战斗中/无敌提示色
       v.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : '#ffffff'));
     }
   }
 
   // ================= 主循环 =================
-  update(_time, delta) {
-    // 游戏时钟：用帧间隔推进（单帧最多 250ms，切后台回来不会一下跳过很多）；本场景暂停时 update 不执行 → 时钟冻结
-    this.clock.tick(Math.min(delta, 250));
-    const time = this.clock.now;
-    const dt = Math.min(delta, 50) / 1000;
-    const pl = this.player;
-
-    // 玩家：战斗中冻结；键盘优先（会取消点击路径）
-    if (!pl.inBattle) {
-      const { x: dx, y: dy } = this.actions.moveVector();
-      if (dx || dy) {
-        pl.clearPath();
-        const len = Math.hypot(dx, dy);
-        pl.move(dx / len, dy / len, dt, this.model);
-      } else if (pl.path) {
-        pl.followPath(dt, this.model);
-      }
+  /** 一个固定 tick：玩家输入 → AI → 实时战斗 step → 存档 */
+  fixedTick(dt) {
+    this.clock.tick(dt * 1000);
+    const time = this.clock.now, pl = this.player;
+    // 玩家：战斗中照常操控（v0.5：撤退 = 把队伍开走）；键盘优先（会取消点击路径）
+    const { x: dx, y: dy } = this.actions.moveVector();
+    if (dx || dy) {
+      pl.clearPath();
+      const len = Math.hypot(dx, dy);
+      pl.move(dx / len, dy / len);
+    } else if (pl.path) {
+      pl.followPath(dt, this.model);
     }
     this.targetMarker.setVisible(!!pl.path);
-
     this.aiSystem.update(this.aiParties, this.parties, dt, time, this.model);
-    const overlaps = this.collisions.update(this.parties, time);
-    this.battleSystem.update(overlaps, time);
+    this.field.tick(dt, this.combatEnv(), time);
+    // save_v05.in_battle：玩家交战中每 1 s 写一次战斗快照
+    if (pl.inBattle && time - (this.lastSaveAt ?? -1e9) >= 1000) this.trySaveNow('battle-snapshot');
+  }
 
+  /** 战斗用的地形接口（纯函数，给 melee.step） */
+  combatEnv() {
+    if (!this._env) {
+      const m = this.model, pl = this.player;
+      this._env = {
+        fits: (b, x, y) => pl._fits(x, y, m),
+        speedMult: (x, y) => m.speedAt(x, y),
+        hostile: (a, b) => a.faction !== b.faction
+      };
+    }
+    return this._env;
+  }
+
+  /** 接触线 / 弓兵箭线 / 脱离倒计时 */
+  drawCombatFx() {
+    const g = this.fx.clear(), f = this.field, cfg = f.cfg;
+    for (const p of Object.values(f.state.pairs)) {
+      const a = this.parties.find(x => x.id === p.a), b = this.parties.find(x => x.id === p.b);
+      if (!a || !b) continue;
+      const va = this.views.get(a).body, vb = this.views.get(b).body;
+      g.lineStyle(p.wasContact ? 4 : 2, p.wasContact ? 0xff3333 : 0xff9999, p.wasContact ? 0.9 : 0.5).lineBetween(va.x, va.y, vb.x, vb.y);
+      if (p.apartT > 0) { // 脱离进度：间隙 > escape_gap_px 已持续 apartT / escape_s
+        const mx = (va.x + vb.x) / 2, my = (va.y + vb.y) / 2, k = p.apartT / cfg.move.escape_s;
+        g.lineStyle(4, 0x88ffff, 0.9).beginPath().arc(mx, my, 14, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2).strokePath();
+      }
+    }
+    for (const b of Object.values(f.state.bodies)) if (b.shooting) {
+      const a = this.parties.find(x => x.id === b.id), t = this.parties.find(x => x.id === b.shooting);
+      if (a && t) g.lineStyle(1, 0xffffaa, 0.8).lineBetween(this.views.get(a).body.x, this.views.get(a).body.y, this.views.get(t).body.x, this.views.get(t).body.y);
+    }
+  }
+
+  update(_time, delta) {
+    // 固定 tick（battle_move.tick_s = 0.1 s）：游戏时钟、玩家输入、AI、战斗 step 都按 tick 推进；画面每帧在两次 tick 之间插值。
+    // 本场景暂停时 update 不执行 → 全部冻结（v0.4 pause_scope）
+    const TICK = this.field.cfg.tick_s * 1000;
+    this.fixedAcc += Math.min(delta, 250);
+    while (this.fixedAcc >= TICK) {
+      this.fixedAcc -= TICK;
+      for (const v of this.views.values()) v.beforeTick();
+      this.fixedTick(TICK / 1000);
+    }
     if (this.saveDirty && this.canSaveNow()) {
       const reason = this.saveDirty; this.saveDirty = null;
       this.trySaveNow(reason);
     }
 
-    for (const v of this.views.values()) v.sync(); // 逻辑 → 画面
+    const alpha = this.fixedAcc / TICK, now = this.clock.now;
+    for (const v of this.views.values()) v.sync(alpha, this.field.body(v.model.id), now); // 逻辑 → 画面（插值）
+    this.drawCombatFx();
     this.layoutLabels();
     if (this.debugVision) this.drawDebug();
   }

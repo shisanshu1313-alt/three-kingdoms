@@ -1,0 +1,146 @@
+{
+  "_source": {
+    "file": "balance_v0.5.json",
+    "version": "0.5",
+    "note": "由 scripts/sync-v05.mjs（npm run sync:v05）生成，勿手改"
+  },
+  "tick_s": 0.1,
+  "move": {
+    "dt": 0.1,
+    "lam": 0.045,
+    "a": 1.1,
+    "rate_cap": 0.45,
+    "winner_break": 0.3,
+    "draw_break": 0.2,
+    "radius_base": 12,
+    "radius_per_sqrt_n": 0.6,
+    "contact_speed_mult": 0.6,
+    "units": {
+      "inf": {
+        "speed": 0.9,
+        "accel_s": 0.5,
+        "turn_dps": 270,
+        "charge": 0.4,
+        "sustain": 1,
+        "red": 0.05,
+        "arrow_taken": 0.6
+      },
+      "cav": {
+        "speed": 1.25,
+        "accel_s": 1,
+        "turn_dps": 150,
+        "charge": 1.4,
+        "sustain": 0.95,
+        "red": 0
+      },
+      "arc": {
+        "speed": 1,
+        "accel_s": 0.5,
+        "turn_dps": 270,
+        "charge": 0.4,
+        "sustain": 0.9,
+        "red": 0,
+        "range_px": 120,
+        "shoot_mult": 0.5,
+        "move_shoot_mult": 0.6,
+        "ammo_s": 12
+      },
+      "spr": {
+        "speed": 0.95,
+        "accel_s": 0.6,
+        "turn_dps": 210,
+        "charge": 0.4,
+        "sustain": 1,
+        "red": 0,
+        "anti_charge": true,
+        "brace_reflect": 0.4
+      }
+    },
+    "counters": {
+      "cav": "arc",
+      "arc": "inf",
+      "inf": "spr",
+      "spr": "cav"
+    },
+    "lead_speed_k": 0.002,
+    "impact_k": 0.02,
+    "impact_min_closing": 0.5,
+    "impact_shock": 14,
+    "charge_cd_s": 4,
+    "runup_px": 90,
+    "disorder_s": 1.5,
+    "disorder_mult": 0.75,
+    "rear_mult": 1.3,
+    "rear_angle_deg": 120,
+    "morale_rout": 30,
+    "morale_loss_span": 70,
+    "shock_regen_per_s": 5,
+    "escape_gap_px": 150,
+    "escape_s": 2,
+    "record_keep_s": 10,
+    "pursue_max_s": 3,
+    "pursue_fast_s": 6,
+    "rout_control_loss_s": 2,
+    "rout_speed_mult": 1.1,
+    "counter_mult_by_chapter": [
+      1,
+      1.1,
+      1.25,
+      1.45
+    ]
+  },
+  "cooldown": {
+    "protect_s": 8,
+    "ignore_s": 20,
+    "pair_cd_s": 10,
+    "charge_cd_s": 4,
+    "no_hp_regen_s": 5
+  },
+  "named_army_units": {
+    "wei_caocao": "inf",
+    "shu_guanyu": "spr",
+    "wu_zhouyu": "arc",
+    "qun_lvbu": "cav"
+  },
+  "chapter": 0,
+  "assumed": {
+    "_comment": "【假设】v0.5 里只有文字或没写的值，程序先定。说明见 assumptions.json 的 combat_v05 段",
+    "retreat_by_personality": {
+      "aggressive": [
+        0.5,
+        0.25
+      ],
+      "normal": [
+        0.7,
+        0.15
+      ],
+      "cautious": [
+        0.9,
+        0.1
+      ]
+    },
+    "others_give_up_player_s": 8,
+    "hitrun_hold_s": 1,
+    "walk_vs_brace_mult": 0.4,
+    "kite_gap_px": [
+      72,
+      114
+    ],
+    "bandit_units_ch1": {
+      "inf": 0.7,
+      "uniform_rest": 0.3
+    },
+    "player_start_unit": "inf",
+    "rear_min_speed_frac": 0.2,
+    "arrow_moving_frac": 0.3,
+    "turn_low_speed_frac": 0.3,
+    "escaping_heading_deg": 90,
+    "escaping_min_speed_frac": 0.2,
+    "attack_cancels_protection_closing": 0.5,
+    "player_wipe_keep_soldiers": 5,
+    "draw_ignore_s": 10,
+    "arrive_px": 6,
+    "player_rout_once_per_battle": true,
+    "max_overlap_px": 4
+  }
+}

@@ -3,5 +3,137 @@
   "gacha": {
     "roll_anim": "flash",
     "_roll_anim": "gacha_ui.roll_anim_s 只给了时长与可跳过；动画样式未定义 → 结果卡在 6 档颜色间闪烁，按任意键/点击跳过"
+  },
+  "combat_v05": {
+    "_comment": "v0.5 原型（分支 proto/v0.5-combat）里 balance_v0.5.json 没写死、由程序自定的项。数值本体在 data/combat_v05.json 的 assumed 段（scripts/sync-v05.mjs 生成）；这里是说明。全部标【假设】，待策划确认。",
+    "items": [
+      {
+        "key": "retreat_by_personality",
+        "value": {
+          "aggressive": [
+            0.5,
+            0.25
+          ],
+          "normal": [
+            0.7,
+            0.15
+          ],
+          "cautious": [
+            0.9,
+            0.1
+          ]
+        },
+        "why": "【假设】AI 主动撤退阈值 [E比, 已损 raw]：激进 qun/bandit、普通 wei/wu、谨慎 shu。JSON 只有 ai_tactics 文字描述"
+      },
+      {
+        "key": "others_give_up_player_s",
+        "value": 8,
+        "why": "【假设】玩家逃脱后，其他正在追玩家的 AI 也放弃 8 s（= protect_s）"
+      },
+      {
+        "key": "hitrun_hold_s",
+        "value": 1.0,
+        "why": "【假设】骑兵冲击后贴住 1 s 再拉开（runup_px 90 来自 JSON）"
+      },
+      {
+        "key": "walk_vs_brace_mult",
+        "value": 0.4,
+        "why": "【假设】骑兵对列阵枪兵慢速贴近 = 40% 速度（低于 impact_min_closing 0.5，不触发冲击/反冲锋）"
+      },
+      {
+        "key": "kite_gap_px",
+        "value": [
+          72,
+          114
+        ],
+        "why": "【假设】弓兵风筝间隙 = 射程 120 × [0.6, 0.95]"
+      },
+      {
+        "key": "bandit_units_ch1",
+        "value": {
+          "inf": 0.7,
+          "uniform_rest": 0.3
+        },
+        "why": "【假设】第 1 章黄巾 70% 步兵，其余 30% 四兵种平均；名将军团兵种按 named_army_units"
+      },
+      {
+        "key": "player_start_unit",
+        "value": "inf",
+        "why": "【假设】玩家开局步兵（原型里没有换兵种 UI）"
+      },
+      {
+        "key": "rear_min_speed_frac",
+        "value": 0.2,
+        "why": "【假设】背击 ×1.3 只在被打方背对敌人且速度 > 0.2 vmax 时算（站着不动转身不算逃跑）"
+      },
+      {
+        "key": "arrow_moving_frac",
+        "value": 0.3,
+        "why": "【假设】弓兵速度 > 0.3 vmax 算“移动中射击”（×move_shoot_mult）"
+      },
+      {
+        "key": "turn_low_speed_frac",
+        "value": 0.3,
+        "why": "【假设】速度 < 0.3 vmax 时转向速率 ×2（原地好调头）"
+      },
+      {
+        "key": "escaping_heading_deg / escaping_min_speed_frac",
+        "value": [
+          90,
+          0.2
+        ],
+        "why": "【假设】“在撤”= 朝向背离对手 > 90° 且速度 > 0.2 vmax；用于判定逃脱者和 AI 追击计时"
+      },
+      {
+        "key": "both_retreating",
+        "value": "双方都算逃脱",
+        "why": "【假设】脱离成立时双方都在撤 → 双方都有 8 s 保护；都没撤（被推开/站着）→ 'apart'，无保护，只有同对 10 s 冷却"
+      },
+      {
+        "key": "pursuit_timer",
+        "value": "对手在撤（含接触中）或溃逃时累计，不因再次接触清零；对手回头接战才清零",
+        "why": "【假设】同 sim_v05_move.pol_pursue；否则骑兵冲击-回撤会无限追下去"
+      },
+      {
+        "key": "attack_cancels_protection_closing",
+        "value": 0.5,
+        "why": "【假设】保护期内“主动攻击”= 以 ≥ 0.5 vmax 的接近速度撞上去（与冲击门槛一致），或冲击/放箭"
+      },
+      {
+        "key": "player_rout_once_per_battle",
+        "value": true,
+        "why": "【假设】玩家一场战斗只溃一次（失控 2 s 后士气仍 < 30 不再失控，否则会一直失控）"
+      },
+      {
+        "key": "player_wipe_keep_soldiers",
+        "value": 5,
+        "why": "【假设】原型：玩家兵数归零不做“本局失败”，留 5 兵 + 8 s 保护继续玩。正式版按 fast_pace 失败规则 B"
+      },
+      {
+        "key": "draw_ignore_s",
+        "value": 10,
+        "why": "【假设】平局（双方都撞到 draw_break）后互相忽略 10 s"
+      },
+      {
+        "key": "arrive_px",
+        "value": 6,
+        "why": "【假设】寻路走到路点的判定距离"
+      },
+      {
+        "key": "player_archer_target",
+        "value": "最近的敌对队伍",
+        "why": "【假设】玩家是弓兵时自动瞄最近的敌人（原型无选目标 UI）"
+      },
+      {
+        "key": "chapter",
+        "value": 0,
+        "why": "原型固定第 1 章（counter_mult 1.0）；state.chapter 已在，接 20 分钟节奏时改"
+      },
+      {
+        "key": "max_overlap_px",
+        "value": 4,
+        "why": "【假设】敌对两圆最多重叠 4 px（保持接触，但不会完全叠住）；JSON 没定义碰撞体积"
+      }
+    ]
   }
 }

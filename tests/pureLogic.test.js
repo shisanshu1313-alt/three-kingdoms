@@ -34,54 +34,67 @@ test('钩子确实会拦截 phaser', () => {
   assert.match(r.stderr, /禁止/);
 });
 
-test('纯逻辑模拟：PartyModel + WorldModel + AI / 碰撞 / 战斗系统 不依赖场景就能跑', async () => {
+test('纯逻辑模拟：PartyModel + WorldModel + AI + v0.5 实时战斗（FieldBattle / melee.step）不依赖场景就能跑', async () => {
   const { generateMap, TERRAIN } = await import('../src/world/MapGenerator.js');
   const { WorldModel, snapshotWorld } = await import('../src/systems/world.js');
   const { default: PartyModel } = await import('../src/systems/party.js');
   const { default: AISystem } = await import('../src/systems/ai.js');
-  const { default: CollisionSystem } = await import('../src/systems/collision.js');
-  const { default: BattleSystem } = await import('../src/systems/battle.js');
+  const { default: FieldBattle } = await import('../src/systems/fieldBattle.js');
+  const { assignUnit } = await import('../src/systems/units.js');
   const { default: GameClock } = await import('../src/core/GameClock.js');
   const { mulberry32 } = await import('../src/systems/rng.js');
   const { createGameState } = await import('../src/systems/gameState.js');
   const { balance, loadInitialTeams, resetWorldRandom, teamRng, factionColor, nextBanditName } = await import('../src/data/index.js');
-  const { TILE_SIZE } = await import('../src/config.js');
+  const { TILE_SIZE, MAP_SEED } = await import('../src/config.js');
   const { parseSave, makeSave } = await import('../src/systems/save.js');
+  const { readFileSync } = await import('node:fs');
+  const combatJson = JSON.parse(readFileSync(new URL('../src/data/combat_v05.json', import.meta.url)));
 
-  resetWorldRandom();
-  const clock = new GameClock(0);
-  const world = new WorldModel({ mapData: generateMap(), terrain: TERRAIN, tileSize: TILE_SIZE, clock });
-  const teams = loadInitialTeams();
-  const mk = t => new PartyModel(world.placeTeam(t), balance, factionColor(t.faction));
-  const player = mk(teams.player), ai = teams.ai.map(mk), all = [player, ...ai];
-  const state = createGameState(balance);
-  const events = [];
-  const hooks = { beforeBattleStart() { events.push('save'); }, onBattleStart(b) { events.push('start'); }, onBattleEnd(b, o) { events.push('end'); } };
-  const rngs = { team: teamRng, gacha: mulberry32(1), combat: mulberry32(2) };
-  const aiSys = new AISystem(balance, mulberry32(3)), col = new CollisionSystem(), bat = new BattleSystem(hooks, balance, state, rngs.combat);
-
-  // 点击寻路：玩家走到 5 格外的一个可达点
-  const target = world.findPassableNear(Math.floor(player.x / TILE_SIZE) + 5, Math.floor(player.y / TILE_SIZE));
-  assert.ok(world.clickMove(player, target.x, target.y));
-  const x0 = player.x;
-  for (let i = 0; i < 600; i++) {
-    clock.tick(50);
-    if (!player.inBattle) player.followPath(0.05, world);
-    aiSys.update(ai, all, 0.05, clock.now, world);
-    bat.update(col.update(all, clock.now), clock.now);
-  }
+  /** 和 WorldScene.fixedTick 同样的循环（无 Phaser）；返回结果摘要，用来检查确定性 */
+  const sim = (seed, ticks = 400) => {
+    resetWorldRandom();
+    const clock = new GameClock(0);
+    const world = new WorldModel({ mapData: generateMap(), terrain: TERRAIN, tileSize: TILE_SIZE, clock });
+    const teams = loadInitialTeams();
+    const urng = mulberry32(seed ^ 0x5eed);
+    const state = createGameState(balance);
+    const rngs = { team: teamRng, gacha: mulberry32(1), combat: mulberry32(seed) };
+    const events = [];
+    const field = new FieldBattle({ combatJson, balance, gameState: state, rng: rngs.combat, seed,
+      hooks: { onEngage: () => events.push('engage'), onEscape: () => events.push('escape'), onBattleEnd: () => events.push('end'), onCombatEnd: () => events.push('combat-end') } });
+    const mk = t => { const p = new PartyModel(world.placeTeam(assignUnit(t, combatJson, urng)), balance, factionColor(t.faction)); field.add(p); return p; };
+    const player = mk(teams.player), ai = teams.ai.map(mk), all = [player, ...ai];
+    const aiSys = new AISystem(balance, mulberry32(seed + 3));
+    const env = { fits: (b, x, y) => player._fits(x, y, world), speedMult: (x, y) => world.speedAt(x, y), hostile: (a, b) => a.faction !== b.faction };
+    // 点击寻路：玩家走到 5 格外的一个可达点；再把一支 AI 放到玩家身边保证打起来
+    const target = world.findPassableNear(Math.floor(player.x / TILE_SIZE) + 5, Math.floor(player.y / TILE_SIZE));
+    assert.ok(world.clickMove(player, target.x, target.y));
+    const foe = ai.find(p => p.faction === 'bandit');
+    const x0 = player.x;
+    for (let i = 0; i < ticks; i++) {
+      clock.tick(100);
+      if (i === 30) field.teleport(foe, player.x + 40, player.y);
+      if (player.path) player.followPath(0.1, world);
+      aiSys.update(ai, all, 0.1, clock.now, world);
+      field.tick(0.1, env, clock.now);
+    }
+    return { clock, world, state, player, ai, rngs, field, x0, events,
+      summary: { events, state: { points: state.points, battles: state.battleLog.length }, pos: all.filter(p => field.body(p.id)).map(p => [p.id, +p.x.toFixed(4), +p.y.toFixed(4), p.team.soldiers]) } };
+  };
+  const r1 = sim(11);
+  const { clock, world, state, player, ai, rngs, field, x0 } = r1;
   assert.notEqual(player.x, x0);
   assert.ok(ai.some(p => p.ai && p.ai.state), 'AI 有状态');
-  // 补充刷新落点、平局推开都是纯函数
+  assert.ok(r1.events.includes('engage'), '发生了接触战斗');
+  // 确定性：同种子同结果
+  assert.deepEqual(sim(11).summary, r1.summary);
+  // 补充刷新落点是纯函数
   const pos = world.respawnPosition(player, balance, mulberry32(9));
   if (pos) assert.ok(world.isPassable(pos.x, pos.y) && Math.hypot(pos.x - player.x, pos.y - player.y) > balance.ai.vision_px);
-  const a = ai[0], b = ai[1]; b.setPosition(a.x, a.y);
-  world.pushApart(a, b, balance.collision.draw_pushback_px ?? 40);
-  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) > 1 && a._fits(a.x, a.y, world) && b._fits(b.x, b.y, world));
-  // 快照 → 存档 → 读档
-  const snap = snapshotWorld({ clock, state, player, aiParties: ai, spawnCounter: 0, names: nextBanditName.getState(), rngs, battleSystem: bat, cameraZoom: 1, balance });
-  const { mapSeed } = await import('../src/config.js').then(m => ({ mapSeed: m.MAP_SEED }));
-  const save = makeSave(snap, { balance, mapSeed, reason: 'test' });
-  const r = parseSave(JSON.stringify(save), { balance, mapSeed });
+  // 快照（含战斗快照）→ 存档 → 读档
+  const snap = snapshotWorld({ clock, state, player, aiParties: ai.filter(p => field.body(p.id)), spawnCounter: 0, names: nextBanditName.getState(), rngs, combat: field.serialize(), cameraZoom: 1, balance });
+  const save = makeSave(snap, { balance, mapSeed: MAP_SEED, reason: 'test' });
+  const r = parseSave(JSON.stringify(save), { balance, mapSeed: MAP_SEED });
   assert.equal(r.save.player.team.position.x, player.x);
+  assert.deepEqual(r.save.combat.state.bodies[player.id].x, field.body(player.id).x);
 });

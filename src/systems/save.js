@@ -15,7 +15,8 @@
  *   timers: { respawn, autosave },    // 各定时器下一次触发的游戏时间
  *   names:  { pool, n },              // 黄巾头目名字池剩余 + 「黄巾头目N」序号
  *   rng:    { team, gacha, combat },  // 种子随机数流状态：读档后抽卡/战斗结果不会重掷（AI 游荡、补充刷新仍用 Math.random）
- *   pairCooldowns: [[pairKey, 截止ms]],
+ *   pairCooldowns: [[pairKey, 截止ms]],          // v0.4（v0.5 原型不再写，留空数组）
+ *   combat: { state: melee 战斗状态, mem: {aiId: 战术记忆} } | null,  // v0.5 原型：实时战斗快照，读档原样继续
  *   camera: { zoom }
  * }
  * 读档时游戏时钟从 gameTimeMs 继续，所以截止时间原样还原。
@@ -222,6 +223,10 @@ export function validateSave(s, balance) {
   need(!s.timers || Object.values(s.timers).every(isNum), 'timers 非法');
   need(isNum(s.player?.invincibleUntil ?? 0) && isNum(s.player?.graceUntil ?? 0), 'player 计时非法');
   need(s.battles === undefined || (Array.isArray(s.battles) && s.battles.every(b => b && ids.includes(b.a) && ids.includes(b.b) && b.result && isNum(b.endAt))), '进行中的战斗非法');
+  // v0.5 实时战斗快照（可选；老存档没有 → 从“无战斗”开始，v0.4 进行中的一次性战斗不再继续）
+  const cb = s.combat;
+  need(cb == null || (cb.state && typeof cb.state.bodies === 'object' && isNum(cb.state.t) && typeof cb.state.pairs === 'object' &&
+    Object.values(cb.state.bodies).every(b => b && ids.includes(b.id) && isNum(b.x) && isNum(b.y) && isNum(b.N0) && isNum(b.raw))), '战斗快照非法');
   const gp = s.state?.gachaPending;
   need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)), '抽卡待选择非法');
   return errs;
