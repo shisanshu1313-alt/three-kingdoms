@@ -22,12 +22,17 @@ export function indexBalance(balance) {
 
 /** 黄巾头目名字分配：bandit_name_pool 不放回抽取，池空后用「黄巾头目N」 */
 export function createNameAllocator(balance, rng) {
-  const pool = [...(balance.ai.bandit_name_pool || [])];
+  let pool = [...(balance.ai.bandit_name_pool || [])];
   let n = 0;
-  return () => {
+  const next = () => {
     if (pool.length) return pool.splice(Math.floor(rng() * pool.length), 1)[0];
     return `黄巾头目${++n}`;
   };
+  /** 存档：剩余名字池 + 已用的「黄巾头目N」序号 */
+  next.getState = () => ({ pool: [...pool], n });
+  next.setState = (s) => { pool = [...s.pool]; n = s.n; };
+  next.reset = () => { pool = [...(balance.ai.bandit_name_pool || [])]; n = 0; };
+  return next;
 }
 
 /** 队伍名：玩家 = player_faction.team_name；其余按阵营 team_name_rule（{主将名} / {头目名}） */
@@ -53,7 +58,8 @@ function resolveGeneral(ref, team, idx, rng, nextName) {
   const id = typeof ref === 'string' ? ref : ref.id;
   const base = idx.generalsById[id];
   if (!base) throw new Error(`未知武将 id: ${id}`);
-  const g = { id: base.id, name: base.name, tier: base.tier };
+  const g = { id: base.id, name: base.name };
+  if (base.tier !== undefined) g.tier = base.tier; // 主角没有档位：不写 undefined 字段（存档 JSON 往返保持一致）
   for (const a of ATTRS) g[a] = (typeof ref === 'object' ? ref[a] : undefined) ?? base[a];
   return g;
 }

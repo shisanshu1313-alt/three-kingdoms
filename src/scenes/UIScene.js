@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { MINIMAP_SIZE, TILE_SIZE } from '../config.js';
+import { MINIMAP_SIZE, TILE_SIZE, MAP_SEED } from '../config.js';
+import { loadSave } from '../systems/save.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance } from '../data/index.js';
 import { button } from '../ui/widgets.js';
@@ -12,11 +13,11 @@ const DEBUG_POINTS = 200;
 export default class UIScene extends Phaser.Scene {
   constructor() { super('UI'); }
 
-  create() {
+  create(data = {}) {
     this.world = this.scene.get('World');
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · F1 调试（视野/路径） · F2 调试加点', { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · F5 存档 · F9 读档 · F1 调试（视野/路径）' + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -27,7 +28,19 @@ export default class UIScene extends Phaser.Scene {
     // 抽卡 HUD 按钮（gacha_ui.hud_button）+ 键盘 G；F2 = 调试加点
     this.gachaBtn = button(this, 0, 0, 120, 34, `抽卡 [${UI_CFG.open_key ?? 'G'}]`, () => this.openGacha(), { color: 0x8e5a00, size: 15 });
     this.input.keyboard.on(`keydown-${UI_CFG.open_key ?? 'G'}`, () => this.openGacha());
-    this.input.keyboard.on('keydown-F2', () => { this.world.debugGrantPoints(DEBUG_POINTS); this.toast(`【调试】点数 +${DEBUG_POINTS}`, '#88ccff', 14); });
+    if (import.meta.env.DEV) { // 只在开发模式（npm run dev）注册；生产构建里整段被移除
+      this.input.keyboard.addCapture('F2');
+      this.input.keyboard.on('keydown-F2', () => { this.world.debugGrantPoints(DEBUG_POINTS); this.toast(`【调试】点数 +${DEBUG_POINTS}`, '#88ccff', 14); });
+    }
+    // 存档 F5 / 读档 F9（阻止浏览器默认的 F5 刷新）
+    this.input.keyboard.addCapture('F5,F9');
+    this.input.keyboard.on('keydown-F5', () => this.manualSave());
+    this.input.keyboard.on('keydown-F9', () => this.manualLoad());
+    const onSaved = ({ reason }) => { if (reason === 'manual') this.toast('已存档', '#aaffaa', 16); };
+    this.game.events.on('game-saved', onSaved);
+    this.events.once('shutdown', () => this.game.events.off('game-saved', onSaved));
+    if (data.loaded) this.time.delayedCall(100, () => this.toast('已读取存档', '#aaffaa', 16));
+    for (const w of data.warnings ?? []) this.time.delayedCall(200, () => this.toast(w, '#ffdd55', 14));
     this.game.events.on('modal-closed', this.onModalClosed, this);
     this.events.once('shutdown', () => this.game.events.off('modal-closed', this.onModalClosed, this));
 
@@ -51,6 +64,20 @@ export default class UIScene extends Phaser.Scene {
     };
     for (const [ev, fn] of Object.entries(handlers)) EventBus.on(ev, fn);
     this.events.once('shutdown', () => { for (const [ev, fn] of Object.entries(handlers)) EventBus.off(ev, fn); });
+  }
+
+  manualSave() {
+    if (this.modalOpen()) return this.toast('请先关闭当前窗口再存档', '#ff8888', 15);
+    if (this.world.trySaveNow('manual')) return;
+    this.world.requestSave('manual');
+    this.toast('战斗进行中，结束后自动存档', '#ffdd55', 15);
+  }
+
+  manualLoad() {
+    if (this.modalOpen()) return this.toast('请先关闭当前窗口再读档', '#ff8888', 15);
+    const r = loadSave({ balance, mapSeed: MAP_SEED });
+    if (!r.ok) return this.toast(r.code === 'empty' ? '没有存档' : r.message, '#ff8888', 15);
+    this.world.loadFrom(r.save, r.warnings);
   }
 
   modalOpen() { return this.scene.isActive('Gacha') || this.scene.isPaused('Gacha') || this.scene.isActive('Roster'); }
@@ -121,7 +148,7 @@ export default class UIScene extends Phaser.Scene {
       `点数: ${st.points}（下一抽 ${pullCost(st.gachaDraws, balance.gacha)}）   兵力: ${p.soldiers}/${p.cap}   战力: ${Math.round(p.power)}`,
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
       `状态: ${status}${inv}  速度: ${Math.round(p.moveSpeed())}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
-      `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}`,
+      `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
       `FPS: ${Math.round(this.game.loop.actualFps)}`
     ]);
     const logLines = st.battleLog.slice(0, 5).map(e => `[${(e.time / 1000).toFixed(0)}s] ${e.text}`);

@@ -32,7 +32,9 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 | G / 右上「抽卡 [G]」按钮 | 打开抽卡（大地图暂停）；战斗中或有待安排武将时不能抽（后者会先弹出名册窗口） |
 | 抽卡界面 | 空格/回车 或 点「抽一次」；抽取动画任意键/点击跳过；1~3 选武将（属性）或丢弃旧物品；0/R 放弃新物品；Esc/「关闭」 |
 | 名册窗口（满编） | 1/2 或 点按钮 替换对应随从；R 或 点按钮 释放新武将（+20 点）；必须当场选择，不能关闭 |
-| F2 | 调试：点数 +200 |
+| F5 / F9 | 手动存档 / 读档（带提示；战斗中按 F5 会在战斗结束后自动存） |
+| 标题菜单（有存档时） | Enter/1 或点「继续游戏」；N/2 或点「新游戏」→ 确认 Y / 取消 N（会删除存档）；存档损坏时只显示原因和「新游戏」 |
+| F2 | 调试：点数 +200（**只在 `npm run dev` 开发模式**，生产构建里没有这个按键） |
 | F1 | 调试：视野圈（vision_px）、游荡范围、所有路径（红=追击 蓝=逃跑 白=回家/游荡 黄=玩家） |
 
 ## 玩法（M2 + M3 已实现）
@@ -49,6 +51,14 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 - **UI**：点数（下一抽价格）、兵力/上限、战力、武将、待安排武将、自由池数量、状态（交战/无敌倒计时）、最近 5 条战报、战斗提示。
 - **标签防重叠**：默认简略标签，靠近玩家/悬停显示完整；重叠的标签自动向上堆叠。
 
+## 存档（systems/save.js）
+
+- **localStorage** 键 `sanguo-save`，JSON，带 `saveVersion`（当前 1）、`balanceVersion`、`mapSeed`、`savedAt`。
+- 内容：玩家队（位置、兵数、武将含已强化属性、物品、主将）、点数、抽卡次数、自由池、待安排武将队列、俘获记录、战报、全部 AI 队（位置、兵数、武将、AI 状态/目标/忽略名单、home）、补充刷新计数与倒计时、黄巾头目名字池使用情况、种子随机数状态、平局冷却、无敌/战后保护剩余时间、累计游戏时间、镜头缩放。所有“截止时间”都存成剩余时长。
+- **自动存档**：每 `SAVE_INTERVAL_S`（config.js，30 秒），以及战斗结束、抽卡窗口关闭、名册变更之后；页面隐藏/关闭（visibilitychange / pagehide / beforeunload）时能存就存。**战斗进行中、抽卡/名册窗口打开、有待安排武将时不存**，等结束后再存。
+- **读档容错**：JSON 损坏、字段缺失/非法、引用了不存在的武将/物品 → corrupt；存档版本比游戏新 → too_new；地图种子不同或缺迁移 → incompatible。都只显示原因并提供新游戏，不会崩溃。数值版本不同但数据有效 → 可以继续，并提示一次。
+- **迁移钩子**：`MIGRATIONS[v]` 把 v 版存档升级到 v+1，读档时逐级执行。
+
 ## 文件结构
 
 ```
@@ -60,7 +70,7 @@ src/
     assumptions.json             v0.2 仍未明确的【假设】项
     terrain.json / display.json  地形颜色/中文名；兜底颜色
     index.js                     加载配置、构建初始队伍、黄巾名字分配
-  scenes/ BootScene / WorldScene / UIScene / GachaScene / RosterScene
+  scenes/ BootScene / TitleScene（有存档时的标题菜单）/ WorldScene / UIScene / GachaScene / RosterScene
   ui/widgets.js                  按钮/文字/档位颜色等占位 UI 组件
   world/  MapGenerator.js（城池/官道按 balance.cities）  Pathfinder.js（A*）
   entities/Party.js              队伍实体（team 数据 + 色块/标签 + 路径跟随）
@@ -73,8 +83,8 @@ src/
     gameState.js 积分/自由池/待处理俘虏/战报
     gacha.js     抽卡纯逻辑（价格/权重/武将/属性/物品/文案）
     roster.js    满编队列、替换/释放
-    save.js      占位
-tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster（node:test）+ smoke.cjs
+    save.js      存档：结构/校验/迁移/localStorage 读写/时间换算（纯逻辑）
+tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save（node:test）+ smoke.cjs
 ```
 
 ## 已决定（PM / 用户确认 2026-10-22，balance decisions）
@@ -108,4 +118,4 @@ cd /tmp/pages && python3 -m http.server 8090   # 打开 http://localhost:8090/th
 
 ## 下一步
 
-存档（balance.save_fields）、像素美术、音效。
+像素美术、音效。

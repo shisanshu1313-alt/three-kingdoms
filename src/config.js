@@ -19,3 +19,6 @@ export const CHASE_REPLAN_MS = 500;   // 追击时重算路径间隔
 export const FLEE_REPLAN_MS = 1000;   // 逃跑时重算路径间隔
 export const FLEE_PROBE_ANGLES_DEG = [0, 30, -30, 60, -60, 90, -90, 135, -135]; // 逃跑方向试探角
 export const NEAR_PLAYER_FULL_LABEL_PX = 160; // 离玩家多近显示完整标签
+
+// ---- 存档（非数值，程序侧参数）----
+export const SAVE_INTERVAL_S = 30;    // 自动存档间隔（秒）；另外战斗结束 / 抽卡 / 名册变更后、页面隐藏或关闭时也会存

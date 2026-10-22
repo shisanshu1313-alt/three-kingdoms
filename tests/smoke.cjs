@@ -1,4 +1,4 @@
-// 冒烟测试（M2+M3）：node tests/smoke.cjs [url]   需要 playwright-core 与本机 Chrome
+// 冒烟测试（M2+M3+存档）：node tests/smoke.cjs [url]   需要 playwright-core 与本机 Chrome
 // 覆盖：无报错、键盘移动、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标抽一次 / 满编替换）、截图
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const URL = process.argv[2] || 'http://localhost:5173/';
@@ -125,8 +125,12 @@ const OUT = __dirname + '/../screenshot.png';
   const closed = await gs();
   result.gachaInsufficient = { opened: poor.gacha, worldPaused: poor.worldPaused, buttonEnabled: poor.btn?.enabled, pointsAfterTry: poor2.points, closedResumes: !closed.gacha && !closed.worldPaused,
     ok: poor.gacha && poor.worldPaused && poor.btn && !poor.btn.enabled && poor2.points === 10 && poor2.draws === 0 && !closed.gacha && !closed.worldPaused };
-  // 调试钩子加点，HUD 按钮（鼠标）打开，鼠标点“抽一次”
-  await ev(() => window.__game.scene.getScene('World').debugGrantPoints(990)); // 10 + 990 = 1000
+  // 加点：开发模式用调试钩子 / F2；生产构建（preview）里 F2 必须无效，改为直接改 state
+  const isDev = await ev(() => window.__game.scene.getScene('World').debugGrantPoints(0) !== null);
+  await page.keyboard.press('F2'); await page.waitForTimeout(200);
+  const afterF2 = await ev(() => window.__game.scene.getScene('World').state.points);
+  result.devF2 = { isDev, pointsAfterF2: afterF2, ok: isDev ? afterF2 === 210 : afterF2 === 10 };
+  await ev(() => { window.__game.scene.getScene('World').state.points = 1000; });
   const hud = await ev(() => { const b = window.__game.scene.getScene('UI').gachaBtn; return { x: b.x + 60, y: b.y + 17 }; });
   await page.mouse.click(hud.x, hud.y); await page.waitForTimeout(300);
   const open = await gs();
@@ -159,12 +163,61 @@ const OUT = __dirname + '/../screenshot.png';
   result.gachaReplace = { rosterOpened: rf.roster, gachaPausedUnderRoster: rf.gachaPaused, uiWhileRoster: rf.ui, gensAfter: rep.gens, liaohuaInFreePool: rep.freePool.includes('liaohua'),
     resultText: rep.result?.text, worldResumed: !fin.worldPaused && !fin.gacha,
     ok: rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
+  // 5) 存档：F5 手动存档 → 刷新页面 → 标题菜单「继续游戏」→ 状态恢复
+  const SAVE_KEY = 'sanguo-save';
+  const readSave = () => ev(k => { const t = localStorage.getItem(k); try { return t && JSON.parse(t); } catch { return 'CORRUPT'; } }, SAVE_KEY);
+  const playerState = () => ev(() => { const w = window.__game.scene.getScene('World'); const p = w.player;
+    return { points: w.state.points, draws: w.state.gachaDraws, soldiers: p.team.soldiers, x: p.x, y: p.y, gens: p.team.generals.map(g => [g.id, g.lead, g.str, g.int, g.cha]),
+      items: p.team.items.slice(), freePool: w.state.freePool.slice().sort(), ai: w.aiParties.length, battles: w.state.battles, log: w.state.battleLog.length }; });
+  await ev(() => localStorage.removeItem('sanguo-save'));
+  await page.keyboard.press('F5');
+  let manual = null;
+  for (let i = 0; i < 60 && !manual; i++) { await page.waitForTimeout(250); const sv = await readSave(); if (sv && sv.reason === 'manual') manual = sv; }
+  const beforeReload = await playerState();
+  await page.reload();
+  await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const savedOnUnload = await readSave();
+  await page.screenshot({ path: __dirname + '/../screenshot-title.png' });
+  const cont = await ev(() => { const b = window.__game.scene.getScene('Title').btnContinue; return b && { x: b.x + 120, y: b.y + 23 }; });
+  await page.mouse.click(cont.x, cont.y);
+  await page.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const restored = await playerState();
+  const sameish = (a, b) => a.points === b.points && a.draws === b.draws && a.soldiers === b.soldiers && JSON.stringify(a.gens) === JSON.stringify(b.gens)
+    && JSON.stringify(a.items) === JSON.stringify(b.items) && JSON.stringify(a.freePool) === JSON.stringify(b.freePool) && Math.hypot(a.x - b.x, a.y - b.y) < 8;
+  result.saveReload = { manualSaveWritten: !!manual, saveVersion: manual?.saveVersion, balanceVersion: manual?.balanceVersion, unloadReason: savedOnUnload?.reason,
+    before: { points: beforeReload.points, soldiers: beforeReload.soldiers, x: Math.round(beforeReload.x), y: Math.round(beforeReload.y), gens: beforeReload.gens.map(g => g[0]), items: beforeReload.items, ai: beforeReload.ai },
+    after: { points: restored.points, soldiers: restored.soldiers, x: Math.round(restored.x), y: Math.round(restored.y), gens: restored.gens.map(g => g[0]), items: restored.items, ai: restored.ai },
+    ok: !!manual && !!cont && sameish(beforeReload, restored) && restored.ai === (savedOnUnload?.ai?.length ?? -1) && restored.log === beforeReload.log };
+  // F9 读档：改动点数后读档 → 恢复为存档里的点数
+  const savedPts = (await readSave()).state.points;
+  await ev(() => { window.__game.scene.getScene('World').state.points += 77; });
+  await page.keyboard.press('F9');
+  await page.waitForTimeout(800);
+  const afterF9 = await playerState();
+  result.f9Load = { savedPoints: savedPts, afterF9: afterF9.points, ok: afterF9.points === savedPts };
+  // 损坏存档：标题显示错误，只能新游戏（确认后清档）
+  // 先禁止本页再存档（否则刷新时的自动存档会覆盖掉损坏数据），再写入损坏存档
+  await ev(() => { window.__game.scene.getScene('World').canSaveNow = () => false; localStorage.setItem('sanguo-save', '{"saveVersion":1, broken'); });
+  await page.reload();
+  await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const corrupt = await ev(() => { const t = window.__game.scene.getScene('Title'); return { loadedOk: t.result.ok, code: t.result.code, msg: t.result.message, hasContinue: !!t.btnContinue }; });
+  await page.screenshot({ path: __dirname + '/../screenshot-title-corrupt.png' });
+  await page.keyboard.press('n'); await page.waitForTimeout(200);
+  const confirming = await ev(() => window.__game.scene.getScene('Title').confirming);
+  await page.keyboard.press('y');
+  await page.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
+  const fresh = await playerState();
+  result.corruptSave = { ...corrupt, confirming, freshPoints: fresh.points, freshDraws: fresh.draws, ok: !corrupt.loadedOk && corrupt.code === 'corrupt' && !corrupt.hasContinue && confirming && fresh.points === 0 && fresh.draws === 0 };
+
   result.consoleBattles = logs.battleEnd.slice(0, 6);
   result.aiTransitions = logs.ai.slice(0, 8);
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && result.keyboard.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok;
+  const ok = !errors.length && result.keyboard.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAIL');
   process.exit(ok ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });

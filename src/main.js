@@ -3,6 +3,7 @@ import { balance } from './data/index.js';
 import BootScene from './scenes/BootScene.js';
 import WorldScene from './scenes/WorldScene.js';
 import UIScene from './scenes/UIScene.js';
+import TitleScene from './scenes/TitleScene.js';
 import GachaScene from './scenes/GachaScene.js';
 import RosterScene from './scenes/RosterScene.js';
 
@@ -12,7 +13,7 @@ const game = new Phaser.Game({
   backgroundColor: '#111111',
   pixelArt: true,
   scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
-  scene: [BootScene, WorldScene, UIScene, GachaScene, RosterScene]
+  scene: [BootScene, TitleScene, WorldScene, UIScene, GachaScene, RosterScene]
 });
 
 

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX
+  TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX, MAP_SEED, SAVE_INTERVAL_S
 } from '../config.js';
 import { generateMap, TERRAIN } from '../world/MapGenerator.js';
 import Pathfinder from '../world/Pathfinder.js';
@@ -10,13 +10,27 @@ import CollisionSystem from '../systems/collision.js';
 import BattleSystem from '../systems/battle.js';
 import { createGameState, pushLog } from '../systems/gameState.js';
 import { buildRespawnTeam } from '../systems/teams.js';
+import { mainGeneral } from '../systems/combat.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
-import { balance, assumptions, index, loadInitialTeams, factionColor, nextBanditName } from '../data/index.js';
+import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
+import { makeSave, writeSave, memToSave, memFromSave, remainingMs, restoreGameState } from '../systems/save.js';
 
 export default class WorldScene extends Phaser.Scene {
   constructor() { super('World'); }
 
-  create() {
+  /** data.save：读档（已经过 parseSave 校验/迁移）；否则新游戏 */
+  create(data = {}) {
+    this.loadWarnings = data.warnings ?? [];
+    try {
+      this.build(data.save ?? null);
+    } catch (e) {
+      console.error('[save] 读档失败', e);
+      if (!data.save) throw e;
+      this.scene.start('Title', { error: `读档失败：${e.message}` });
+    }
+  }
+
+  build(save) {
     // ---- 地图 ----
     this.mapData = generateMap();
     const { width, height, grid, cities } = this.mapData;
@@ -43,19 +57,64 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.setBackgroundColor(0x000000);
 
     // ---- 状态与系统 ----
-    this.state = createGameState(balance);
+    const now = this.time.now;
     this.parties = [];
     this.aiParties = [];
-    this.spawnCounter = 0;
-    const teams = loadInitialTeams();
-    this.player = this.addParty(teams.player);
-    teams.ai.forEach(t => this.addParty(t));
     this.collisions = new CollisionSystem();
     this.aiSystem = new AISystem(balance);
+    this.playTimeBase = save?.gameTimeMs ?? 0;
+    this.sessionStart = now;
+    if (save) {
+      teamRng.setState(save.rng?.team ?? teamRng.getState());
+      nextBanditName.setState(save.names);
+      this.state = restoreGameState(save.state, createGameState(balance));
+      this.spawnCounter = save.spawn.counter;
+      this.player = this.addParty(structuredClone(save.player.team), { exact: true });
+      this.player.invincibleUntil = now + (save.player.invincibleMs ?? 0);
+      this.player.graceUntil = now + (save.player.graceMs ?? 0);
+      for (const a of save.ai) {
+        const p = this.addParty(structuredClone(a.team), { exact: true });
+        p.ai = { ...memFromSave(a.mem, now), personality: this.aiSystem.personalityOf(p) };
+        p.graceUntil = now + (a.graceMs ?? 0);
+      }
+    } else {
+      resetWorldRandom(); // 同一页面里再开新游戏也从相同的种子开始
+      this.state = createGameState(balance);
+      this.spawnCounter = 0;
+      const teams = loadInitialTeams();
+      this.player = this.addParty(teams.player);
+      teams.ai.forEach(t => this.addParty(t));
+    }
     this.battleSystem = new BattleSystem(this, balance, this.state);
+    for (const [k, ms] of save?.pairCooldowns ?? []) this.battleSystem.pairCooldown.set(k, now + ms);
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s 检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
-    this.time.addEvent({ delay: balance.spawn.respawn_interval_s * 1000, loop: true, callback: () => this.respawn() });
+    const spawnDelay = balance.spawn.respawn_interval_s * 1000;
+    this.respawnTimer = this.time.addEvent({
+      delay: spawnDelay, loop: true, callback: () => this.respawn(),
+      startAt: save ? Math.max(0, spawnDelay - Math.min(spawnDelay, save.spawn.nextMs)) : 0
+    });
+
+    // ---- 存档：定时 + 事件后请求，战斗中/弹窗中延后；页面隐藏/关闭时能存就存 ----
+    this.saveDirty = null;
+    this.lastSaveAt = null;
+    this.time.addEvent({ delay: SAVE_INTERVAL_S * 1000, loop: true, callback: () => this.requestSave('interval') });
+    const onHide = () => { if (document.visibilityState === 'hidden' || !document.visibilityState) this.trySaveNow('unload'); };
+    const onUnload = () => this.trySaveNow('unload');
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onUnload);
+    window.addEventListener('beforeunload', onUnload);
+    const onRosterResolved = () => this.requestSave('roster');
+    const onModalClosed = (which) => this.requestSave(which === 'Gacha' ? 'gacha' : 'roster');
+    this.game.events.on('roster-resolved', onRosterResolved);
+    this.game.events.on('modal-closed', onModalClosed);
+    this.events.once('shutdown', () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onUnload);
+      window.removeEventListener('beforeunload', onUnload);
+      this.game.events.off('roster-resolved', onRosterResolved);
+      this.game.events.off('modal-closed', onModalClosed);
+    });
 
     // ---- 调试 ----
     this.debugVision = false;
@@ -81,17 +140,78 @@ export default class WorldScene extends Phaser.Scene {
       cam.setZoom(Phaser.Math.Clamp(cam.zoom - Math.sign(dy) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX));
     });
 
+    if (save?.camera?.zoom) cam.setZoom(Phaser.Math.Clamp(save.camera.zoom, ZOOM_MIN, ZOOM_MAX));
     cam.startFollow(this.player.body, true, CAMERA_LERP, CAMERA_LERP);
     this.minimap.ignore([...this.cityLabels, this.targetMarker, this.debugGfx]);
     this.positionMinimap();
     this.scale.on('resize', () => this.positionMinimap());
 
-    this.scene.launch('UI');
+    this.scene.launch('UI', { warnings: this.loadWarnings ?? [], loaded: !!save });
+    this.loadWarnings = null;
   }
 
+  // ================= 存档 =================
+  /** 累计游戏时间（毫秒，读档后接着算） */
+  gameTime() { return this.playTimeBase + (this.time.now - this.sessionStart); }
+
+  /** 不在战斗中、没有打开抽卡/名册窗口、没有待安排武将时才可以存 */
+  canSaveNow() {
+    if (!this.player || !this.battleSystem) return false;
+    if (this.battleSystem.battles.length) return false;
+    if (this.state.pendingGenerals.length) return false;
+    const sm = this.scene;
+    if (sm.isActive('Gacha') || sm.isPaused('Gacha') || sm.isActive('Roster')) return false;
+    return true;
+  }
+
+  /** 纯数据快照（存档格式见 systems/save.js） */
+  snapshot() {
+    const now = this.time.now;
+    const teamOf = p => { const t = structuredClone(p.team); t.position = { x: p.x, y: p.y }; return t; };
+    const main = mainGeneral(this.player.team, balance);
+    return {
+      gameTimeMs: Math.round(this.gameTime()),
+      state: structuredClone(this.state),
+      player: { team: teamOf(this.player), mainGeneralId: main?.id ?? null,
+        invincibleMs: remainingMs(this.player.invincibleUntil, now), graceMs: remainingMs(this.player.graceUntil, now) },
+      ai: this.aiParties.map(p => ({ team: teamOf(p), mem: memToSave(p.ai, now), graceMs: remainingMs(p.graceUntil, now) })),
+      spawn: { counter: this.spawnCounter, nextMs: Math.round(this.respawnTimer.getRemaining()) },
+      names: nextBanditName.getState(),
+      rng: { team: teamRng.getState() },
+      pairCooldowns: [...this.battleSystem.pairCooldown].filter(([, until]) => until > now).map(([k, until]) => [k, until - now]),
+      camera: { zoom: this.cameras.main.zoom }
+    };
+  }
+
+  /** 请求存档：能存就在下一帧存，否则等战斗/弹窗结束 */
+  requestSave(reason = 'auto') {
+    if (!this.saveDirty || reason === 'manual') this.saveDirty = reason;
+  }
+
+  /** 读档（F9）：已校验的存档 → 重启大地图场景 */
+  loadFrom(save, warnings = []) {
+    this.scene.stop('Gacha'); this.scene.stop('Roster');
+    this.scene.restart({ save, warnings });
+  }
+
+  /** 立即尝试存档；不能存时返回 false（不会存半截状态） */
+  trySaveNow(reason = 'auto') {
+    if (!this.canSaveNow()) return false;
+    const ok = writeSave(makeSave(this.snapshot(), { balance, mapSeed: MAP_SEED, reason }));
+    if (ok) {
+      this.lastSaveAt = this.time.now;
+      console.log(`[save] ${reason} 存档完成`);
+      this.game.events.emit('game-saved', { reason });
+    }
+    return ok;
+  }
+
+
   // ================= 队伍管理 =================
-  addParty(team) {
-    const sp = this.findPassableNear(Math.floor(team.position.x / TILE_SIZE), Math.floor(team.position.y / TILE_SIZE));
+  /** opts.exact：读档时位置可通行就原样使用（不吸附到格子中心） */
+  addParty(team, opts = {}) {
+    const exactOk = opts.exact && this.isPassable(team.position.x, team.position.y);
+    const sp = exactOk ? { ...team.position } : this.findPassableNear(Math.floor(team.position.x / TILE_SIZE), Math.floor(team.position.y / TILE_SIZE));
     team.position = sp;
     if (!team.home) team.home = { ...sp };
     const p = new Party(this, team, balance, factionColor(team.faction));
@@ -166,8 +286,9 @@ export default class WorldScene extends Phaser.Scene {
       if (p) this.removeParty(p);
     }
     for (const p of [a, b]) if (this.parties.includes(p)) p.refresh();
-    pushLog(this.state, outcome.text, now);
+    pushLog(this.state, outcome.text, this.gameTime());
     EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
+    this.requestSave('battle');
   }
 
   /** collision.draw_pushback：沿两队中心连线双方各向外推 dist；落点不可通行则取最近可通行格 */
@@ -259,10 +380,11 @@ export default class WorldScene extends Phaser.Scene {
   // ================= 小地图 / 调试 =================
   positionMinimap() { this.minimap.setPosition(this.scale.width - MINIMAP_SIZE - 10, 10); }
 
-  /** 调试 / 冒烟测试用：直接加点数（F2 也会调用） */
+  /** 调试 / 冒烟测试用：直接加点数（只在开发模式存在，F2 调用；生产构建里返回 null） */
   debugGrantPoints(n) {
+    if (!import.meta.env.DEV) return null;
     this.state.points += n;
-    pushLog(this.state, `【调试】点数 +${n}`, this.time.now);
+    pushLog(this.state, `【调试】点数 +${n}`, this.gameTime());
     return this.state.points;
   }
 
@@ -344,6 +466,11 @@ export default class WorldScene extends Phaser.Scene {
     this.aiSystem.update(this.aiParties, this.parties, dt, time, this);
     const overlaps = this.collisions.update(this.parties, time);
     this.battleSystem.update(overlaps, time);
+
+    if (this.saveDirty && this.canSaveNow()) {
+      const reason = this.saveDirty; this.saveDirty = null;
+      this.trySaveNow(reason);
+    }
 
     for (const p of this.parties) p.minimapDot.setPosition(p.x, p.y);
     this.layoutLabels();
