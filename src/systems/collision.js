@@ -1,5 +1,5 @@
 import { EventBus, EVENTS } from '../core/EventBus.js';
-import balance from '../data/balance.json';
+import balance from '../data/balance.json' with { type: 'json' };
 const COLLISION_COOLDOWN_MS = balance.collision.engine_debounce_ms;
 
 /**

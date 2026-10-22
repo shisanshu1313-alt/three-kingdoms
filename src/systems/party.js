@@ -1,34 +1,33 @@
-import Phaser from 'phaser';
 import { PARTY_SIZE, CLICK_ARRIVE_DIST } from '../config.js';
-import { computePower, soldierCap, teamSpeed } from '../systems/combat.js';
+import { computePower, soldierCap, teamSpeed } from './combat.js';
+
+/** '#rrggbb' / '#rgb' → 0xrrggbb（与 Phaser HexStringToColor 结果相同） */
+export function hexToInt(hex) {
+  let h = String(hex).replace(/^#|^0x/i, '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const n = parseInt(h, 16);
+  return Number.isFinite(n) ? n : 0;
+}
 
 /**
- * 队伍实体：Phaser 表现（色块 + 标签）包着纯数据 team 对象（结构 = balance.team_example）。
- * 战斗/存档等系统只读写 team。
+ * 队伍逻辑模型（纯 JS，不依赖 Phaser / DOM）：包着纯数据 team 对象（结构 = balance.team_example），
+ * 位置就是 team.position。AI / 战斗 / 碰撞 / 存档都只读写它；画面由 entities/PartyView.js 每帧同步。
+ *
+ * world 参数需要提供：clock.now、speedAt(x,y)、isPassable(x,y)（见 systems/world.js 的 WorldModel）。
  * 移动：move(dx,dy) 直接方向移动；setPath(points) + followPath() 沿 A* 路径移动。
  */
-export default class Party {
-  constructor(scene, team, balance, color) {
-    this.scene = scene;
+export default class PartyModel {
+  constructor(team, balance, color = '#ffffff') {
     this.team = team;
     this.balance = balance;
     this.size = PARTY_SIZE;
+    this.color = hexToInt(color);
     this.path = null;          // [{x,y}] 世界坐标路点
     this.inBattle = null;      // 当前战斗对象
-    this.invincibleUntil = 0;  // 玩家战败后无敌截止（ms）
+    this.invincibleUntil = 0;  // 玩家战败后无敌截止（游戏时间 ms）
     this.stuckTime = 0;
-    this.labelMode = null;
-
-    const c = Phaser.Display.Color.HexStringToColor(color).color;
-    this.color = c;
-    this.body = scene.add.rectangle(team.position.x, team.position.y, this.size, this.size, c)
-      .setStrokeStyle(2, team.is_player ? 0xffffff : 0x000000).setDepth(10);
-    this.label = scene.add.text(0, 0, '', {
-      fontFamily: 'sans-serif', fontSize: '12px', color: '#ffffff', align: 'center',
-      stroke: '#000000', strokeThickness: 3
-    }).setOrigin(0.5, 1).setDepth(11);
+    this.rev = 0;              // refresh() 次数：表现层据此知道标签要重画
     this.refresh();
-    this.setPosition(team.position.x, team.position.y);
   }
 
   get id() { return this.team.id; }
@@ -36,51 +35,25 @@ export default class Party {
   get faction() { return this.team.faction; }
   get isPlayer() { return this.team.is_player; }
   get soldiers() { return this.team.soldiers; }
-  get x() { return this.body.x; }
-  get y() { return this.body.y; }
+  get x() { return this.team.position.x; }
+  get y() { return this.team.position.y; }
   isInvincible(now) { return this.invincibleUntil > now; }
 
   /** 实际移动速度（未含地形）：配置速度 × 战败逃跑加速（无敌期间） */
-  moveSpeed() {
-    const esc = this.isInvincible(this.scene.clock.now) ? this.balance.battle.player_defeat.escape_speed_mult : 1;
+  moveSpeed(now) {
+    const esc = this.isInvincible(now) ? this.balance.battle.player_defeat.escape_speed_mult : 1;
     return this.speed * esc;
   }
 
-  /** 队伍数值变化后调用：重算战力/上限/速度并刷新标签 */
+  /** 队伍数值变化后调用：重算战力/上限/速度 */
   refresh() {
     this.power = computePower(this.team, this.balance);
     this.cap = soldierCap(this.team, this.balance);
     this.speed = teamSpeed(this.team, this.balance);
-    this.labelMode = null;
-    this.setLabelMode(this._wantFull ?? this.isPlayer);
+    this.rev++;
   }
 
-  /** 标签：简略（名字+兵）/ 完整（加武将、战力） */
-  setLabelMode(full) {
-    this._wantFull = full;
-    const mode = full ? 'full' : 'compact';
-    if (mode === this.labelMode) return;
-    this.labelMode = mode;
-    const t = this.team;
-    if (full) {
-      const gens = t.generals.map(g => g.name).join('·');
-      this.label.setText(`${t.name}\n${gens}\n兵${t.soldiers}/${this.cap} 战${Math.round(this.power)}`);
-    } else {
-      this.label.setText(`${t.name} ${t.soldiers}`);
-    }
-  }
-
-  /** 战斗中标签：名字 + 正在播放的兵数 */
-  setBattleLabel(shown) {
-    const txt = `⚔ ${this.team.name} 兵${shown}`;
-    if (this.label.text !== txt) this.label.setText(txt);
-    this.labelMode = 'battle';
-  }
-
-  setPosition(x, y) {
-    this.body.setPosition(x, y);
-    this.team.position.x = x; this.team.position.y = y;
-  }
+  setPosition(x, y) { this.team.position.x = x; this.team.position.y = y; }
 
   getBounds() {
     const h = this.size / 2;
@@ -90,7 +63,7 @@ export default class Party {
   /** 按方向 (dx,dy)（长度≤1）移动 dt 秒；分轴移动可贴边滑动。返回是否被阻挡 */
   move(dx, dy, dt, world) {
     if (!dx && !dy) return false;
-    const speed = this.moveSpeed() * world.speedAt(this.x, this.y);
+    const speed = this.moveSpeed(world.clock.now) * world.speedAt(this.x, this.y);
     const stepX = dx * speed * dt, stepY = dy * speed * dt;
     let blocked = false;
     let nx = this.x, ny = this.y;
@@ -105,7 +78,7 @@ export default class Party {
     const ddx = tx - this.x, ddy = ty - this.y;
     const d = Math.hypot(ddx, ddy);
     if (d <= CLICK_ARRIVE_DIST) return 'arrived';
-    const speed = this.moveSpeed() * world.speedAt(this.x, this.y);
+    const speed = this.moveSpeed(world.clock.now) * world.speedAt(this.x, this.y);
     const k = Math.min(1, d / Math.max(1e-6, speed * dt));
     const ox = this.x, oy = this.y;
     this.move((ddx / d) * k, (ddy / d) * k, dt, world);
@@ -134,14 +107,10 @@ export default class Party {
     return 'moving';
   }
 
+  /** 色块放在 (x,y) 时四角是否都可通行 */
   _fits(x, y, world) {
     const h = this.size / 2 - 1;
     return world.isPassable(x - h, y - h) && world.isPassable(x + h, y - h) &&
            world.isPassable(x - h, y + h) && world.isPassable(x + h, y + h);
-  }
-
-  destroy() {
-    this.body.destroy(); this.label.destroy();
-    if (this.minimapDot) this.minimapDot.destroy();
   }
 }

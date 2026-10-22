@@ -1,6 +1,6 @@
 import { MAP_SEED } from '../config.js';
-import terrainData from '../data/terrain.json';
-import balance from '../data/balance.json';
+import terrainData from '../data/terrain.json' with { type: 'json' };
+import balance from '../data/balance.json' with { type: 'json' };
 
 /** 地形表：表现字段来自 terrain.json，speed/passable 来自 balance.terrain_speed（null = 不可通行） */
 export function buildTerrain(types, terrainSpeed) {
@@ -81,24 +81,4 @@ export function generateMap(width = balance.map.tiles_w, height = balance.map.ti
   }
 
   return { width, height, grid, cities };
-}
-
-/** 把地形色块绘制成一张 tileset 画布纹理（每种地形一格，加一点像素噪点） */
-export function createTilesetTexture(scene, key, tileSize) {
-  const tex = scene.textures.createCanvas(key, tileSize * TERRAIN.length, tileSize);
-  const ctx = tex.getContext();
-  TERRAIN.forEach((t, i) => {
-    const ox = i * tileSize;
-    ctx.fillStyle = t.color;
-    ctx.fillRect(ox, 0, tileSize, tileSize);
-    // 像素风细节点缀
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let k = 0; k < 6; k++) {
-      ctx.fillRect(ox + ((k * 7 + i * 3) % (tileSize - 4)) + 2, ((k * 11 + i * 5) % (tileSize - 4)) + 2, 3, 3);
-    }
-    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-    ctx.strokeRect(ox + 0.5, 0.5, tileSize - 1, tileSize - 1);
-  });
-  tex.refresh();
-  return tex;
 }

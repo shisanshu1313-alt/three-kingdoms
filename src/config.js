@@ -1,6 +1,6 @@
 // 引擎/表现层参数（程序侧）。所有玩法数值（地图尺寸、速度、战力、AI、战斗、刷新、碰撞规则）
 // 都来自策划配置 src/data/balance.json，不在这里硬编码。
-import balance from './data/balance.json';
+import balance from './data/balance.json' with { type: 'json' };
 export const TILE_SIZE = balance.map.tile_px; // 来自 balance.map（地图格数也在 balance.map）
 export const MAP_SEED = 184;          // 地形噪声随机种子（城池/官道位置由 balance 决定）
 export const TEAM_SEED = 2026;        // 黄巾头目属性/名字的随机种子

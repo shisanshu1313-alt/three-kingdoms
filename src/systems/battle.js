@@ -82,7 +82,7 @@ export function applyBattleResult(a, b, r, balance, rng = Math.random) {
 }
 
 export default class BattleSystem {
-  /** world 需提供：onBattleStart(battle)、onBattleEnd(battle, outcome) */
+  /** world = 回调对象（WorldScene 实现）：beforeBattleStart()、onBattleStart(battle)、onBattleEnd(battle, outcome)。队伍是 PartyModel（纯数据） */
   constructor(world, balance, state, rng = Math.random) {
     this.world = world; this.balance = balance; this.state = state; this.rng = rng;
     this.battles = [];

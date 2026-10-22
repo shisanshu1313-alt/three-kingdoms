@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { TILE_SIZE } from '../config.js';
-import { createTilesetTexture } from '../world/MapGenerator.js';
+import { createTilesetTexture } from '../render/tileset.js';
 import { hasSave } from '../systems/save.js';
 import { getStorage } from '../platform/storage.js';
 

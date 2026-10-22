@@ -76,32 +76,38 @@ node tests/smoke.cjs http://localhost:5173/   # 无头浏览器冒烟（需 play
 
 ## 文件结构
 
+逻辑和表现分开（平台规则 1）：`systems/ core/ world/ data/ platform/` 是纯 JS，不 import Phaser、不碰 DOM，`tests/pureLogic.test.js` 在纯 Node 里加载全部模块（import 'phaser' 会直接报错）并跑一段 AI + 碰撞 + 战斗 + 存档的模拟。`scenes/ entities/ render/ ui/` 是 Phaser 表现层。
+
 ```
 src/
   main.js / config.js            入口；引擎/表现层参数（相机、标签、寻路重算间隔等，非数值）
-  core/EventBus.js               事件：party-collision / party-sighted / ai-state / battle-start / battle-end / party-spawned / party-removed
+  core/EventBus.js               纯 JS 事件总线：party-collision / party-sighted / ai-state / battle-start / battle-end / party-spawned / party-removed
+  core/GameClock.js              游戏时钟 + 定时器（暂停即冻结，可存档）
   data/
     balance.json                 策划配置副本（勿手改）
-    assumptions.json             v0.2 仍未明确的【假设】项
+    assumptions.json             仍未明确的【假设】项
     terrain.json / display.json  地形颜色/中文名；兜底颜色
     index.js                     加载配置、构建初始队伍、黄巾名字分配
-  scenes/ BootScene / TitleScene（有存档时的标题菜单）/ WorldScene / UIScene / GachaScene / RosterScene
-  ui/widgets.js                  按钮/文字/档位颜色等占位 UI 组件
-  world/  MapGenerator.js（城池/官道按 balance.cities）  Pathfinder.js（A*）
-  entities/Party.js              队伍实体（team 数据 + 色块/标签 + 路径跟随）
-  systems/
+  world/  MapGenerator.js（纯：格子数据，城池/官道按 balance.cities）  Pathfinder.js（A*）
+  systems/                       —— 纯逻辑 ——
+    world.js     WorldModel：地形查询、点击寻路 / pathTo、出生与补充刷新落点、平局推开；snapshotWorld 存档快照
+    party.js     PartyModel：队伍逻辑（team 数据 + 位置 + 路径跟随 + 战力/速度缓存）
     combat.js    纯函数：战力/上限/速度/减免/俘获率/resolveCombat
-    battle.js    applyBattleResult（纯函数）+ BattleSystem
+    battle.js    applyBattleResult（纯函数）+ BattleSystem（开战/结算/存档序列化）
     aiBrain.js   AI 决策纯函数     ai.js  AI 执行（寻路、逃跑选点、视野事件）
-    teams.js     队伍构建、命名规则、补充刷新兵数反解
     collision.js AABB 碰撞 + 事件去抖（engine_debounce_ms）
+    teams.js     队伍构建、命名规则、补充刷新兵数反解
     gameState.js 积分/自由池/待处理俘虏/战报
-  platform/storage.js / lifecycle.js / input.js  平台接口：存储、切后台/关闭、输入动作
-  core/GameClock.js              游戏时钟 + 定时器（暂停即冻结，可存档）
     gacha.js     抽卡纯逻辑（价格/权重/武将/属性/物品/文案）
     roster.js    满编队列、替换/释放
-    save.js      存档：结构/校验/迁移/localStorage 读写/时间换算（纯逻辑）
-tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save / gameClock（node:test）+ smoke.cjs
+    save.js      存档：结构/校验/迁移/读写（存储由调用方传入）
+    rng.js       可存档的种子随机数
+  platform/storage.js / lifecycle.js / input.js / screen.js  平台接口：存储、切后台/关闭、输入动作、屏幕尺寸
+  render/tileset.js              表现：地形 tileset 纹理
+  entities/PartyView.js          表现：队伍色块/标签/小地图点，每帧从 PartyModel 同步
+  scenes/ BootScene / TitleScene / WorldScene / UIScene / GachaScene / RosterScene
+  ui/widgets.js                  按钮/文字/档位颜色等占位 UI 组件
+tests/  combat / worked_examples / battle / aiBrain / pathfinder / gacha / roster / save / reload / gameClock / input / pureLogic（node:test）+ smoke.cjs
 ```
 
 ## 已决定（PM / 用户确认 2026-10-22，balance decisions）

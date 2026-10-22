@@ -3,9 +3,9 @@
  * balance.json 是 /workspace/design/balance_v0.4.json 的副本（npm run sync:balance 同步）。
  * 初始队伍 = balance.initial_teams；阵营颜色 = balance.ai.factions[].color / player_faction.color。
  */
-import balance from './balance.json';
-import display from './display.json';
-import assumptions from './assumptions.json';
+import balance from './balance.json' with { type: 'json' };
+import display from './display.json' with { type: 'json' };
+import assumptions from './assumptions.json' with { type: 'json' };
 import { buildTeam, indexBalance, createNameAllocator } from '../systems/teams.js';
 import { mulberry32 } from '../systems/rng.js';
 import { TEAM_SEED } from '../config.js';

@@ -4,18 +4,18 @@ import {
   TILE_SIZE, CAMERA_LERP, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, MINIMAP_SIZE, NEAR_PLAYER_FULL_LABEL_PX, MAP_SEED, SAVE_INTERVAL_S
 } from '../config.js';
 import { generateMap, TERRAIN } from '../world/MapGenerator.js';
-import Pathfinder from '../world/Pathfinder.js';
-import Party from '../entities/Party.js';
+import PartyModel from '../systems/party.js';
+import PartyView from '../entities/PartyView.js';
+import { WorldModel, snapshotWorld } from '../systems/world.js';
 import AISystem from '../systems/ai.js';
 import CollisionSystem from '../systems/collision.js';
 import BattleSystem from '../systems/battle.js';
 import { createGameState, pushLog } from '../systems/gameState.js';
 import { buildRespawnTeam } from '../systems/teams.js';
-import { mainGeneral } from '../systems/combat.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom } from '../data/index.js';
 import { mulberry32 } from '../systems/rng.js';
-import { makeSave, writeSave, memToSave, memFromSave, restoreGameState } from '../systems/save.js';
+import { makeSave, writeSave, memFromSave, restoreGameState } from '../systems/save.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
 import { getLifecycle } from '../platform/lifecycle.js';
@@ -37,12 +37,10 @@ export default class WorldScene extends Phaser.Scene {
 
   build(save) {
     // ---- 地图 ----
-    this.mapData = generateMap();
-    const { width, height, grid, cities } = this.mapData;
-    this.tileSize = TILE_SIZE;
-    this.worldW = width * TILE_SIZE;
-    this.worldH = height * TILE_SIZE;
-    this.pathfinder = new Pathfinder(grid, TERRAIN);
+    // 逻辑模型（systems/world.js，纯 JS）：地形 / 寻路 / 落点；AI、战斗、队伍移动都只拿到它
+    this.clock = new GameClock(save?.gameTimeMs ?? 0);
+    this.model = new WorldModel({ mapData: generateMap(), terrain: TERRAIN, tileSize: TILE_SIZE, clock: this.clock });
+    const { grid, cities } = this.mapData;
 
     const map = this.make.tilemap({ data: grid, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
     const tileset = map.addTilesetImage('tiles', 'tiles', TILE_SIZE, TILE_SIZE, 0, 0);
@@ -62,8 +60,8 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.setBackgroundColor(0x000000);
 
     // ---- 游戏时钟（v0.4 pause_scope）：所有计时都读 this.clock.now；只在本场景 update 里推进，场景暂停即冻结 ----
-    this.clock = new GameClock(save?.gameTimeMs ?? 0);
     this.parties = [];
+    this.views = new Map(); // PartyModel → PartyView
     this.aiParties = [];
     this.collisions = new CollisionSystem();
     this.aiSystem = new AISystem(balance);
@@ -145,7 +143,7 @@ export default class WorldScene extends Phaser.Scene {
     });
 
     if (save?.camera?.zoom) cam.setZoom(Phaser.Math.Clamp(save.camera.zoom, ZOOM_MIN, ZOOM_MAX));
-    cam.startFollow(this.player.body, true, CAMERA_LERP, CAMERA_LERP);
+    cam.startFollow(this.views.get(this.player).body, true, CAMERA_LERP, CAMERA_LERP);
     this.minimap.ignore([...this.cityLabels, this.targetMarker, this.debugGfx]);
     this.positionMinimap();
     this.scale.on('resize', () => this.positionMinimap());
@@ -169,25 +167,13 @@ export default class WorldScene extends Phaser.Scene {
   /** BattleSystem 开战前回调：立即存档 */
   beforeBattleStart() { this.trySaveNow('battle-start'); }
 
-  /** 纯数据快照（存档格式见 systems/save.js） */
+  /** 纯数据快照（存档格式见 systems/save.js；逻辑在 systems/world.js） */
   snapshot() {
-    const now = this.clock.now;
-    const teamOf = p => { const t = structuredClone(p.team); t.position = { x: p.x, y: p.y }; return t; };
-    const main = mainGeneral(this.player.team, balance);
-    return {
-      gameTimeMs: now,
-      state: structuredClone(this.state),
-      player: { team: teamOf(this.player), mainGeneralId: main?.id ?? null,
-        invincibleUntil: this.player.invincibleUntil ?? 0, graceUntil: this.player.graceUntil ?? 0 },
-      ai: this.aiParties.map(p => ({ team: teamOf(p), mem: memToSave(p.ai, now), graceUntil: p.graceUntil ?? 0 })),
-      spawn: { counter: this.spawnCounter },
-      timers: this.clock.getState().timers,
-      names: nextBanditName.getState(),
-      rng: { team: teamRng.getState(), gacha: this.rngs.gacha.getState(), combat: this.rngs.combat.getState() },
-      battles: this.battleSystem.serialize(),
-      pairCooldowns: [...this.battleSystem.pairCooldown].filter(([, until]) => until > now),
-      camera: { zoom: this.cameras.main.zoom }
-    };
+    return snapshotWorld({
+      clock: this.clock, state: this.state, player: this.player, aiParties: this.aiParties, spawnCounter: this.spawnCounter,
+      names: nextBanditName.getState(), rngs: { team: teamRng, ...this.rngs }, battleSystem: this.battleSystem,
+      cameraZoom: this.cameras.main.zoom, balance
+    });
   }
 
   /** 请求存档：能存就在下一帧存，否则等战斗/弹窗结束 */
@@ -217,15 +203,12 @@ export default class WorldScene extends Phaser.Scene {
   // ================= 队伍管理 =================
   /** opts.exact：读档时位置可通行就原样使用（不吸附到格子中心） */
   addParty(team, opts = {}) {
-    const exactOk = opts.exact && this.isPassable(team.position.x, team.position.y);
-    const sp = exactOk ? { ...team.position } : this.findPassableNear(Math.floor(team.position.x / TILE_SIZE), Math.floor(team.position.y / TILE_SIZE));
-    team.position = sp;
-    if (!team.home) team.home = { ...sp };
-    const p = new Party(this, team, balance, factionColor(team.faction));
-    // 小地图标记（主相机不显示），否则 20px 色块缩到 1px 看不清
-    p.minimapDot = this.add.rectangle(p.x, p.y, 64, 64, p.color).setStrokeStyle(p.isPlayer ? 16 : 0, 0xffffff).setDepth(20);
-    this.cameras.main.ignore(p.minimapDot);
-    this.minimap.ignore(p.label);
+    this.model.placeTeam(team, opts);
+    const p = new PartyModel(team, balance, factionColor(team.faction));
+    const v = new PartyView(this, p);
+    this.views.set(p, v);
+    this.cameras.main.ignore(v.minimapDot);
+    this.minimap.ignore(v.label);
     this.parties.push(p);
     if (!p.isPlayer) this.aiParties.push(p);
     EventBus.emit(EVENTS.PARTY_SPAWNED, { party: p });
@@ -235,26 +218,15 @@ export default class WorldScene extends Phaser.Scene {
   removeParty(p) {
     this.parties = this.parties.filter(x => x !== p);
     this.aiParties = this.aiParties.filter(x => x !== p);
-    p.destroy();
+    this.views.get(p)?.destroy();
+    this.views.delete(p);
     EventBus.emit(EVENTS.PARTY_REMOVED, { party: p });
   }
 
-  /** spawn.position_rule：距玩家 dist_from_player_px、可通行、不在玩家视野内；失败重试 10 次后跳过 */
+  /** 补充刷新：落点规则见 WorldModel.respawnPosition（spawn.position_rule） */
   respawn() {
-    const sp = balance.spawn;
-    if (this.aiParties.length >= sp.max_ai_teams) return null;
-    const [dmin, dmax] = sp.dist_from_player_px;
-    let pos = null;
-    for (let tries = 0; tries < 10 && !pos; tries++) {
-      const ang = Math.random() * Math.PI * 2, d = dmin + Math.random() * (dmax - dmin);
-      const x = this.player.x + Math.cos(ang) * d, y = this.player.y + Math.sin(ang) * d;
-      if (x < 0 || y < 0 || x >= this.worldW || y >= this.worldH) continue;
-      if (!this.isPassable(x, y)) continue;
-      const c = { x: (Math.floor(x / TILE_SIZE) + 0.5) * TILE_SIZE, y: (Math.floor(y / TILE_SIZE) + 0.5) * TILE_SIZE };
-      if (Math.hypot(c.x - this.player.x, c.y - this.player.y) <= balance.ai.vision_px) continue;
-      if (!this.player._fits(c.x, c.y, this)) continue;
-      pos = c;
-    }
+    if (this.aiParties.length >= balance.spawn.max_ai_teams) return null;
+    const pos = this.model.respawnPosition(this.player, balance, Math.random);
     if (!pos) { console.log('[spawn] 10 次未找到合法位置，跳过本次刷新'); return null; }
     const n = ++this.spawnCounter;
     const team = buildRespawnTeam({
@@ -284,7 +256,7 @@ export default class WorldScene extends Phaser.Scene {
     const { a, b } = battle;
     if (battle.marker) { battle.marker.tween.stop(); battle.marker.ring.destroy(); battle.marker.icon.destroy(); }
     const now = this.clock.now;
-    if (outcome.outcome === 'draw') this.pushApart(a, b, outcome.pushback_px);
+    if (outcome.outcome === 'draw') this.model.pushApart(a, b, outcome.pushback_px);
     if (outcome.playerDefeat) {
       this.player.invincibleUntil = now + outcome.playerDefeat.invincible_s * 1000;
       this.player.clearPath();
@@ -299,69 +271,8 @@ export default class WorldScene extends Phaser.Scene {
     this.requestSave('battle');
   }
 
-  /** collision.draw_pushback：沿两队中心连线双方各向外推 dist；落点不可通行则取最近可通行格 */
-  pushApart(a, b, dist) {
-    let dx = a.x - b.x, dy = a.y - b.y;
-    let len = Math.hypot(dx, dy);
-    if (len < 1e-6) { dx = 1; dy = 0; len = 1; }
-    dx /= len; dy /= len;
-    for (const [p, s] of [[a, 1], [b, -1]]) {
-      const nx = Phaser.Math.Clamp(p.x + dx * s * dist, 0, this.worldW - 1);
-      const ny = Phaser.Math.Clamp(p.y + dy * s * dist, 0, this.worldH - 1);
-      if (p._fits(nx, ny, this)) p.setPosition(nx, ny);
-      else { const c = this.findPassableNear(Math.floor(nx / TILE_SIZE), Math.floor(ny / TILE_SIZE)); p.setPosition(c.x, c.y); }
-    }
-  }
-
-  // ================= 寻路 =================
-  /** 从 party 当前位置到 (x,y) 的世界坐标路点（A* + 拉直），找不到返回 null */
-  pathTo(party, x, y) {
-    const T = TILE_SIZE;
-    const tiles = this.pathfinder.findPath(Math.floor(party.x / T), Math.floor(party.y / T), Math.floor(x / T), Math.floor(y / T));
-    if (!tiles) return null;
-    const pts = tiles.map(t => ({ x: (t.x + 0.5) * T, y: (t.y + 0.5) * T }));
-    // 终点：目标点可站就用精确点
-    const last = tiles[tiles.length - 1];
-    if (!tiles.partial && Math.floor(x / T) === last.x && Math.floor(y / T) === last.y && party._fits(x, y, this)) {
-      pts[pts.length - 1] = { x, y };
-    }
-    // 拉直：从当前位置贪心跳到最远的直线可达路点（向前最多看 10 个）
-    const out = [];
-    let from = { x: party.x, y: party.y }, i = 0;
-    while (i < pts.length) {
-      let j = Math.min(pts.length - 1, i + 10);
-      while (j > i && !this.segmentClear(party, from, pts[j])) j--;
-      if (j === i && !this.segmentClear(party, from, pts[i]) && i === 0) {
-        // 起点偏离格心导致直线不通：先回到起始格中心
-        out.push(pts[0]); from = pts[0]; i = 1; continue;
-      }
-      out.push(pts[j]); from = pts[j]; i = j + 1;
-    }
-    if (out.length && Math.hypot(out[0].x - party.x, out[0].y - party.y) < 2) out.shift();
-    if (!out.length) return null;
-    out.partial = !!tiles.partial;
-    return out;
-  }
-
-  /** 队伍色块沿线段移动是否全程可站（每 8px 采样）。地形代价不同时只做可通行判断 */
-  segmentClear(party, a, b) {
-    const d = Math.hypot(b.x - a.x, b.y - a.y), n = Math.ceil(d / 8);
-    for (let k = 1; k <= n; k++) {
-      const t = k / n;
-      if (!party._fits(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, this)) return false;
-    }
-    // 避免拉直穿过大片森林（代价高）：线段上若有比起点更慢的地形则不拉直
-    const s0 = this.speedAt(a.x, a.y);
-    for (let k = 1; k <= n; k++) {
-      const t = k / n;
-      if (this.speedAt(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t) < s0) return false;
-    }
-    return true;
-  }
-
   setPlayerTarget(x, y) {
-    const path = this.pathTo(this.player, x, y);
-    this.player.setPath(path);
+    const path = this.model.clickMove(this.player, x, y);
     if (path) {
       const end = path[path.length - 1];
       this.targetMarker.setPosition(end.x, end.y).setVisible(true);
@@ -369,21 +280,17 @@ export default class WorldScene extends Phaser.Scene {
     return path;
   }
 
-  // ================= 地形查询 =================
-  tileAt(px, py) {
-    const tx = Math.floor(px / TILE_SIZE), ty = Math.floor(py / TILE_SIZE);
-    const row = this.mapData.grid[ty];
-    if (!row || row[tx] === undefined) return null;
-    return TERRAIN[row[tx]];
-  }
-  isPassable(px, py) { const t = this.tileAt(px, py); return !!t && t.passable; }
-  speedAt(px, py) { const t = this.tileAt(px, py); return t ? t.speed : 0; }
-
-  findPassableNear(tx, ty) {
-    const p = this.pathfinder.nearestPassable(tx, ty);
-    const t = p || { x: tx, y: ty };
-    return { x: (t.x + 0.5) * TILE_SIZE, y: (t.y + 0.5) * TILE_SIZE };
-  }
+  // ================= 逻辑模型的快捷方式（UI / 调试 / 冒烟测试用） =================
+  get mapData() { return this.model.mapData; }
+  get pathfinder() { return this.model.pathfinder; }
+  get tileSize() { return this.model.tileSize; }
+  get worldW() { return this.model.worldW; }
+  get worldH() { return this.model.worldH; }
+  pathTo(party, x, y) { return this.model.pathTo(party, x, y); }
+  tileAt(px, py) { return this.model.tileAt(px, py); }
+  isPassable(px, py) { return this.model.isPassable(px, py); }
+  speedAt(px, py) { return this.model.speedAt(px, py); }
+  findPassableNear(tx, ty) { return this.model.findPassableNear(tx, ty); }
 
   // ================= 小地图 / 调试 =================
   positionMinimap() { this.minimap.setPosition(this.scale.width - MINIMAP_SIZE - 10, 10); }
@@ -429,25 +336,26 @@ export default class WorldScene extends Phaser.Scene {
       (b.isPlayer - a.isPlayer) || (Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y)));
     const placed = [];
     for (const p of order) {
+      const v = this.views.get(p);
       const hovered = Math.abs(pw.x - p.x) < p.size && Math.abs(pw.y - p.y) < p.size;
       if (p.inBattle) {
         // during_battle：损兵数字在 T 秒内线性播放，结束时一次性写入结果
         const bt = p.inBattle, t = Math.min(1, (this.clock.now - bt.startAt) / (bt.endAt - bt.startAt));
-        p.setBattleLabel(Math.round(bt.startSoldiers[p.id] - bt.lossOf[p.id] * t));
+        v.setBattleLabel(Math.round(bt.startSoldiers[p.id] - bt.lossOf[p.id] * t));
       } else {
-        p.setLabelMode(p.isPlayer || hovered || Math.hypot(p.x - pl.x, p.y - pl.y) < NEAR_PLAYER_FULL_LABEL_PX);
+        v.setLabelMode(p.isPlayer || hovered || Math.hypot(p.x - pl.x, p.y - pl.y) < NEAR_PLAYER_FULL_LABEL_PX);
       }
-      const w = p.label.width, h = p.label.height;
+      const w = v.label.width, h = v.label.height;
       let bottom = p.y - p.size / 2 - 2;
       for (let iter = 0; iter < 8; iter++) {
         const hit = placed.find(r => p.x - w / 2 < r.right && p.x + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
         if (!hit) break;
         bottom = hit.top - 1;
       }
-      p.label.setPosition(p.x, bottom);
+      v.label.setPosition(p.x, bottom);
       placed.push({ left: p.x - w / 2, right: p.x + w / 2, top: bottom - h, bottom });
       // 战斗中/无敌提示色
-      p.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : '#ffffff'));
+      v.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : '#ffffff'));
     }
   }
 
@@ -465,14 +373,14 @@ export default class WorldScene extends Phaser.Scene {
       if (dx || dy) {
         pl.clearPath();
         const len = Math.hypot(dx, dy);
-        pl.move(dx / len, dy / len, dt, this);
+        pl.move(dx / len, dy / len, dt, this.model);
       } else if (pl.path) {
-        pl.followPath(dt, this);
+        pl.followPath(dt, this.model);
       }
     }
     this.targetMarker.setVisible(!!pl.path);
 
-    this.aiSystem.update(this.aiParties, this.parties, dt, time, this);
+    this.aiSystem.update(this.aiParties, this.parties, dt, time, this.model);
     const overlaps = this.collisions.update(this.parties, time);
     this.battleSystem.update(overlaps, time);
 
@@ -481,7 +389,7 @@ export default class WorldScene extends Phaser.Scene {
       this.trySaveNow(reason);
     }
 
-    for (const p of this.parties) p.minimapDot.setPosition(p.x, p.y);
+    for (const v of this.views.values()) v.sync(); // 逻辑 → 画面
     this.layoutLabels();
     if (this.debugVision) this.drawDebug();
   }
