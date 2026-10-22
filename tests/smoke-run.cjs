@@ -56,11 +56,27 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   const saved = await W(() => { const t = localStorage.getItem('sanguo-run-v1'); const s = t && JSON.parse(t); return s && { v: s.saveVersion, runId: s.run?.runId, reason: s.reason, combat: !!s.combat }; });
   await ok(saved && saved.v === 4 && saved.runId === run0.runId && saved.combat, `交战中 run 存档（sanguo-run-v1，含战斗快照）存在（${JSON.stringify(saved)}）`);
 
+  // 名将军补兵（每满 1 分钟 +3，战斗中不补）+ 势力补队（名将军不在场 → 下一次刷新在大本营出校尉军）
+  const fac = await W(() => {
+    const w = __game.scene.getScene('World'), cc = w.aiParties.find(a => a.id === 'wei_caocao');
+    cc.team.soldiers = 60; cc.refresh(); w.field.refresh(cc);
+    const n0 = cc.team.soldiers, t0 = w.clock.now / 1000;
+    for (let i = 0; i < 400 && Math.floor(w.clock.now / 60000) === Math.floor(t0 / 60) && !w.pendingEnd; i++) w.debugAdvance(0.1);
+    w.debugAdvance(0.2);
+    const n1 = cc.team.soldiers, inBattle = !!cc.inBattle;
+    const zy = w.aiParties.find(a => a.id === 'wu_zhouyu'); if (zy) w.removeParty(zy); // 模拟周瑜军被别的 AI 打掉
+    if (w.aiParties.length >= __balance.spawn.max_ai_teams) w.removeParty(w.aiParties.find(a => a.faction === 'bandit' && a.id !== w.run.raidId));
+    const r = w.respawn();
+    return { n0, n1, inBattle, refill: r && { id: r.id, name: r.name, faction: r.faction, unit: r.team.unit, gen: r.team.generals[0], power: Math.round(r.power), playerPower: Math.round(w.player.power) } };
+  });
+  await ok(fac.inBattle || fac.n1 === fac.n0 + 3, `名将军每分钟补 3 兵（${fac.n0} → ${fac.n1}）`);
+  await ok(fac.refill && fac.refill.faction === 'wu' && fac.refill.unit === 'arc' && /校尉军/.test(fac.refill.name) && fac.refill.gen.lead >= 60, `周瑜军不在场 → 吴校尉军在建业补出（${JSON.stringify(fac.refill)}）`);
+
   // 死亡：主角 HP 归零 → 下一 tick 失败 → 删档 → 局外数据 → 结算画面
   const dead = await W(() => { const w = __game.scene.getScene('World'); w.debugSetHeroHp(0); w.debugAdvance(0.2); __game.scene.resume('World'); return true; });
   await sleep(p, 1200);
-  const after = await W(() => ({ end: __game.scene.isActive('RunEnd'), world: __game.scene.isActive('World'), save: localStorage.getItem('sanguo-run-v1'), meta: JSON.parse(localStorage.getItem('sanguo-meta-v1') || 'null') }));
-  await ok(dead && after.end && !after.world, '主角 HP 0 → 结算画面（失败）');
+  const after = await W(() => ({ end: __game.scene.isActive('RunEnd'), world: __game.scene.isActive('World'), save: localStorage.getItem('sanguo-run-v1'), meta: JSON.parse(localStorage.getItem('sanguo-meta-v1') || 'null'), scenes: __game.scene.getScenes(true).map(s => s.scene.key), over: __game.scene.getScene('World').run?.over, pend: !!__game.scene.getScene('World').pendingEnd }));
+  await ok(dead && after.end && !after.world, `主角 HP 0 → 结算画面（失败）（${JSON.stringify({ end: after.end, world: after.world, scenes: after.scenes, over: after.over, pend: after.pend })}）`);
   await ok(after.save === null, '死亡后 run 存档已删除');
   await ok(after.meta && after.meta.runs === 1 && after.meta.recordedRunIds.includes(run0.runId) && after.meta.fameTotal > 0, `局外数据写入（runs=${after.meta?.runs} fame=${after.meta?.fameTotal}）`);
   await p.screenshot({ path: path.join(OUT, 'run-gameover.png') });

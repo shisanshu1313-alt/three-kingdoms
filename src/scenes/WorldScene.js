@@ -20,6 +20,7 @@ import { mulberry32 } from '../systems/rng.js';
 import { makeSave, writeSave, clearSave, memFromSave, restoreGameState, META_KEY } from '../systems/save.js';
 import { createRun, runTick, checkFail, onPlayerBattleEnd, onNamedDefeated, runSummary, recordUnit, targetUnitFor } from '../systems/run.js';
 import { spawnPowerRange, counterAddOf } from '../systems/runConfig.js';
+import { namedReinforce, factionToRefill, factionUnit, buildRefillTeam, conquestTarget } from '../systems/factions.js';
 import { applyRunResult, loadMeta, saveMeta } from '../systems/meta.js';
 import { DEBUG_HOOKS } from '../debug.js';
 import { changeUnit } from '../systems/gacha.js';
@@ -254,7 +255,11 @@ export default class WorldScene extends Phaser.Scene {
     const rng = this.rngs.spawn;
     const pos = this.model.respawnPosition(this.player, balance, rng);
     if (!pos) { console.log('[spawn] 10 次未找到合法位置，跳过本次刷新'); return null; }
-    const n = ++this.spawnCounter, r = this.run, tS = this.clock.now / 1000;
+    const r = this.run, tS = this.clock.now / 1000;
+    // polish_merged.3：没被讨伐、场上又没有该势力队伍 → 这次改为在大本营刷一支校尉军
+    const fac = factionToRefill(r, this.aiParties.map(p => p.team), balance, runCfg);
+    if (fac) { const p = this.spawnRefill(fac); if (p) return p; }
+    const n = ++this.spawnCounter;
     // 章节缩放（chapters.spawn_power_vs_player，群雄模式 +0.1）+ 黄巾兵种分布（第 3 章起针对玩家 60 s 前的兵种）
     const team = assignUnit(buildRespawnTeam({
       id: `spawn_${n}`, position: pos, playerPower: this.player.power, powerRange: spawnPowerRange(r.chapter, runCfg, r.hard),
@@ -262,6 +267,21 @@ export default class WorldScene extends Phaser.Scene {
     }), combatJson, rng, { mix: runCfg.chapters[r.chapter].bandit_units, targetUnit: targetUnitFor(r, tS, runCfg, combatJson.move.counters) });
     const p = this.addParty(team);
     console.log(`[spawn] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)} (目标 ${Math.round(team.targetPower)}, 第${r.chapter + 1}章)`);
+    return p;
+  }
+
+  /** 校尉军：大本营（home_city）附近可通行处；战力 max(120, 玩家战力) × U(0.8, 1.2)，兵种 = 势力兵种 */
+  spawnRefill(faction) {
+    const home = balance.ai.factions.find(f => f.id === faction)?.home;
+    if (!home) return null;
+    const T = TILE_SIZE, pos = this.findPassableNear(Math.floor(home.x / T), Math.floor(home.y / T));
+    if (!pos) return null;
+    const n = ++this.spawnCounter;
+    const team = buildRefillTeam({ id: `refill_${n}`, faction, home: { x: pos.x, y: pos.y }, playerPower: this.player.power, balance, run: runCfg,
+      rng: this.rngs.spawn, unit: factionUnit(faction, balance, runCfg, combatJson.named_army_units) });
+    const p = this.addParty(team);
+    pushLog(this.state, `${p.name} 在大本营重新集结`, this.gameTime());
+    console.log(`[refill] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)} (目标 ${Math.round(team.targetPower)})`);
     return p;
   }
 
@@ -307,6 +327,11 @@ export default class WorldScene extends Phaser.Scene {
     const tS = this.clock.now / 1000;
     recordUnit(r, tS, pl.team.unit);
     const ev = runTick(r, tS, dt, { soldiers: pl.team.soldiers, cap: pl.cap, power: pl.power, inBattle: pl.inBattle, inCity: this.inCity(pl) }, runCfg);
+    // polish_merged.4：名将军每分钟补兵（战斗中不补，脱战后补上）
+    for (const { id, add } of namedReinforce(r, tS, this.aiParties.map(p => ({ id: p.id, soldiers: p.team.soldiers, cap: p.cap, inBattle: !!p.inBattle })), runCfg)) {
+      const p = this.aiParties.find(x => x.id === id);
+      if (p) { p.team.soldiers += add; p.refresh(); this.field.refresh(p); }
+    }
     for (const e of ev) {
       if (e.type === 'chapter') {
         this.applyChapter();
@@ -393,9 +418,11 @@ export default class WorldScene extends Phaser.Scene {
         EventBus.emit(EVENTS.BATTLE_END, { battle, outcome });
         // 名将军被击败（玩家有伤害份额）→ 讨伐进度 / 胜利
         const L = battle.b;
-        if (L && runCfg.run_goal.named.includes(L.id)) {
+        // 讨伐目标：名将军；名将军已被别的 AI 打掉时，该势力的校尉军（factions.conquestTarget）
+        const ct = L && conquestTarget(L.team, this.run, id => this.aiParties.some(p => p.id === id), balance, runCfg);
+        if (ct) {
           const share = e?.shares?.[this.player.id] ?? 0;
-          const ev = onNamedDefeated(this.run, L.id, share, this.clock.now / 1000, runCfg);
+          const ev = onNamedDefeated(this.run, ct.namedId, share, this.clock.now / 1000, runCfg);
           if (ev) {
             pushLog(this.state, ev.type === 'victory' ? '四路名将尽数讨平！' : `讨平 ${L.name}（还剩 ${ev.left} 路）`, this.gameTime());
             this.game.events.emit('run-event', { ...ev, name: L.name });

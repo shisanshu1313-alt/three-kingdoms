@@ -16,6 +16,7 @@ export function createRun({ runId, runSeed, hard = false, startUnit = 'inf', cfg
     chapter: 0, maxChapter: 0, raidDone: false, raidId: null,
     heroHp: cfg.failure.hero_hp_max, lastBattleEndS: -1e9, recruitAcc: 0,
     unitHistory: [{ t: 0, unit: startUnit }],
+    reinforceMin: {}, // 名将军补兵：已补到第几分钟（systems/factions.js）
     namedDefeated: [], maxPower: 0, battlesWon: 0, battles: 0,
     over: null // { result: 'defeat' | 'victory', reason, atS }
   };
@@ -47,6 +48,9 @@ export function runTick(run, tS, dt, p, cfg) {
   if (ch !== run.chapter) { run.chapter = ch; run.maxChapter = Math.max(run.maxChapter, ch); ev.push({ type: 'chapter', idx: ch, chapter: cfg.chapters[ch] }); }
   if (!run.raidDone && tS >= cfg.first_battle.at_s) { run.raidDone = true; ev.push({ type: 'raid' }); }
   run.maxPower = Math.max(run.maxPower, p.power);
+  // 先判失败（HP 归零后同一 tick 的脱战回血不能把它救回来）
+  const f0 = checkFail(run, p.soldiers, tS);
+  if (f0) { ev.push(f0); return ev; }
   const F = cfg.failure;
   if (!p.inBattle && tS - run.lastBattleEndS >= F.no_regen_after_battle_s) {
     const regen = p.inCity ? F.regen_in_city_per_s * dt : F.regen_out_of_battle_per_min / 60 * dt;

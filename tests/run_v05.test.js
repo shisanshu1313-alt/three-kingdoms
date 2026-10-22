@@ -331,3 +331,75 @@ test('黄巾头目不可俘获（polish_merged.1）；名将照常可俘', async
   assert.equal(isCapturable({ id: 'hero' }, balance), false);
 });
 
+test('名将军补兵（polish_merged.4）：每满 1 分钟 +3，≤ 兵力上限；战斗中不补、脱战补上；旧存档不补发', async () => {
+  const F = await import('../src/systems/factions.js');
+  const r = createRun({ runId: 'x', runSeed: 1, cfg });
+  const teams = [{ id: 'wei_caocao', soldiers: 100, cap: 200, inBattle: false }, { id: 'spawn_1', soldiers: 20, cap: 200, inBattle: false }];
+  assert.deepEqual(F.namedReinforce(r, 59.9, teams, cfg), []);
+  assert.deepEqual(F.namedReinforce(r, 60, teams, cfg), [{ id: 'wei_caocao', add: 3 }], '只补名将军');
+  assert.deepEqual(F.namedReinforce(r, 61, teams, cfg), [], '同一分钟只补一次');
+  teams[0].inBattle = true;
+  assert.deepEqual(F.namedReinforce(r, 180, teams, cfg), [], '战斗中不补');
+  teams[0].inBattle = false;
+  assert.deepEqual(F.namedReinforce(r, 185, teams, cfg), [{ id: 'wei_caocao', add: 6 }], '脱战后补上欠的 2 分钟');
+  teams[0].soldiers = 199;
+  assert.deepEqual(F.namedReinforce(r, 240, teams, cfg), [{ id: 'wei_caocao', add: 1 }], '不超过上限');
+  assert.equal(F.reinforcePerMin({ ...cfg, duration_min: 30 }), 2, '按 20/时长 缩放');
+  const old = createRun({ runId: 'y', runSeed: 1, cfg }); delete old.reinforceMin;
+  assert.deepEqual(F.namedReinforce(old, 600, teams, cfg), [], '旧存档：从现在开始计');
+  assert.deepEqual(F.namedReinforce(old, 660, teams, cfg), [{ id: 'wei_caocao', add: 1 }]);
+});
+
+test('势力补队（polish_merged.3）：没被讨伐 + 场上没有该势力 → 大本营校尉军；统武 60–80、智魅 40–70；战力 max(120, 玩家) × U(0.8,1.2)；兵种 = 势力兵种', async () => {
+  const F = await import('../src/systems/factions.js');
+  const r = createRun({ runId: 'x', runSeed: 1, cfg });
+  const all = ['wei', 'shu', 'wu', 'qun'].map(f => ({ faction: f }));
+  assert.equal(F.factionToRefill(r, [...all, { faction: 'bandit' }], balance, cfg), null);
+  assert.equal(F.factionToRefill(r, all.filter(t => t.faction !== 'wu'), balance, cfg), 'wu');
+  r.namedDefeated.push('wu_zhouyu');
+  assert.equal(F.factionToRefill(r, all.filter(t => t.faction !== 'wu'), balance, cfg), null, '已讨伐的势力不补');
+  assert.equal(F.factionUnit('wu', balance, cfg, cj.named_army_units), 'arc');
+  assert.equal(F.factionUnit('qun', balance, cfg, cj.named_army_units), 'cav');
+  const rng = mulberry32(5);
+  for (let i = 0; i < 50; i++) {
+    const pp = i % 2 ? 60 : 250; // 不碰兵力上限（100 + 2×统率）
+    const t = F.buildRefillTeam({ id: 'refill_1', faction: 'shu', home: { x: 10, y: 20 }, playerPower: pp, balance, run: cfg, rng, unit: 'spr' });
+    const g = t.generals[0];
+    assert.ok(g.lead >= 60 && g.lead <= 80 && g.str >= 60 && g.str <= 80 && g.int >= 40 && g.int <= 70 && g.cha >= 40 && g.cha <= 70);
+    assert.ok(t.targetPower >= Math.max(120, pp) * 0.8 - 1e-9 && t.targetPower <= Math.max(120, pp) * 1.2 + 1e-9);
+    assert.ok(Math.abs(computePower(t, balance) - t.targetPower) < 25, `战力 ${computePower(t, balance)} ≈ 目标 ${t.targetPower}`);
+    assert.equal(t.unit, 'spr'); assert.equal(t.refill, true); assert.deepEqual(t.home, { x: 10, y: 20 });
+  }
+});
+
+test('讨伐：名将军算；名将军被别的 AI 打掉后，该势力校尉军也算【假设】；名将军还在时校尉军不算', async () => {
+  const F = await import('../src/systems/factions.js');
+  const r = createRun({ runId: 'x', runSeed: 1, cfg });
+  assert.deepEqual(F.conquestTarget({ id: 'wei_caocao', faction: 'wei' }, r, () => true, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' });
+  const refill = { id: 'refill_3', faction: 'wei', refill: true };
+  assert.equal(F.conquestTarget(refill, r, () => true, balance, cfg), null, '名将军还在');
+  assert.deepEqual(F.conquestTarget(refill, r, () => false, balance, cfg), { faction: 'wei', namedId: 'wei_caocao' }, '名将军已不在');
+  assert.equal(F.conquestTarget({ id: 'spawn_1', faction: 'bandit' }, r, () => false, balance, cfg), null);
+  assert.equal(F.conquestTarget(refill, r, () => false, balance, { ...cfg, faction_refill: { ...cfg.faction_refill, counts_when_named_lost: false } }), null);
+});
+
+test('第 3–4 章刷新针对玩家 60 s 前的兵种：克制它的兵种占 35% / 50%；第 1–2 章不针对', () => {
+  const rng = mulberry32(11), N = 6000;
+  const share = (ch, tgt) => { let k = 0; for (let i = 0; i < N; i++) if (pickBanditUnit(cfg.chapters[ch].bandit_units, rng, tgt) === tgt) k++; return k / N; };
+  const r = createRun({ runId: 'x', runSeed: 1, cfg }); // 开局步兵 → 克步兵的是弓兵
+  const tgt = targetUnitFor(r, 600, cfg, cj.move.counters);
+  assert.equal(tgt, 'arc');
+  // 针对份额 + 均匀部分里碰巧抽到的 1/4
+  assert.ok(Math.abs(share(2, tgt) - (0.35 + 0.65 / 4)) < 0.02);
+  assert.ok(Math.abs(share(3, tgt) - (0.5 + 0.5 / 4)) < 0.02);
+  assert.ok(Math.abs(share(1, tgt) - 0.25) < 0.02, '第 2 章四种均匀');
+  recordUnit(r, 600, 'cav'); // 换成骑兵：60 s 内仍针对步兵
+  assert.equal(targetUnitFor(r, 640, cfg, cj.move.counters), 'arc');
+  assert.equal(targetUnitFor(r, 660, cfg, cj.move.counters), 'spr', '60 s 后改为针对骑兵（枪克骑）');
+});
+
+test('HP 归零：同一 tick 的脱战回血不会救回（先判失败）', () => {
+  const r = createRun({ runId: 'x', runSeed: 1, cfg }); r.heroHp = 0; r.raidDone = true;
+  const ev = runTick(r, 100, 0.1, { soldiers: 50, cap: 200, power: 100, inBattle: false, inCity: true }, cfg);
+  assert.deepEqual(ev.map(e => e.type), ['fail']); assert.equal(r.over.reason, 'hero_hp');
+});
