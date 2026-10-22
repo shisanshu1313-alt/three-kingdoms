@@ -28,5 +28,11 @@
       "chapter",
       "max_overlap_px"
     ]
+  },
+  "v05_open": {
+    "_comment": "v0.5 正式版里程序侧仍未确认的点（README v0.5 一节同步）",
+    "faction_refill_counts_when_named_lost": "名将军被别的 AI 打掉后，击败该势力校尉军也算讨伐（run_v05.json faction_refill.counts_when_named_lost=true）；否则这一局无法通关",
+    "named_reinforce_in_battle": "名将军战斗中不补兵，脱战后补上欠下的整分钟",
+    "start_spr_condition": "『存活到第 2 章（10 分钟）』按『到达第 2 章』判断（20 分钟局第 4 分钟）"
   }
 }

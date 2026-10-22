@@ -255,7 +255,7 @@ const OUT = ART + '/screenshot.png';
     const t = w.player.team; if (t.generals.length < 2) t.generals.push({ id: 'smoke_gen2', name: '张曼成', generic: true, lead: 30, str: 30, int: 30, cha: 30 });
     w.player.refresh(); });
   await page.keyboard.press('g'); await page.waitForTimeout(300);
-  await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.45]; // 0.45 → 属性 +5（gacha_v05 权重 38/12/…：0.38–0.50 = attr_big），多人可选 → 待选择
+  await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.45]; // 0.45 → 属性 +5（gacha_v05 权重 44/13/…：0.44–0.57 = attr_big），多人可选 → 待选择
     w.rngs.gacha = Object.assign(() => (seq.length ? seq.shift() : window.__realGachaRng()), { getState: () => window.__realGachaRng.getState(), setState: v => window.__realGachaRng.setState(v) }); });
   await page.keyboard.press('Space'); await page.waitForTimeout(1300);
   const pendBefore = await ev(() => { const w = window.__game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-run-v1'));
