@@ -195,7 +195,10 @@ export default class WorldScene extends Phaser.Scene {
     cam.startFollow(this.views.get(this.player).body, true, CAMERA_LERP, CAMERA_LERP);
     this.minimap.ignore([...this.cityLabels, this.targetMarker, this.debugGfx]);
     this.positionMinimap();
-    this.scale.on('resize', () => this.positionMinimap());
+    // resize 监听：shutdown（重开 / 读档 / 结算）时解绑，否则每次 restart 多挂一个（QA a7d1348 复测 §5.1，同 UIScene）
+    const onResize = () => { if (this.minimap?.scene) this.positionMinimap(); };
+    this.scale.on('resize', onResize);
+    this.events.once('shutdown', () => this.scale.off('resize', onResize));
 
     this.scene.launch('UI', { warnings: this.loadWarnings ?? [], loaded: !!save });
     this.loadWarnings = null;
@@ -669,20 +672,20 @@ export default class WorldScene extends Phaser.Scene {
         }
         this.requestSave('battle');
       },
-      onEscape: (esc, from) => {
-        const text = `${esc.name} 脱离了 ${from?.name ?? '敌军'}`;
+      onEscape: (esc, from, e) => { // e.net：QA-14 玩家的「兵 开战前→现在」（fieldBattle.playerNet）
+        const text = `${esc.name} 脱离了 ${from?.name ?? '敌军'}${e?.net ?? ''}`;
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a: esc, b: from }, outcome: { text, escape: true } });
         this.combatEffect('escape', esc);
         this.requestSave('battle');
       },
-      onDraw: (a, b) => {
-        const text = `${a?.name} 与 ${b?.name} 平局，各自收兵`;
+      onDraw: (a, b, e) => {
+        const text = `${a?.name} 与 ${b?.name} 平局，各自收兵${e?.net ?? ''}`;
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
       },
-      onSeparated: (a, b) => { // v0.6 battle.no_contact_end_s
-        const text = `${a?.name} 与 ${b?.name} 脱离接触，各自收兵`;
+      onSeparated: (a, b, e) => { // v0.6 battle.no_contact_end_s
+        const text = `${a?.name} 与 ${b?.name} 脱离接触，各自收兵${e?.net ?? ''}`;
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
         if ([a, b].some(x => x?.isPlayer)) this.requestSave('battle');
@@ -698,8 +701,8 @@ export default class WorldScene extends Phaser.Scene {
         if (checkFail(this.run, p.team.soldiers, tS)) { this.endRun(); return; }
         this.requestSave('battle');
       },
-      onPlayerWiped: (p) => {
-        const text = '全军覆没！';
+      onPlayerWiped: (p, e) => {
+        const text = `全军覆没！${e?.net ?? ''}`;
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a: p, b: null }, outcome: { text, playerDefeat: true } });
         if (checkFail(this.run, 0, this.clock.now / 1000)) this.endRun(); // 兵力 0 → 本局失败

@@ -147,6 +147,17 @@ export class WorldModel {
 }
 
 /**
+ * 存档用的 state 副本：开发 F2→2 临时放出的大本营（city.devFreedOwner，QA-18）不进存档 ——
+ * 迁都弹窗没答就存档 / 刷新时，存档里把城还给原势力、去掉这个字段（弹窗本身不存档，读档后等于选了 N）。
+ * 不改传入的 state（游戏里的弹窗照常等 Y / N）。
+ */
+export function saveableState(state) {
+  const st = structuredClone(state);
+  for (const c of Object.values(st?.cities ?? {})) if (c && 'devFreedOwner' in c) { if (c.devFreedOwner != null) c.owner = c.devFreedOwner; delete c.devFreedOwner; }
+  return st;
+}
+
+/**
  * 纯数据快照（存档格式见 systems/save.js）。
  * s = { clock, state, player, aiParties, spawnCounter, names, rngs: {team, gacha, combat}, battleSystem?(v0.4), combat?(v0.5 快照), cameraZoom, balance }
  */
@@ -156,7 +167,7 @@ export function snapshotWorld(s) {
   const main = getLeader(s.player.team, s.balance); // v0.6 统帅（= 主角）
   return {
     gameTimeMs: now,
-    state: structuredClone(s.state),
+    state: saveableState(s.state), // QA-18：不带 devFreedOwner
     player: { team: teamOf(s.player), mainGeneralId: main?.id ?? null,
       invincibleUntil: s.player.invincibleUntil ?? 0, graceUntil: s.player.graceUntil ?? 0 },
     ai: s.aiParties.map(p => ({ team: teamOf(p), mem: memToSave(p.ai, now), graceUntil: p.graceUntil ?? 0 })),

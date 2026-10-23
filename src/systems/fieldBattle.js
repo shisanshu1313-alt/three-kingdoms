@@ -145,25 +145,36 @@ export default class FieldBattle {
           }
         }
         console.log(`[escape] ${esc.name} 脱离 ${from?.name}`);
-        H.onEscape?.(esc, from, e); break;
+        H.onEscape?.(esc, from, { ...e, net: this.playerNet(esc, from) }); break;
       }
       case 'separate': {
         if (e.kind === 'draw' || e.kind === 'apart' || e.kind === 'separated') { // separated = v0.6 无接触结束（同 apart）
           const a = P(e.a), b = P(e.b);
           for (const [x, y] of [[a, b], [b, a]]) if (x?.ai && y) { x.ai.ignore = { ...x.ai.ignore, [y.id]: nowS + this.cfg.confirmed.draw_ignore_s }; x.ai.state = 'return'; x.ai.targetId = null; x.clearPath(); }
-          if (e.kind === 'draw') H.onDraw?.(a, b, e);
-          if (e.kind === 'separated') H.onSeparated?.(a, b, e);
+          if (e.kind === 'draw') H.onDraw?.(a, b, { ...e, net: this.playerNet(a, b) });
+          if (e.kind === 'separated') H.onSeparated?.(a, b, { ...e, net: this.playerNet(a, b) });
         }
         break;
       }
       case 'defeat': return this._defeat(e, nowMs);
       case 'player-wiped': {
         const p = P(e.id); if (!p) break;
+        const net = this.playerNet(p); // 先取开战兵数（下面把队伍兵数归零）
         p.team.soldiers = 0; p.refresh(); // 兵力归零 → 本局失败（WorldScene / run 层）
-        H.onPlayerWiped?.(p, e); break;
+        H.onPlayerWiped?.(p, { ...e, net: net && net.replace(/→\d+$/, '→0') }); break;
       }
     }
     return null;
+  }
+
+  /**
+   * QA-14：玩家没赢的结局（脱离 / 溃逃后脱离 / 平局 / 无接触收兵 / 全军覆没）也在战报后面写「兵 开战前→现在」，
+   * 开战前 = 战斗体 N0start（与 combat-end 的 start 相同），现在 = 战斗体兵数四舍五入（= 战斗结束后 HUD 的兵力）。
+   * 参数里没有玩家队伍或玩家已没有战斗体 → ''。
+   */
+  playerNet(...ps) {
+    const p = ps.find(x => x?.isPlayer || x?.team?.is_player), b = p && this.body(p.id);
+    return b ? ` 兵${roundHalfUp(b.N0start ?? b.N0)}→${roundHalfUp(soldiersOf(b))}` : '';
   }
 
   _defeat(e, nowMs) {
@@ -192,9 +203,10 @@ export default class FieldBattle {
       if (r.playerPoints) outcome.text += ` +${r.playerPoints}分`;
       // QA-14：战报「损X」= 本次交战开始以来的阵亡（多队混战算全部敌人造成的），HUD 兵力还要加上「收编」、受兵力上限限制 → 玩家胜时把净变化写出来，两边对得上
       if (W.team.is_player) outcome.text += ` 兵${roundHalfUp(wN0)}→${W.team.soldiers}`;
+      else if (L.team.is_player) outcome.text += ` 兵${roundHalfUp(e.n0 ?? lb.n)}→${L.team.soldiers}`; // 玩家败（旧路径；v0.5 起玩家走 player-wiped / 溃逃脱离）
       outcome.shares = e.shares;
     } else {
-      outcome = { outcome: 'rout', removeIds: [L.id], captured: [], toFreePool: L.team.generals.filter(g => !g.generic).map(g => g.id), pendingGenerals: [], points: 0, text: `${L.name} 溃散` };
+      outcome = { outcome: 'rout', removeIds: [L.id], captured: [], toFreePool: L.team.generals.filter(g => !g.generic).map(g => g.id), pendingGenerals: [], points: 0, text: `${L.name} 溃散${L.team.is_player ? ` 兵${roundHalfUp(e.n0 ?? lb.n)}→${L.team.soldiers}` : ''}` };
     }
     if (!outcome.removeIds.includes(L.id)) outcome.removeIds.push(L.id);
     const st = this.gameState;

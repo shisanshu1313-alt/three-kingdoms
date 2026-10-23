@@ -26,22 +26,34 @@ export default class GachaScene extends Phaser.Scene {
   init() { this.world = this.scene.get('World'); this.uiState = 'IDLE'; this.result = null; this.message = ''; this.sel = null; }
 
   create() {
-    const { width, height } = this.scale, L = this.layout = gachaLayout(width, height);
-    this.W = L.W; this.H = L.H; this.ox = L.ox; this.oy = L.oy;
-    this.cameras.main.setZoom(L.s).centerOn(L.vw / 2, L.vh / 2);
-    this.add.rectangle(0, 0, L.vw, L.vh, 0x000000, 0.6).setOrigin(0).setInteractive();
-    this.add.rectangle(this.ox, this.oy, this.W, this.H, 0x1b1f2a, 0.97).setOrigin(0).setStrokeStyle(2, 0xf1c40f);
-    text(this, this.ox + 20, this.oy + 12, '抽卡 · 四选一', 22, '#f1c40f');
+    this.frame = this.add.container(0, 0); // 遮罩 + 面板底框 + 标题（applyLayout 按屏幕尺寸重画）
     this.dyn = this.add.container(0, 0);
+    this.applyLayout();
     const act = createSceneInput(this, { pointer: false });
     act.on(ACTIONS.CANCEL, () => this.onCancel());
     act.on(ACTIONS.CONFIRM, () => this.onPrimary());
     act.on(ACTIONS.PRIMARY, () => this.onPrimary());
     act.on(ACTIONS.CHOOSE, ({ n }) => this.onChoose(n));
     act.on(ACTIONS.REFRESH, () => this.doRefresh());
-    this.events.on('resume', () => this.afterRoster());
+    const onResume = () => this.afterRoster();
+    this.events.on('resume', onResume);
+    // 弹窗开着时转屏 / 改窗口大小 → 重新选布局（横 4 列 / 竖 2×2）、缩放、重画（QA a7d1348 复测 §5.3）
+    const onResize = () => { if (this.frame?.scene) { this.applyLayout(); this.render(); } };
+    this.scale.on('resize', onResize);
+    this.events.once('shutdown', () => { this.scale.off('resize', onResize); this.events.off('resume', onResume); });
     if (gachaState(this.st).offer) this.uiState = 'OFFER'; // 读档：回到同一组 4 张
     this.render();
+  }
+
+  /** 按当前屏幕尺寸算布局（ui/gachaLayout.js）、设镜头缩放、重画底框；卡片 / 按钮由 render() 按 this.ox/oy/layout 画 */
+  applyLayout() {
+    const { width, height } = this.scale, L = this.layout = gachaLayout(width, height);
+    this.W = L.W; this.H = L.H; this.ox = L.ox; this.oy = L.oy;
+    this.cameras.main.setSize(width, height).setZoom(L.s).centerOn(L.vw / 2, L.vh / 2);
+    this.frame.removeAll(true);
+    this.frame.add(this.add.rectangle(0, 0, L.vw, L.vh, 0x000000, 0.6).setOrigin(0).setInteractive());
+    this.frame.add(this.add.rectangle(this.ox, this.oy, this.W, this.H, 0x1b1f2a, 0.97).setOrigin(0).setStrokeStyle(2, 0xf1c40f));
+    this.frame.add(text(this, this.ox + 20, this.oy + 12, '抽卡 · 四选一', 22, '#f1c40f'));
   }
 
   get st() { return this.world.state; }

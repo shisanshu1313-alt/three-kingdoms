@@ -23,7 +23,7 @@
 - **主城被攻 / 趁虚攻打不派黄巾**：`city_v06.raid_exclude` = ["黄巾"]（按势力名或 id），20 s 派兵和第 3 章趁虚攻打都用它。
 - 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
 
-**测试**：`npm test` 330 个（含 `gacha_v06` / `roster` / `city_v06` / `city_edge_v06`（强于你 / 换章 / 城防回复三条边界规则、守军第三方加入、正式构建去日志 / 去 F1） / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（26 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v6 读档 / 洛阳标签显示守军战力 / 开战时重算守军；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），`node tests/smoke-debug.cjs`（9 项，开发服务器：F2 调试菜单 → 点数 / 立即主城 / 迁都 Y / 填满队伍触发 T2），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
+**测试**：`npm test` 330 个（含 `gacha_v06` / `roster` / `city_v06` / `city_edge_v06`（强于你 / 换章 / 城防回复三条边界规则、守军第三方加入、正式构建去日志 / 去 F1） / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（26 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v6 读档 / 洛阳标签显示守军战力 / 开战时重算守军；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），`node tests/smoke-debug.cjs`（9 项，开发服务器：F2 调试菜单 → 点数 / 立即主城 / 迁都 Y / 填满队伍触发 T2），`node tests/smoke-resize.cjs`（13 项：重开 ×3 / 结算→再来一局后 resize 监听数不变、抽卡面板开着时转屏重新布局、放弃本局后的标题页 resize 后仍居中），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
 
 **可复现（确定性）**：同一 runSeed → 同一结果。所有游戏随机数都走 runSeed 派生的种子流（team / gacha / combat / spawn / ai，`rng.streamSeed`）；v0.6 起 AI 游荡 / 发呆也用 `rngs.ai`（以前是 `Math.random`），存档 v6 保存 `rng.ai`（v5 → v6 迁移按 `streamSeed(runSeed, 'ai')` 补）。逻辑只由固定 0.1 s tick 推进。纯逻辑模块里没有 `Math.random` / `Date.now` 默认值了（`tests/determinism_v06.test.js` 在模拟时把 `Math.random` 换成抛错）。开发构建下 `window.__SANGUO_SIM = { seed, manualTick: true }` 固定 runSeed 并停掉实时推进（只由 `debugAdvance` 推进）；正式构建忽略它。
 
@@ -78,6 +78,7 @@ npm run sync:v06       # 从 ../design/balance_v0.6.json 同步 v0.6 → src/dat
 npm run sim:v06        # 20 分钟无界面模拟（见上）
 node tests/smoke.cjs http://localhost:5173/        # 完整冒烟（开发服务器或 dist-smoke；需 playwright-core + Chrome；截图写到 artifacts/，不进仓库）
 node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist：确认没有调试钩子，只看键盘 + 存档内容）
+node tests/smoke-resize.cjs http://localhost:5182/ # resize / 重开：监听不累积、抽卡面板转屏重排、标题居中
 ```
 
 **调试钩子**（`src/debug.js`）：`window.__game`、`window.__balance` 只在 `npm run dev` 和 `build:smoke`（`.env.smoke` 里 `VITE_DEBUG_HOOKS=1`）里有；正式 `dist/` 里被常量折叠删除（`grep __game dist/assets/*.js` 为空）。**F2 调试菜单（开发专用）**：`UIScene` 在 `if (import.meta.env.DEV)` 里动态 `import('../ui/DebugMenu.js')`（它再引用 `systems/devTools.js`），正式构建里整段连同两个模块被删掉、也不产出单独的 chunk；`grep -r "调试菜单\|DebugMenu\|devTools\|【调试】" dist/` 为空（`tests/devtools.test.js` 检查只能动态加载，`smoke-dist.cjs` 检查 F2 → 1 / 2 在正式版里无效）。

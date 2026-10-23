@@ -32,3 +32,11 @@ test('UIScene 重开（再来一局 / 读档）：layout 不碰上一局已销�
   assert.match(src, /if \(this\.log\?\.scene\) this\.log\.setWordWrapWidth/);
   assert.match(src, /this\.events\.once\('shutdown', \(\) => this\.scale\.off\('resize', onResize\)\)/);
 });
+
+test('a7d1348 复测：WorldScene / GachaScene 的 resize 监听在 shutdown 时解绑；抽卡面板 resize 时重新布局（行为见 smoke-resize）', () => {
+  const ws = readFileSync(new URL('../src/scenes/WorldScene.js', import.meta.url), 'utf8');
+  assert.match(ws, /this\.scale\.on\('resize', onResize\);\s*\n\s*this\.events\.once\('shutdown', \(\) => this\.scale\.off\('resize', onResize\)\)/);
+  const gs = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
+  assert.match(gs, /this\.applyLayout\(\); this\.render\(\);/);
+  assert.match(gs, /this\.scale\.off\('resize', onResize\)/);
+});

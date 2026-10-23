@@ -68,3 +68,18 @@ test('F2 调试菜单只在开发模式加载（UIScene 里 import.meta.env.DEV 
   for (const f of ['src/scenes/UIScene.js', 'src/scenes/WorldScene.js', 'src/main.js'])
     assert.doesNotMatch(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'), /^import .*(DebugMenu|devTools)/m, `${f} 不静态 import 调试模块`);
 });
+
+test('QA-18（a7d1348 复测）：迁都弹窗没答就存档 → 存档里没有 devFreedOwner，城还给原势力；游戏里的状态不变', async () => {
+  const { saveableState } = await import('../src/systems/world.js');
+  const cs = createCities(balance), prompts = [];
+  for (const c of Object.values(cs)) if (c.owner == null && c.id !== 'luoyang') c.owner = 'wei';
+  cs.luoyang.owner = PLAYER;
+  const state = { cities: cs, homeCity: 'luoyang', points: 3 };
+  applyDevHomeCity({ state, player: { x: cs.luoyang.x, y: cs.luoyang.y }, aiParties: [], onCaptureReady(c) { prompts.push(c.id); } });
+  const id = prompts[0], saved = saveableState(state);
+  assert.equal(JSON.stringify(saved).includes('devFreedOwner'), false);
+  assert.equal(saved.cities[id].owner, 'wei');
+  assert.equal(cs[id].owner, null); assert.equal(cs[id].devFreedOwner, 'wei', '弹窗还在等 Y / N');
+  const src = readFileSync(new URL('../src/systems/world.js', import.meta.url), 'utf8');
+  assert.match(src, /state: saveableState\(s\.state\)/);
+});

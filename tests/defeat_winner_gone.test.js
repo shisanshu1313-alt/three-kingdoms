@@ -59,3 +59,51 @@ test('QA-14：玩家胜 → 战报带「兵 开战前→现在」，现在 = HUD
   assert.ok(out.text.endsWith(` 兵15→${W.team.soldiers}`), out.text);
   assert.ok(W.team.soldiers >= 9, '9 + 收编');
 });
+
+// QA-14（a7d1348 复测）：玩家没赢的结局也写「兵 开战前→现在」
+const setPlayerBody = (field, P, start, now) => { P.team.is_player = true; const b = field.body(P.id); b.N0start = start; b.N0 = now; b.raw = 0; return b; };
+
+test('QA-14：玩家脱离（escape）→ 战报带 兵 开战前→现在', () => {
+  const { field, W, L } = setup(), got = [];
+  field.hooks.onEscape = (esc, from, e) => got.push(e.net);
+  setPlayerBody(field, W, 20, 13.4);
+  field._handle({ type: 'escape', id: W.id, from: L.id }, 0);
+  assert.equal(got[0], ' 兵20→13');
+});
+
+test('QA-14：敌方脱离玩家 / 平局 / 无接触收兵 → 也写玩家的 兵 开战前→现在；不涉及玩家 → 空', () => {
+  const { field, W, L } = setup(), got = [];
+  field.hooks.onEscape = (a, b, e) => got.push(['esc', e.net]);
+  field.hooks.onDraw = (a, b, e) => got.push(['draw', e.net]);
+  field.hooks.onSeparated = (a, b, e) => got.push(['sep', e.net]);
+  field._handle({ type: 'separate', a: W.id, b: L.id, kind: 'separated' }, 0);
+  setPlayerBody(field, W, 30, 22.5);
+  field._handle({ type: 'escape', id: L.id, from: W.id }, 0);
+  field._handle({ type: 'separate', a: W.id, b: L.id, kind: 'draw' }, 0);
+  field._handle({ type: 'separate', a: L.id, b: W.id, kind: 'separated' }, 0);
+  assert.deepEqual(got, [['sep', ''], ['esc', ' 兵30→23'], ['draw', ' 兵30→23'], ['sep', ' 兵30→23']]);
+});
+
+test('QA-14：玩家全军覆没 → 兵 开战前→0；队伍兵数归零', () => {
+  const { field, W } = setup(), got = [];
+  field.hooks.onPlayerWiped = (p, e) => got.push(e.net);
+  setPlayerBody(field, W, 18, 0.4);
+  field._handle({ type: 'player-wiped', id: W.id, by: null, shares: {}, n: 0.4 }, 0);
+  assert.equal(got[0], ' 兵18→0'); assert.equal(W.team.soldiers, 0);
+});
+
+test('QA-14：玩家作为败方 / 溃散（没有胜方）→ 战报末尾 兵 n0→现在', () => {
+  let { field, W, L } = setup();
+  L.team.is_player = true;
+  let out = field._handle({ type: 'defeat', id: L.id, cause: 'rout', by: W.id, shares: { [W.id]: 1 }, n: 5, n0: 16, E: 1, power0: 30, byN: 20, byN0: 24 }, 0);
+  assert.ok(out.text.endsWith(` 兵16→${L.team.soldiers}`), out.text);
+  ({ field, W, L } = setup());
+  L.team.is_player = true;
+  out = field._handle({ type: 'defeat', id: L.id, cause: 'rout', by: null, shares: {}, n: 6, n0: 14, E: 1, power0: 30 }, 0);
+  assert.match(out.text, /溃散 兵14→6$/);
+});
+
+test('QA-14：WorldScene 把 e.net 接到脱离 / 平局 / 收兵 / 全军覆没的战报后面', () => {
+  const src = readFileSync(new URL('../src/scenes/WorldScene.js', import.meta.url), 'utf8');
+  for (const k of ['脱离了 ', '平局，各自收兵', '脱离接触，各自收兵', '全军覆没！']) assert.match(src, new RegExp(`${k}[^\\n]*\\$\\{e\\?\\.net \\?\\? ''\\}`), k);
+});
