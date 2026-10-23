@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { balance } from '../src/data/index.js';
 import combatJson from '../src/data/combat_v05.json' with { type: 'json' };
-import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, garrisonEnsureFloor, cityLabel, defMax, PLAYER } from '../src/systems/city.js';
+import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, garrisonTargetPower, garrisonFullSoldiers, garrisonRecalc, garrisonEngageSoldiers, garrisonPreviewPower, cityLabel, defMax, PLAYER } from '../src/systems/city.js';
 import { pickStaleTeam, buildRespawnTeam } from '../src/systems/teams.js';
 import { computePower } from '../src/systems/combat.js';
 import { mulberry32 } from '../src/systems/rng.js';
+import * as M from '../src/systems/melee.js';
 import AISystem from '../src/systems/ai.js';
 import { attitude } from '../src/systems/aiBrain.js';
 import { buildV06 } from '../scripts/sync-v06.mjs';
@@ -21,7 +22,9 @@ test('配置：tuning 来自 tuning_r1.proposals（已定）—— T1 15 s、T2 
   assert.equal(TU.siege_min_s, 15);
   assert.deepEqual(TU.stale_refresh, { enabled: true, faction: '黄巾', stale_ratio: 0.6, min_dist_px: 400 });
   assert.deepEqual(TU.flee_ratio_by_faction, { 黄巾: 0.4 });
-  assert.deepEqual(TU.garrison_power_floor, { enabled: true, value: 70, power_vs_player: 0.5 });
+  assert.deepEqual(TU.garrison_power_floor, { enabled: true, value: 70, power_vs_player: 0.5, recalc: 'battle_start', label_applies_ratio: true });
+  assert.equal(fixture.city_v06.garrison.power_floor, 70, '正式字段 city_v06.garrison.power_floor');
+  assert.ok(fixture.city_v06.garrison.power_recalc?.when, '正式字段 city_v06.garrison.power_recalc → 开战时重算');
   assert.equal(TU.garrison_power_floor.power_vs_player, balance.v06.city.garrison.power_vs_player, '提案里的 0.5 = 守军配置的 power_vs_player');
   assert.deepEqual(Object.keys(TU).sort(), ['flee_ratio_by_faction', 'garrison_power_floor', 'siege_min_s', 'stale_refresh']);
   assert.deepEqual(fixture.tuning_r1.proposals.filter(p => p.tag === 'rejected').map(p => p.id), ['T5', 'T6']);
@@ -30,15 +33,19 @@ test('配置：tuning 来自 tuning_r1.proposals（已定）—— T1 15 s、T2 
 test('配置：tag 不是 decided / apply_now → 关掉；正式字段优先；没有 tuning_r1 → 全关', () => {
   const d = structuredClone(fixture);
   for (const p of d.tuning_r1.proposals) if (['T1', 'T2', 'T3', 'T4'].includes(p.id)) p.tag = 'needs_user';
+  delete d.city_v06.garrison.power_floor; delete d.city_v06.garrison.power_recalc; // 只剩提案（tag 不是已定）→ 关
   let t = buildV06(d).tuning;
   assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false); assert.deepEqual(t.flee_ratio_by_faction, {}); assert.equal(t.garrison_power_floor.enabled, false);
   d.city_v06.siege = { ...(d.city_v06.siege ?? {}), siege_min_s: 20 };
   d.city_v06.garrison = { power_floor: 80 };
   t = buildV06(d).tuning;
-  assert.equal(t.siege_min_s, 20); assert.deepEqual(t.garrison_power_floor, { enabled: true, value: 80 });
+  assert.equal(t.siege_min_s, 20); assert.deepEqual(t.garrison_power_floor, { enabled: true, value: 80, power_vs_player: 0.5, recalc: 'spawn', label_applies_ratio: true }, '有 power_floor 没 power_recalc → 开局算一次');
   const e = structuredClone(fixture); delete e.tuning_r1;
   t = buildV06(e).tuning;
-  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false); assert.equal(t.garrison_power_floor.enabled, false);
+  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false);
+  assert.deepEqual(t.garrison_power_floor, TU.garrison_power_floor, '守军下限是正式字段 city_v06.garrison，不依赖 tuning_r1');
+  delete e.city_v06.garrison.power_floor; delete e.city_v06.garrison.power_recalc;
+  assert.equal(buildV06(e).tuning.garrison_power_floor.enabled, false);
 });
 
 test('T1：每秒城防伤害 ≤ 该章城防上限 / siege_min_s；高战力玩家满城防打到 0 ≥ 15 s（第 1–4 章）', () => {
@@ -94,8 +101,23 @@ test('T3：黄巾 flee_ratio = 0.4（其余性格值不变）；魏蜀吴群雄�
   // 决策：比例 0.5 → 黄巾不再逃（0.6 时会逃），0.35 仍逃
   assert.notEqual(attitude(50, 100, b), 'flee');
   assert.equal(attitude(35, 100, b), 'flee');
+  assert.equal(attitude(40, 100, b), 'flee', '边界：= 0.4 也逃（≤，策划确认）');
+  assert.equal(attitude(28, 70, b), 'flee', '28/70 = 0.4');
+  assert.notEqual(attitude(40.01, 100, b), 'flee', '略高于 0.4 不逃');
   assert.equal(attitude(50, 100, P.aggressive), 'flee');
   assert.equal(new AISystem(withTuning({ flee_ratio_by_faction: {} })).personalityOf({ faction: 'bandit' }).flee_ratio, 0.6);
+});
+
+test('T3 范围（策划 tuning_r1.T3.scope）：0.4 只管 AI 扫视野的逃跑决策；交战中途撤退不变（士气 < 30 溃败、性格撤退阈值）', () => {
+  assert.match(fixture.tuning_r1.proposals.find(p => p.id === 'T3').scope, /交战中途撤退不受影响/);
+  // 交战中 AI（combatAI.combatIntent）只拿性格 key（fieldBattle 传 p.ai.personality.key），key 不因 T3 改变
+  const on = new AISystem(balance).personalityOf({ faction: 'bandit' }), off = new AISystem(withTuning({ flee_ratio_by_faction: {} })).personalityOf({ faction: 'bandit' });
+  assert.equal(on.key, off.key);
+  const { flee_ratio: _a, ...restOn } = on, { flee_ratio: _b, ...restOff } = off;
+  assert.deepEqual(restOn, restOff, '除 flee_ratio 外性格参数相同');
+  for (const f of ['combatAI.js', 'melee.js', 'fieldBattle.js']) assert.doesNotMatch(readFileSync(new URL(`../src/systems/${f}`, import.meta.url), 'utf8'), /flee_ratio|tuning/, `${f} 不读 flee_ratio / tuning`);
+  assert.match(readFileSync(new URL('../src/systems/fieldBattle.js', import.meta.url), 'utf8'), /combatIntent\(b, this\.state, mem, this\.cfg, p\.ai\?\.personality\?\.key/);
+  assert.equal(combatJson.move.morale_rout, 30, '溃败线仍是士气 30');
 });
 
 test('T4：洛阳守军战力 = max(70, 0.5 × 玩家战力)（garrisonBasePower 返回再乘 power_vs_player 前的『玩家战力』）', () => {
@@ -106,21 +128,107 @@ test('T4：洛阳守军战力 = max(70, 0.5 × 玩家战力)（garrisonBasePower
   assert.equal(garrisonBasePower(64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } })), 64, '关掉 = 原 0.5 倍');
 });
 
-test('T4：守军按目标战力建队后兵数取整可能偏低 → garrisonEnsureFloor 补兵到 ≥ max(70, 0.5 × 玩家)，只多 1 个兵以内', () => {
-  const k = balance.v06.city.garrison.power_vs_player;
+const K = balance.v06.city.garrison.power_vs_player;
+const mkGarrison = (pp, seed = 1) => garrisonRecalc(buildRespawnTeam({ id: 'garrison_luoyang', position: { x: 0, y: 0 }, playerPower: garrisonBasePower(pp, balance), powerRange: [K, K], balance, rng: mulberry32(seed) }), pp, balance);
+const mkG = (pp, seed) => Object.assign(mkGarrison(pp, seed), { cityHold: 'luoyang' });
+
+test('T4 出生：守军兵数向上取整，战力 ≥ max(70, 0.5 × 玩家)，最多比四舍五入多 1 个兵（smoke 出现过 69）', () => {
   let raised = 0;
   for (let seed = 1; seed <= 200; seed++) for (const pp of [40, 64, 113.52, 300]) {
-    const team = buildRespawnTeam({ id: 'garrison_luoyang', position: { x: 0, y: 0 }, playerPower: garrisonBasePower(pp, balance), powerRange: [k, k], balance, rng: mulberry32(seed) });
-    const before = team.soldiers, want = Math.max(70, k * pp);
-    garrisonEnsureFloor(team, pp, balance);
-    assert.ok(computePower(team, balance) >= want - 1e-9, `seed ${seed} pp ${pp}`);
-    assert.ok(team.soldiers - before <= 1);
-    if (team.soldiers > before) raised++;
+    const raw = buildRespawnTeam({ id: 'garrison_luoyang', position: { x: 0, y: 0 }, playerPower: garrisonBasePower(pp, balance), powerRange: [K, K], balance, rng: mulberry32(seed) });
+    const before = raw.soldiers, t = garrisonRecalc(raw, pp, balance);
+    assert.ok(computePower(t, balance) >= Math.max(70, K * pp) - 1e-9, `seed ${seed} pp ${pp}`);
+    assert.ok(Math.abs(t.soldiers - before) <= 1); assert.equal(t.garrisonKeep, 1); assert.equal(t.garrisonFull, t.soldiers);
+    if (t.soldiers > before) raised++;
   }
-  assert.ok(raised > 0, '确实有取整偏低的情况（如 smoke 里出现过 69）');
-  const t = buildRespawnTeam({ id: 'g', position: { x: 0, y: 0 }, playerPower: 64, powerRange: [k, k], balance, rng: mulberry32(1) }), n = t.soldiers;
-  garrisonEnsureFloor(t, 64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } }));
-  assert.equal(t.soldiers, n, '关掉 T4 不补');
+  assert.ok(raised > 0, '确实有取整偏低的情况');
+  assert.equal(garrisonTargetPower(64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } })), 32, '关掉 T4 = 0.5 × 玩家');
+});
+
+test('T4 power_recalc：新一次攻城（守军不在交战）按当时玩家战力重算 max(70, 0.5 × 玩家)', () => {
+  const t = mkGarrison(64);
+  assert.ok(computePower(t, balance) >= 70 && computePower(t, balance) < 72);
+  garrisonRecalc(t, 300, balance); // 玩家涨到 300 后再来攻
+  const p300 = computePower(t, balance);
+  assert.ok(p300 >= 150 && p300 < 150 + 3, `≈150（${p300}）`);
+  garrisonRecalc(t, 100, balance); // 玩家掉回 100 → 守军回到 70 下限（没损失 → 满编）
+  assert.ok(computePower(t, balance) >= 70 && computePower(t, balance) < 72);
+  assert.equal(t.soldiers, t.garrisonFull);
+});
+
+test('T4 power_recalc：之前攻城打掉的损失按比例保留，重算不补满；反复重算不漂移', () => {
+  const t = mkGarrison(64), full0 = t.garrisonFull;
+  t.soldiers = Math.round(full0 / 2); // 第一次攻城后守军剩一半（combat-end 写回 team.soldiers）
+  const keep = t.soldiers / full0;
+  garrisonRecalc(t, 300, balance);
+  assert.ok(Math.abs(t.garrisonKeep - keep) < 1e-9);
+  assert.equal(t.soldiers, Math.max(1, Math.floor(t.garrisonFull * keep + 0.5)), '新满编 × 剩余比例');
+  assert.ok(t.soldiers < t.garrisonFull, '没补满');
+  const n = t.soldiers;
+  for (let i = 0; i < 50; i++) garrisonRecalc(t, 300, balance);
+  assert.equal(t.soldiers, n, '同战力反复重算不变');
+  for (const pp of [100, 400, 64, 300]) garrisonRecalc(t, pp, balance);
+  assert.equal(t.soldiers, n, '玩家战力来回变，比例不漂移');
+  assert.ok(Math.abs(t.garrisonKeep - keep) < 1e-9);
+});
+
+test('T4 power_recalc：只在玩家开战那一刻重算（melee env.engageSoldiers）；守军打 AI / 没开 recalc → 不改；破城防阶段涨的战力算进开战时', () => {
+  const t = mkG(64), n = t.soldiers;
+  assert.equal(garrisonEngageSoldiers(t, false, 400, balance), null, '对手不是玩家');
+  assert.equal(garrisonEngageSoldiers({ ...t, cityHold: undefined }, true, 400, balance), null, '不是守军');
+  assert.equal(garrisonEngageSoldiers(t, true, 400, withTuning({ garrison_power_floor: { ...TU.garrison_power_floor, recalc: 'spawn' } })), null, 'recalc = spawn：开局定死');
+  const e = garrisonEngageSoldiers(t, true, 400, balance); // 破城防时抽卡涨到 400，开战这一刻按 400 算
+  assert.equal(t.soldiers, n, '回调不改原队');
+  assert.equal(e, garrisonRecalc({ ...t }, 400, balance).soldiers);
+  assert.ok(computePower({ ...t, soldiers: e }, balance) >= 200);
+});
+
+test('T4 power_recalc：开战瞬间 melee.step 用重算后的兵数开新的一场，交战中不变（玩家战力再涨也不变）', () => {
+  const cfg = { ...M.makeCombatConfig(combatJson, balance), fixedRoll: 1 }, t = mkG(64);
+  const s = M.createCombatState({ seed: 1 });
+  const hero = { id: 'player', faction: 'player', unit: 'inf', soldiers: 60, generals: [{ id: 'h', name: 'h', lead: 50, str: 40, int: 40, cha: 40, generic: true }], items: [], position: { x: 0, y: 0 } };
+  M.addBody(s, M.makeBody(hero, balance, cfg, { h: 0 }));
+  M.addBody(s, M.makeBody({ ...t, position: { x: 0, y: 0 } }, balance, cfg, { h: Math.PI }));
+  const A = s.bodies.player, G = s.bodies.garrison_luoyang;
+  G.x = A.x + M.radiusOf(M.soldiersOf(A), cfg) + M.radiusOf(M.soldiersOf(G), cfg) - 2;
+  let pp = 400;
+  const env = { engageSoldiers: (X, Y) => X.id === 'garrison_luoyang' ? garrisonEngageSoldiers(t, Y.id === 'player', pp, balance) : null };
+  let st = s, engagedN = null;
+  for (let i = 0; i < 40; i++) {
+    st = M.step(st, {}, 0.1, cfg, env);
+    if (st.events.some(e => e.type === 'engage')) engagedN = st.bodies.garrison_luoyang.N0;
+    if (engagedN != null) { pp = 1000; assert.equal(st.bodies.garrison_luoyang.N0start, engagedN, '交战中不变'); }
+  }
+  assert.equal(engagedN, garrisonRecalc({ ...t }, 400, balance).soldiers);
+});
+
+test('T4 标签值：不在交战时 = 按当前玩家战力重算（含保留损失），不改原队', () => {
+  const t = mkGarrison(64), n = t.soldiers;
+  assert.ok(garrisonPreviewPower(t, 64, balance) >= 70);
+  assert.ok(garrisonPreviewPower(t, 400, balance) >= 200);
+  assert.equal(t.soldiers, n, '预览不改原队');
+  t.soldiers = Math.round(t.garrisonFull / 2);
+  const half = garrisonPreviewPower(t, 400, balance);
+  assert.ok(half > 100 && half < 120, `兵力一半（武将战力项不减），约 111（${half}）`);
+});
+
+test('T4 remain_frac 累计（相对最初满编，不是相对上一场）：1 → 0.5 → 0.25', () => {
+  const t = mkG(64);
+  t.soldiers = t.garrisonFull / 2; garrisonRecalc(t, 300, balance); // 第一场打掉一半
+  assert.ok(Math.abs(t.garrisonKeep - 0.5) < 0.02);
+  t.soldiers = Math.round(t.soldiers / 2); garrisonRecalc(t, 300, balance); // 第二场又打掉一半
+  assert.ok(Math.abs(t.garrisonKeep - 0.25) < 0.02, `${t.garrisonKeep}`);
+  assert.equal(t.soldiers, Math.max(1, Math.floor(t.garrisonFull * t.garrisonKeep + 0.5)));
+});
+
+test('T4 标签：不在交战 = max(70, 0.5×玩家) × remain_frac；label_applies_ratio = false 不乘；「强于你」按标签值判断', () => {
+  const t = mkG(64); t.soldiers = Math.round(t.garrisonFull / 2);
+  const withRatio = garrisonPreviewPower(t, 400, balance);
+  const noRatio = garrisonPreviewPower(t, 400, withTuning({ garrison_power_floor: { ...TU.garrison_power_floor, label_applies_ratio: false } }));
+  assert.ok(noRatio >= 200 && withRatio < noRatio * 0.6, `${withRatio} / ${noRatio}`);
+  const cs = createCities(balance), L = cs.luoyang, max = defMax(balance, 0);
+  assert.equal(cityLabel(L, { max, garrisonPower: withRatio, playerPower: 150 }).color, '#ffffff', '玩家 150 > 标签值 → 不提示（满编会是 200）');
+  assert.equal(cityLabel(L, { max, garrisonPower: noRatio, playerPower: 150 }).color, '#ff7777');
 });
 
 test('T4 标签：有守军的城显示守军战力；玩家战力低于守军 → 红色 +「强于你」；没守军 / 别的城不显示', () => {

@@ -138,9 +138,13 @@ export function buildV06(d) {
     // T3：按势力（名或 id）覆盖 flee_ratio；其他势力仍按性格
     flee_ratio_by_faction: on('T3') ? { [str(TP.T3.param, /：(\S+?)单独/, 'tuning_r1.T3.param')]: TP.T3.value } : {},
     // T4：洛阳守军战力 = max(garrison_power_floor, city_v06.garrison.power_vs_player × 玩家战力)；正式字段 city_v06.garrison.power_floor 优先
-    garrison_power_floor: typeof C.garrison?.power_floor === 'number' ? { enabled: true, value: C.garrison.power_floor }
-      : TP.T4 ? { enabled: on('T4'), value: T4v.garrison_power_floor, power_vs_player: one(TP.T4.param, /([\d.]+)\s*×\s*玩家战力/, 'tuning_r1.T4.param') }
-      : { enabled: false, value: 0 },
+    // recalc：city_v06.garrison.power_recalc 存在 → 'battle_start'（玩家和守军开战那一刻按当时玩家战力重算，交战中不变，remain_frac 累计保留损失；破城防不算开战）；否则 'spawn'（开局算一次）
+    garrison_power_floor: typeof C.garrison?.power_floor === 'number'
+      ? { enabled: true, value: C.garrison.power_floor, power_vs_player: city.garrison.power_vs_player, recalc: C.garrison.power_recalc ? 'battle_start' : 'spawn',
+          // 标签（不在交战）= max(70, 0.5×玩家) × remain_frac（策划 power_recalc.label 已定）；字段缺省 true
+          label_applies_ratio: typeof C.garrison.power_recalc?.label_applies_ratio === 'boolean' ? C.garrison.power_recalc.label_applies_ratio : true }
+      : TP.T4 ? { enabled: on('T4'), value: T4v.garrison_power_floor, power_vs_player: one(TP.T4.param, /([\d.]+)\s*×\s*玩家战力/, 'tuning_r1.T4.param'), recalc: 'spawn' }
+      : { enabled: false, value: 0, recalc: 'spawn' },
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },

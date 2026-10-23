@@ -159,7 +159,10 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   const startPair = (a, b, why) => {
     for (const X of [a, b]) if (!inCombat(X)) {
       // 新的一场：用当前兵数重算，士气回 100，raw 清零，roll 重掷，弹药补满
-      X.N0 = soldiersOf(X); X.raw = 0; X.shock = 0; X.brk = null; X.draw = false; X.contrib = {}; X.routOnce = false; X.escFails = 0; X.lastEnd = null;
+      X.N0 = soldiersOf(X);
+      // v0.6 T4：开战那一刻可由 env.engageSoldiers(X, 对手) 给出 X 的兵数（洛阳守军按当时玩家战力重算）；纯回调，返回 null = 不改
+      const ov = E.engageSoldiers?.(X, X === a ? b : a); if (typeof ov === 'number' && ov >= 0) X.N0 = ov;
+      X.raw = 0; X.shock = 0; X.brk = null; X.draw = false; X.contrib = {}; X.routOnce = false; X.escFails = 0; X.lastEnd = null;
       X.roll = cfg.fixedRoll ?? (cfg.rollMin + rng() * (cfg.rollMax - cfg.rollMin)); // 测试可用 cfg.fixedRoll 固定
       X.ammo = unitDef(cfg, X.unit).ammo_s ?? 0; X.combatStart = s.t; X.N0start = X.N0;
     }

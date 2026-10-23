@@ -96,8 +96,8 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await ok(c0.def === C.def_by_chapter[0] && c0.garrison && c0.gar === 1 && !c0.owner && !c0.home, `开局洛阳：城防 ${C.def_by_chapter[0]}、有守军（${JSON.stringify(c0)}）`);
   // T4：守军战力 = max(70, 0.5 × 玩家)，城名标签显示守军战力；玩家更弱 → 红色 +「强于你」（标签在城圈下方，不挡城）
   const gl = await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang, g = w.aiParties.find(x => x.team.cityHold === 'luoyang'), t = w.cityTexts.luoyang;
-    return { gp: Math.round(g.power), pp: w.player.power, text: t.text, color: t.style.color, font: parseInt(t.style.fontSize), visible: t.visible && t.alpha > 0, top: t.y - t.displayHeight * t.originY, below: L.y + window.__balance.v06.city.radius_px }; });
-  await ok(gl.gp >= 70 && gl.text.includes(`守军战力 ${gl.gp}`) && gl.visible && gl.font >= 12 && gl.top >= gl.below
+    return { gp: Math.round(w.garrisonLabelPower(L, g)), actual: g.power, want: Math.max(70, 0.5 * w.player.power), pp: w.player.power, text: t.text, color: t.style.color, font: parseInt(t.style.fontSize), visible: t.visible && t.alpha > 0, top: t.y - t.displayHeight * t.originY, below: L.y + window.__balance.v06.city.radius_px }; });
+  await ok(gl.gp >= 70 && gl.gp >= Math.round(gl.want) && gl.gp < gl.want + 4 && gl.text.includes(`守军战力 ${gl.gp}`) && gl.visible && gl.font >= 12 && gl.top >= gl.below
     && (gl.pp < gl.gp ? gl.text.includes('强于你') && gl.color === '#ff7777' : !gl.text.includes('强于你')), `洛阳标签显示守军战力（${JSON.stringify(gl)}）`);
   await p.evaluate(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.cameras.main.centerOn(L.x, L.y); });
   await sleep(p, 200); await p.screenshot({ path: path.join(OUT, 'v06-garrison-label.png') });
@@ -118,6 +118,9 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
     c3 = await ci();
   }
   await ok(c3.home === 'luoyang' && c3.owner === 'player' && c3.gar === 0, `消灭守军、坚守 ${C.capture_hold_s} s → 洛阳成为主城（${JSON.stringify(c3)}）`);
+  // T4 power_recalc：玩家和守军开战那一刻按当时玩家战力重算（破城防不算开战；之前兵 170 的玩家战力远高于开局）
+  const rc = logs.map(l => /守军 开战重算 兵(\d+)（满编 (\d+)）战([\d.]+) 玩家战力 ([\d.]+)/.exec(l)).find(Boolean);
+  await ok(rc && +rc[3] >= Math.max(70, 0.5 * +rc[4]) - 1e-6 && +rc[3] > 100 && rc[1] === rc[2], `开战时重算守军 = max(70, 0.5×当时玩家战力)（${rc?.[0]}）`);
   const toast = logs.some(l => /洛阳/.test(l) && /主城|占/.test(l));
   // 城防在 break_window_s 之后回复
   await W(s => __game.scene.getScene('World').debugAdvance(s), C.break_window_s + 5);

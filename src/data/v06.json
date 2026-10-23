@@ -319,7 +319,9 @@
     "garrison_power_floor": {
       "enabled": true,
       "value": 70,
-      "power_vs_player": 0.5
+      "power_vs_player": 0.5,
+      "recalc": "battle_start",
+      "label_applies_ratio": true
     }
   },
   "_defaults": []

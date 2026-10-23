@@ -13,7 +13,7 @@
  *   capture / loseCity / relocate           占城（立为主城 / 迁都）、失守（无主城 30%，存放的武将回自由池）
  */
 import { loseStore } from './roster.js';
-import { computePower, soldierCap } from './combat.js';
+import { computePower, soldierCap, roundHalfUp } from './combat.js';
 
 const C6 = balance => {
   const c = balance.v06?.city;
@@ -74,16 +74,61 @@ export function garrisonBasePower(playerPower, balance) {
   return F?.enabled ? Math.max(playerPower, F.value / k) : playerPower;
 }
 
-/**
- * T4：兵数取整（四舍五入）可能让守军战力比 max(garrison_power_floor, k × 玩家) 低一点（如 69.6 → 69）。
- * 开了 T4 时逐个补兵直到不低于该值（不超过兵力上限）。改 team.soldiers，返回 team。纯函数（无随机）。
- */
-export function garrisonEnsureFloor(team, playerPower, balance) {
+/** T4：守军目标战力 = max(garrison_power_floor, power_vs_player × 玩家战力)；关掉 T4 = power_vs_player × 玩家 */
+export function garrisonTargetPower(playerPower, balance) {
   const F = balance.v06?.tuning?.garrison_power_floor, k = C6(balance).garrison.power_vs_player;
-  if (!F?.enabled) return team;
-  const want = Math.max(F.value, k * playerPower), cap = soldierCap(team, balance);
-  while (computePower(team, balance) < want && team.soldiers < cap) team.soldiers++;
+  return F?.enabled ? Math.max(F.value, k * playerPower) : k * playerPower;
+}
+
+/** 让该队（武将 / 物品不变）面板战力 ≥ target 的最少兵数（向上取整，至少 1，不超过兵力上限）。纯函数 */
+export function garrisonFullSoldiers(team, target, balance) {
+  const b = computePower({ ...team, soldiers: 0 }, balance), m = computePower({ ...team, soldiers: 1 }, balance) - b;
+  return Math.min(soldierCap(team, balance), Math.max(1, Math.ceil((target - b) / Math.max(1e-9, m) - 1e-9)));
+}
+
+/** city_v06.garrison.power_recalc 存在（sync → recalc = 'battle_start'）：每次开战前按当时玩家战力重算 */
+export const garrisonRecalcOn = balance => balance.v06?.tuning?.garrison_power_floor?.recalc === 'battle_start';
+
+/**
+ * T4 + power_recalc（策划 2026-10-23）：按当前玩家战力重算守军兵数，交战中不要调用（WorldScene 只在守军不在交战时调）。
+ * 之前的损失按比例保留、不补满：team.soldiers 和上次重算后的 garrisonN 不同 = 打过仗掉了兵 → garrisonKeep = soldiers / garrisonFull（上次满编）。
+ * 新兵数 = 新满编 × garrisonKeep（四舍五入，至少 1）；garrisonKeep = 1 时正好满编（战力 ≥ 目标）。
+ * 刚出生 / 旧存档没有这些字段：按出生时的目标战力 team.targetPower 估满编算比例（差 ≤ 1 个兵算满编）。改 team，返回 team。纯函数（无随机）。
+ */
+export function garrisonRecalc(team, playerPower, balance) {
+  if (team.garrisonN == null) {
+    // 刚出生（buildRespawnTeam 四舍五入，最多少 1 个兵）或旧存档：和出生目标战力的满编比；差 ≤ 1 个兵算满编
+    if (team.garrisonKeep == null && team.targetPower != null) {
+      const f0 = garrisonFullSoldiers(team, team.targetPower, balance);
+      team.garrisonKeep = team.soldiers >= f0 - 1 ? 1 : team.soldiers / f0;
+    }
+  } else if (team.soldiers !== team.garrisonN && team.garrisonFull > 0) team.garrisonKeep = Math.min(1, team.soldiers / team.garrisonFull);
+  const keep = team.garrisonKeep ?? 1, full = garrisonFullSoldiers(team, garrisonTargetPower(playerPower, balance), balance);
+  team.garrisonFull = full;
+  team.soldiers = keep >= 1 ? full : Math.max(1, roundHalfUp(full * keep));
+  team.garrisonN = team.soldiers;
   return team;
+}
+
+/**
+ * T4 power_recalc 开战回调（WorldScene 传给 melee.step 的 env.engageSoldiers）：玩家队和洛阳守军开战的那一刻，
+ * 守军兵数 = 按当时玩家战力重算的满编 × remain_frac。不改原队（只算数），onEngage 里再对真队伍 garrisonRecalc（结果相同）。
+ * garrisonTeam 不是守军 / 对手不是玩家 / 没开 recalc / 守军已在交战（第三方加入）→ null（不改）。
+ */
+export function garrisonEngageSoldiers(garrisonTeam, foeIsPlayer, playerPower, balance) {
+  if (!garrisonRecalcOn(balance) || !garrisonTeam?.cityHold || !foeIsPlayer) return null;
+  return garrisonRecalc({ ...garrisonTeam }, playerPower, balance).soldiers;
+}
+
+/**
+ * 标签用（不在交战）：max(70, 0.5 × 当前玩家战力) × remain_frac（策划 power_recalc.label；label_applies_ratio = false 时不乘）。不改原队。
+ * remain_frac = 当前兵数 / 上次重算的满编（累计，初始 1）。返回值按兵数取整后的面板战力（开战瞬间与实际守军相等）。
+ */
+export function garrisonPreviewPower(team, playerPower, balance) {
+  const F = balance.v06?.tuning?.garrison_power_floor;
+  const t = { ...team };
+  if (F?.label_applies_ratio === false) { t.garrisonKeep = 1; t.garrisonN = null; t.targetPower = null; }
+  return computePower(garrisonRecalc(t, playerPower, balance), balance);
 }
 
 /**

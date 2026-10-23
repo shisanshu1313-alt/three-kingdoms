@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, garrisonEnsureFloor, cityLabel } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, garrisonRecalc, garrisonRecalcOn, garrisonEngageSoldiers, garrisonPreviewPower, cityLabel } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -357,11 +357,24 @@ export default class WorldScene extends Phaser.Scene {
     const team = assignUnit(buildRespawnTeam({ id: `garrison_${G.city}`, position: { x: c.x, y: c.y }, playerPower: gPlayer,
       powerRange: [G.power_vs_player, G.power_vs_player], balance, rng: this.rngs.spawn, idx: index, nextName: nextBanditName }),
     combatJson, this.rngs.spawn, { mix: runCfg.chapters[0].bandit_units });
-    garrisonEnsureFloor(team, this.player.power, balance); // T4：取整后不低于 max(70, 0.5 × 玩家)
+    garrisonRecalc(team, this.player.power, balance); // T4：兵数向上取整到 ≥ max(70, 0.5 × 玩家)，记满编 garrisonFull
     Object.assign(team, { name: `${c.name}守军`, fixedName: true, cityHold: G.city, home: { x: c.x, y: c.y } });
     const p = this.addParty(team);
     console.log(`[city] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)}`);
     return p;
+  }
+
+  /**
+   * T4 标签数值（策划 power_recalc.label）：交战中 = 守军实际战力；不在交战 = max(70, 0.5 × 当前玩家战力) × remain_frac，每秒（游戏时间）刷新一次。
+   * 「强于你」按这个数值判断（cityLabel）。没开 recalc → 守军实际战力。
+   */
+  garrisonLabelPower(c, gar) {
+    if (gar.inBattle || !garrisonRecalcOn(balance)) { this._garLabel = null; return gar.power; }
+    const sec = Math.floor(this.clock.now / 1000), L = this._garLabel;
+    if (L && L.city === c.id && L.sec === sec && L.id === gar.id) return L.v;
+    const v = garrisonPreviewPower(gar.team, this.player.power, balance);
+    this._garLabel = { city: c.id, sec, id: gar.id, v };
+    return v;
   }
 
   cityRadiusOf(p) { const b = this.field.body(p.id); return b ? radiusOf(soldiersOf(b), this.field.cfg) : 12; }
@@ -507,8 +520,8 @@ export default class WorldScene extends Phaser.Scene {
       if (c.hold > 0) g.fillStyle(0xaaffaa, 1).fillRect(c.x - w / 2, y + 8, w * c.hold / C.capture_hold_s, 3);
       if (c.lostHold > 0) g.fillStyle(0xff5555, 1).fillRect(c.x - w / 2, y + 8, w * c.lostHold / C.lost_hold_s, 3);
       const store = c.owner === PLAYER ? `  存放 ${(this.state.cityStore ?? []).length}/${balance.v06.roster.storage_max}` : '';
-      const gar = c.garrison ? this.aiParties.find(p => p.team.cityHold === c.id) : null; // T4：显示守军战力
-      const L = cityLabel(c, { max, factionName: balance.ai.factions.find(f => f.id === c.owner)?.name, storeText: store, garrisonPower: gar?.power ?? null, playerPower: this.player.power });
+      const gar = c.garrison ? this.aiParties.find(p => p.team.cityHold === c.id) : null; // T4：显示守军战力（不在交战 = 按当前玩家战力重算的值；交战中 = 这一仗的守军，不变）
+      const L = cityLabel(c, { max, factionName: balance.ai.factions.find(f => f.id === c.owner)?.name, storeText: store, garrisonPower: gar ? this.garrisonLabelPower(c, gar) : null, playerPower: this.player.power });
       if (this.cityTexts[c.id].text !== L.text) this.cityTexts[c.id].setText(L.text);
       this.cityTexts[c.id].setColor(L.color);
     }
@@ -607,6 +620,13 @@ export default class WorldScene extends Phaser.Scene {
     return {
       onEngage: (a, b) => {
         for (const x of [a, b]) if (x?.team.raid) x.team.raid = false; // 来袭队接战后按普通 AI 行动
+        // T4 power_recalc：战斗体已按 env.engageSoldiers 换成重算后的兵数；这里把同样的重算记到守军队伍上（满编 / remain_frac / 面板战力）
+        for (const [g, o] of [[a, b], [b, a]]) if (g?.team.cityHold && o?.isPlayer && garrisonRecalcOn(balance)) {
+          const body = this.field.body(g.id);
+          garrisonRecalc(g.team, this.player.power, balance);
+          if (body && body.N0start === body.N0 && Math.abs(body.N0 - g.team.soldiers) < 1e-9) { g.refresh(); console.log(`[city] ${g.name} 开战重算 兵${g.team.soldiers}（满编 ${g.team.garrisonFull}）战${g.power.toFixed(1)} 玩家战力 ${this.player.power.toFixed(1)}`); }
+          else { g.refresh(); console.log(`[city] ${g.name} 开战重算：战斗体兵数 ${body?.N0} 与队伍 ${g.team.soldiers} 不一致（第三方加入？）`); }
+        }
         EventBus.emit(EVENTS.BATTLE_START, { battle: { a, b } });
         if (playerIn(a, b)) this.trySaveNow('battle-start'); // 存档决定 1：开战即存（含战斗快照）
       },
@@ -813,7 +833,12 @@ export default class WorldScene extends Phaser.Scene {
         fits: (b, x, y) => pl._fits(x, y, m),
         speedMult: (x, y) => m.speedAt(x, y),
         hostile: (a, b) => factionsHostile(a.faction, b.faction),
-        noEngage: (a, b) => noEngage(a, b, this.state.cities, balance) // v0.6 城内保护
+        noEngage: (a, b) => noEngage(a, b, this.state.cities, balance), // v0.6 城内保护
+        // T4 power_recalc：玩家和洛阳守军开战的那一刻，守军兵数按当时玩家战力重算（× remain_frac）
+        engageSoldiers: (X, Y) => {
+          const g = this.aiParties.find(p => p.id === X.id);
+          return g?.team.cityHold ? garrisonEngageSoldiers(g.team, Y.id === this.player.id, this.player.power, balance) : null;
+        }
       };
     }
     return this._env;

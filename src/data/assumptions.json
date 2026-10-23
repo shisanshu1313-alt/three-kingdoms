@@ -94,7 +94,8 @@
       "battle_no_contact_chasing": "【已确认】「在追」= 朝对方的接近速度 ≥ no_contact_chase_frac（缺省 0.5，配置 battle_v06.no_contact_chase_frac）× 自己最大速度；「放箭」= 任一方 shooting 的目标是对方",
       "determinism": "【v0.6 已做】同一 runSeed 同一结果：游戏随机数全走 runSeed 派生的种子流 team / gacha / combat / spawn / ai（rng.streamSeed）；AI 游荡 / 发呆原用 Math.random，改用 rngs.ai；纯逻辑模块不再有 Math.random 默认参数（缺省用固定种子 mulberry32）；respawnPosition 必须传 rng；攻城 / 来袭选目标同距离按 id 定序。存档 v6 保存 rng.ai，v5 → v6 迁移按 streamSeed(runSeed,'ai') 补。开发构建 window.__SANGUO_SIM = { seed, manualTick } 固定种子并只由 debugAdvance 推进（正式构建忽略）。UI 的 delayedCall / tween / 读档倒计时只影响显示或暂停，不影响逻辑",
       "tuning_r1": "【策划 + 用户 2026-10-23 已定】tuning_r1 只认 tag = decided（或 apply_now）的提案：T1 siege_min_s 15（每秒城防伤害 ≤ 章节城防上限 / 15，多队共用）；T2 满 10 队时撤下 1 支战力 < 0.6 × 玩家、不在交战、距玩家 > 400 px 的普通黄巾队再按章重刷（不含来袭 / 守军 / 攻城 / 名将军 / 校尉军，最弱优先、同战力按 id）；T3 黄巾 flee_ratio 0.4；T4 洛阳守军战力 = max(garrison_power_floor 70, 0.5 × 玩家战力)，城名标签显示守军战力，玩家更弱时红字「强于你」。T5（野外收拢）/ T6（逃脱给点）rejected：没做、不进配置。名将军逃跑留到下一轮",
-      "tuning_r1_t2_check": "T2 在每次刷新检查（12 s）时最多撤 1 支；『普通黄巾队』= 势力 id 或名为 stale_refresh.faction 的野外队"
+      "garrison_third_party": "【假设】守军已在和别的队交战时玩家加入（第三方加入）：守军不重算（交战中不变），这一仗结束后的损失照样计入 remain_frac",
+      "garrison_old_saves": "【假设】旧存档 / 刚出生的守军没有 remain_frac 字段：按出生目标战力 targetPower 的满编估比例，差 ≤ 1 个兵算满编"
     },
     "confirmed": {
       "_comment": "策划 2026-10-23 确认按现有实现（不再是假设）",
@@ -103,7 +104,10 @@
       "start_offset_px": "#3 开局不在城里（出生点下移 220 px 到洛阳城外）",
       "city_siege_dispatch": "#7 最近的、没被讨伐的势力派兵攻主城；黄巾不派（city.raid_exclude，默认 [\"黄巾\"]，20 s 派兵和趁虚攻打共用；有测试）",
       "speed_jitter_and_affinity": "速度 ±7%、敌方约 40% 相性 = 预期，不改",
-      "battle_no_contact": "battle_v06.no_contact_end_s = 4、no_contact_chase_frac = 0.5 已确认（策划会写进定稿；写进之前 sync 用这两个缺省值，_defaults 里记着）"
+      "battle_no_contact": "battle_v06.no_contact_end_s = 4、no_contact_chase_frac = 0.5 已确认，已写进定稿（sync 直接读）",
+      "garrison_power_recalc": "#T4 洛阳守军（city_v06.garrison.power_floor 70 + power_recalc，策划 2026-10-23 定稿）：玩家队伍和守军开战那一刻按当时玩家面板战力重算满编 full = max(70, 0.5×玩家)（melee env.engageSoldiers → 新一场的 N0；破城防不算开战，期间涨的战力含抽卡都算进去）；交战中不变；remain_frac = 当前兵数 / 上次重算的满编（累计，初始 1），重算后兵数 = 新满编 × remain_frac（四舍五入，至少 1；满编向上取整保证 ≥ 目标）",
+      "garrison_label": "#T4 标签：不在交战 = max(70, 0.5×当前玩家战力) × remain_frac（label_applies_ratio = true），每秒（游戏时间）刷新；交战中 = 守军实际战力；「强于你」（红字）一律按标签数值判断",
+      "bandit_flee_ratio": "#T3 黄巾 flee_ratio 0.4 只管 AI 扫视野的逃跑决策：我方/对方 ≤ 0.4（等于也逃）才逃；交战中途撤退不变（士气 < 30 溃败、性格撤退阈值 retreat_by_personality）。有测试锁定"
     }
   }
 }
