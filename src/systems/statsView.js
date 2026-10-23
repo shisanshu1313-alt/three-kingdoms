@@ -7,6 +7,9 @@
  *   changedKeys(prev, next)              → 变化了的键（Set），HUD 据此高亮
  *   fmtPct(x)                            → 0.125 → "12.5%"
  *
+ * 统帅（显示用，PM 决定）：玩家队的统帅永远是主角，其余武将显示为副将（最多 team_rules.max_generals 名武将）。
+ *   这只是显示；结算仍按现有 mainGeneral()（统率最高者）算战力倍率的统率项、统率速度、擅长兵种 —— view.calcMain 就是它，
+ *   view.calcMainDiffers = 统率最高者不是主角（面板会注明“按统率最高者结算”）。v0.6 由策划统一。
  * cfg = 战斗配置（melee.makeCombatConfig 的结果，即 WorldScene.field.cfg）；不传时兵种项（兵种减伤、兵种速度、统率速度）为 null。
  */
 import { mainGeneral, computePower, soldierCap, teamSpeed, lossReduction, itemEffect, affinityBonus } from './combat.js';
@@ -30,9 +33,13 @@ export function buildStatsView(team, balance, cfg = null) {
   const generals = gs.map(g => ({
     id: g.id, name: g.name, tier: g.tier ?? null, generic: !!g.generic,
     lead: g.lead, str: g.str, int: g.int, cha: g.cha,
-    isHero: g.id === heroId, isMain: g === mg, affinity: af[g.id] ?? null
+    isHero: g.id === heroId, isMain: g === mg, affinity: af[g.id] ?? null,
+    role: g.id === heroId ? 'leader' : 'deputy' // 统帅 / 副将（显示用）
   }));
   const hero = generals.find(g => g.isHero) ?? null;
+  // 没有主角的队伍（AI）：统帅显示为第一名武将
+  const leader = hero ?? generals[0] ?? null;
+  if (!hero && leader) leader.role = 'leader';
   const p = balance.power, tr = balance.team_rules, rw = balance.rewards;
 
   const sumLead = sumOf(gs, 'lead'), sumStr = sumOf(gs, 'str'), maxInt = maxOf(gs, 'int'), maxCha = maxOf(gs, 'cha');
@@ -56,7 +63,10 @@ export function buildStatsView(team, balance, cfg = null) {
   const unitSpeed = cfg ? unitDef(cfg, team.unit).speed : null;
 
   return {
-    hero, main: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null, generals,
+    hero, leader: leader ? { id: leader.id, name: leader.name, lead: leader.lead } : null,
+    // 结算用主将（mainGeneral = 统率最高者）；与统帅不同时面板注明
+    main: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null, calcMain: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null,
+    calcMainDiffers: !!(mg && leader && mg.id !== leader.id), maxGenerals: tr.max_generals, generals,
     unit: team.unit ?? null, soldiers: team.soldiers,
     cap: { total: soldierCap(team, balance), base: tr.soldier_cap_base, perLead: tr.soldier_cap_per_lead, sumLead, fromLead: tr.soldier_cap_per_lead * sumLead, items: itemEffect(team, balance, 'soldier_cap') },
     power: { total: computePower(team, balance), mult: powerMult, lead: p.k_lead * mainLead, str: p.k_str * sumStr, items: powerPct, affinity: aff, genTerm: p.k_gen * sumStr, sumStr },
@@ -76,6 +86,7 @@ export function flattenStats(v) {
   const out = {};
   for (const g of v.generals) for (const a of ATTRS) out[`gen.${g.id}.${a}`] = g[a];
   if (v.hero) for (const a of ATTRS) out[`hero.${a}`] = v.hero[a];
+  out['leader.id'] = v.leader?.id ?? null;
   out['main.id'] = v.main?.id ?? null; out['main.lead'] = v.main?.lead ?? null;
   out.unit = v.unit;
   out.cap = v.cap.total;

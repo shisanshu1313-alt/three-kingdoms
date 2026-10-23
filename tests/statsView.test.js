@@ -89,14 +89,31 @@ test('fmtPct', () => {
   assert.equal(fmtPct(0.12), '12%'); assert.equal(fmtPct(0.668), '66.8%'); assert.equal(fmtPct(0.1234), '12.3%'); assert.equal(fmtPct(null), '-');
 });
 
-test('面板文字：小面板 = 主角四维 + 主将；详情含每名武将与派生值，keys 对得上 flattenStats', async () => {
+test('统帅永远是主角（显示）；结算主将仍是统率最高者，不同时标出 calcMainDiffers', () => {
+  const v0 = buildStatsView(team(), balance, cfg);
+  assert.equal(v0.leader.id, 'hero'); assert.equal(v0.calcMain.id, 'hero'); assert.equal(v0.calcMainDiffers, false);
+  const t = team({ generals: [hero(), lib('zhangfei'), lib('zhugeliang')] });
+  const v = buildStatsView(t, balance, cfg);
+  assert.equal(v.leader.id, 'hero');
+  assert.deepEqual(v.generals.map(g => g.role), ['leader', 'deputy', 'deputy']);
+  assert.equal(v.calcMain.id, 'zhugeliang'); assert.equal(v.calcMainDiffers, true); // 统率 92 > 张飞 85 > 主角 40
+  assert.equal(v.maxGenerals, balance.team_rules.max_generals);
+  // 结算值不变：战力倍率的统率项仍按 92 算
+  near(v.power.lead, balance.power.k_lead * 92);
+  near(v.power.total, computePower(t, balance));
+});
+
+test('面板文字：小面板 = 统帅（主角）+ 四维；详情 = 统帅 / 副将 + 派生值，keys 对得上 flattenStats', async () => {
   const { compactLines, detailLines, statsLayout } = await import('../src/ui/statsText.js');
   const t = team({ generals: [hero(), lib('zhangfei')] });
   const v = buildStatsView(t, balance, cfg), flat = flattenStats(v);
   const c = compactLines(v);
-  assert.match(c[0].text, /统率 40.*武力 45/); assert.match(c[1].text, /智力 40.*魅力 50/); assert.match(c[2].text, /张飞.*统率 85/);
+  assert.match(c[0].text, /^统帅\s+主角/); assert.match(c[1].text, /统率 40.*武力 45/); assert.match(c[2].text, /智力 40.*魅力 50/);
+  assert.match(c[3].text, /按 张飞 统率 85/); // 统率最高者 ≠ 统帅 → 注明
+  assert.equal(compactLines(buildStatsView(team(), balance, cfg)).length, 3);
   const d = detailLines(v), all = d.map(l => l.text).join('\n');
-  for (const s of ['★张飞', '主角', `兵力上限 ${v.cap.total}`, '智力减伤 12%', `魅力收编率 ${fmtPct(v.recruit.total)}`, '总损兵减免']) assert.ok(all.includes(s), s);
+  for (const s of ['统帅 主角', '副将 张飞', '现按统率最高者 张飞（统率 85）结算', `兵力上限 ${v.cap.total}`, '智力减伤 12%', `魅力收编率 ${fmtPct(v.recruit.total)}`, '总损兵减免', '武将 2/3']) assert.ok(all.includes(s), s);
+  assert.ok(!all.includes('主将'), '不再显示“主将”字段');
   for (const l of [...c, ...d]) for (const k of l.keys) assert.ok(k in flat, k);
   const land = statsLayout({ width: 1280, height: 720 }), port = statsLayout({ width: 390, height: 844 });
   assert.equal(land.portrait, false); assert.equal(port.portrait, true);

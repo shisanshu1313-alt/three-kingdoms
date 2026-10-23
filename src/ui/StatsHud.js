@@ -1,6 +1,6 @@
 /**
  * HUD 属性面板（Phaser 画，不用 DOM）：
- *   常显小面板（主角四维 + 主将），[属性 C] 按钮 / 点小面板 / C 键（input 动作 toggleStats）展开详情。
+ *   常显小面板（统帅 = 主角，姓名 + 四维；统率最高者另有其人时注明结算用的是谁），[属性 C] 按钮 / 点小面板 / C 键（input 动作 toggleStats）展开详情。
  *   数据：systems/statsView.js（纯 JS）；文字与布局：ui/statsText.js（纯 JS）。
  *   刷新：监听 EventBus TEAM_CHANGED（PartyModel.refresh 发出），只看玩家队；变化的值高亮 HIGHLIGHT_MS。
  *   不暂停游戏、不拦截面板以外的点击；详情半透明，横屏贴右、竖屏贴底。
@@ -11,7 +11,7 @@ import { compactLines, detailLines, statsLayout } from './statsText.js';
 import { button, FONT } from './widgets.js';
 
 export const HIGHLIGHT_MS = 1500;
-const COLOR = '#ffffff', TITLE = '#f1c40f', HL = '#ffe066', HL_BG = 0xb8860b;
+const COLOR = '#ffffff', TITLE = '#f1c40f', NOTE = '#ffb366', HL = '#ffe066', HL_BG = 0xb8860b;
 
 export default class StatsHud {
   /** @param getParty () => 玩家 PartyModel；getCfg () => 战斗配置（WorldScene.field.cfg） */
@@ -71,7 +71,7 @@ export default class StatsHud {
     for (const l of lines) {
       if (!l.text) { y += Math.round(font * 1.45); continue; }
       const hl = this.isHl(l.keys);
-      const t = this.scene.add.text(x0 + pad, y, l.text, { fontFamily: FONT, fontSize: `${font}px`, color: hl ? HL : l.title ? TITLE : COLOR, padding: { right: 4 }, wordWrap: { width: width - 2 * pad - 4, useAdvancedWrap: true } });
+      const t = this.scene.add.text(x0 + pad, y, l.text, { fontFamily: FONT, fontSize: `${font}px`, color: hl ? HL : l.title ? TITLE : l.note ? NOTE : COLOR, padding: { right: 4 }, wordWrap: { width: width - 2 * pad - 4, useAdvancedWrap: true } });
       t.bg = this.scene.add.rectangle(x0 + 2, y - 1, width - 4, t.height + 2, HL_BG, hl ? 0.45 : 0).setOrigin(0, 0);
       container.add([t.bg, t]);
       pool.push(t);
@@ -92,7 +92,8 @@ export default class StatsHud {
     this.detailH = dh;
     const sh = this.scene.scale.height;
     // 竖屏贴底（bottom）；横屏从小面板下方开始，放不下就往上挪
-    const y = d.top === null ? Math.max(4, d.bottom - dh) : Math.max(4, Math.min(d.top, sh - 40 - dh));
+    const top = c.y + ch + 8; // 小面板实际高度（3 或 4 行）
+    const y = d.top === null ? Math.max(4, d.bottom - dh) : Math.max(4, Math.min(top, sh - 40 - dh));
     this.detail.setPosition(d.x, y);
   }
 

@@ -28,23 +28,23 @@ const OUT = path.join(__dirname, '..', 'artifacts');
   // 让玩家不受打扰：关掉开局遭遇战，无敌
   await W(() => { const w = __game.scene.getScene('World'); w.run.raidDone = true; w.player.invincibleUntil = w.clock.now + 600000; });
 
-  // 1) 常显小面板：主角四维 + 主将
+  // 1) 常显小面板：统帅（= 主角）+ 四维
   let s = await snap();
   const hero = await W(() => { const g = __game.scene.getScene('World').player.team.generals.find(x => x.id === 'hero'); return { lead: g.lead, str: g.str, int: g.int, cha: g.cha }; });
   const cj = s.compact.join(' | ');
-  await ok(!s.open && cj.includes(`统率 ${hero.lead}`) && cj.includes(`武力 ${hero.str}`) && cj.includes(`智力 ${hero.int}`) && cj.includes(`魅力 ${hero.cha}`) && /主将\s+\S+\s+统率 \d+/.test(cj), `小面板常显（${cj}）`);
+  await ok(!s.open && cj.includes(`统率 ${hero.lead}`) && cj.includes(`武力 ${hero.str}`) && cj.includes(`智力 ${hero.int}`) && cj.includes(`魅力 ${hero.cha}`) && /^统帅\s+主角/.test(s.compact[0]) && !cj.includes('主将'), `小面板常显：统帅 = 主角 + 四维（${cj}）`);
 
   // 2) C 展开详情（按住自动重复不来回切换）
   await p.keyboard.down('c'); await p.keyboard.down('c', { repeat: true }); await p.keyboard.down('c', { repeat: true }); await p.keyboard.up('c'); await wait(200);
   s = await snap();
   const dj = s.detail.join('\n');
-  await ok(s.open && /兵力上限 \d+/.test(dj) && /智力减伤 [\d.]+%/.test(dj) && /魅力收编率 [\d.]+%/.test(dj) && /战力 \d+/.test(dj) && dj.includes('★'), `C 展开详情：\n${dj}`);
+  await ok(s.open && /兵力上限 \d+/.test(dj) && /智力减伤 [\d.]+%/.test(dj) && /魅力收编率 [\d.]+%/.test(dj) && /战力 \d+/.test(dj) && /^统帅 主角/m.test(dj) && !dj.includes('主将'), `C 展开详情：\n${dj}`);
   const cap0 = await W(() => __game.scene.getScene('World').player.cap);
   await ok(dj.includes(`兵力上限 ${cap0}`), `详情兵力上限 = player.cap（${cap0}）`);
   const paused = await W(() => __game.scene.isPaused('World'));
   await ok(!paused, '详情打开时大地图不暂停');
 
-  // 3) 实时刷新：属性卡（主角智力 +6）→ 智力减伤变化并高亮；得到武将（张飞）→ 主将变化
+  // 3) 实时刷新：属性卡（主角智力 +6）→ 智力减伤变化并高亮；得到武将（张飞）→ 统帅仍是主角、张飞为副将，注明结算按统率最高者
   await W(() => { const w = __game.scene.getScene('World'); w.player.team.generals.find(g => g.id === 'hero').int += 6; w.player.refresh(); });
   await wait(100);
   s = await snap();
@@ -54,7 +54,7 @@ const OUT = path.join(__dirname, '..', 'artifacts');
     t.generals.push({ id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }); w.player.refresh(); w.field.refresh(w.player); });
   await wait(150);
   s = await snap();
-  await ok(s.compact.join(' ').includes('张飞') && s.highlighted.includes('main.id') && s.highlighted.includes('cap') && s.detail.some(l => l.startsWith('★张飞')), `得到武将后主将 = 张飞，上限高亮（${s.compact[2]}）`);
+  await ok(/^统帅\s+主角/.test(s.compact[0]) && /按 张飞 统率 85/.test(s.compact[3] ?? '') && s.highlighted.includes('main.id') && s.highlighted.includes('cap') && s.detail.some(l => l.startsWith('副将 张飞')) && s.detail.some(l => l.includes('现按统率最高者 张飞')), `得到张飞：统帅仍是主角，副将 张飞，注明结算按统率最高者（${s.compact.join(' | ')}）`);
   await p.screenshot({ path: SHOT });
   console.log('shot', SHOT);
   await wait(1700);

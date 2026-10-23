@@ -69,7 +69,7 @@ const OUT = ART + '/screenshot.png';
     await page.keyboard.press('c'); await page.waitForTimeout(150); const s2 = await st();
     const d = s1.detail.join('\n');
     result.statsHud = { compact: s0.compact, open: [s0.open, s1.open, s2.open],
-      ok: !s0.open && s0.compact.join(' ').includes('统率') && s0.compact.join(' ').includes('主将') && s1.open && /兵力上限 \d+/.test(d) && /智力减伤/.test(d) && /魅力收编率/.test(d) && !s2.open };
+      ok: !s0.open && s0.compact.join(' ').includes('统率') && s0.compact.join(' ').includes('统帅') && s1.open && /兵力上限 \d+/.test(d) && /智力减伤/.test(d) && /魅力收编率/.test(d) && !s2.open };
   }
 
   // 2) 点击寻路绕障：找一处“起点—障碍—终点”水平排列且可达的位置，把玩家放到起点
