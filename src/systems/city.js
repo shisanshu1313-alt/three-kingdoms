@@ -74,6 +74,21 @@ export function garrisonBasePower(playerPower, balance) {
 }
 
 /**
+ * 城名下方的标签（WorldScene.drawCities 用；纯函数便于单测）。
+ * T4：有守军的城显示「守军战力 N」；守军比玩家强 → 标红并注明「强于你」（策划 T4 mitigation：玩家战力 < 守军时提示）。
+ * opts：{ max, factionName, storeText, garrisonPower（守军队伍当前战力，没有 = null）, playerPower }
+ */
+export function cityLabel(c, { max, factionName = null, storeText = '', garrisonPower = null, playerPower = 0 }) {
+  const side = citySide(c);
+  const owner = c.owner === PLAYER ? '我的主城' : c.owner ? `${factionName ?? c.owner}大本营` : c.garrison ? '黄巾守军' : '无主城';
+  const gp = c.garrison && garrisonPower != null ? Math.round(garrisonPower) : null;
+  const strong = gp != null && gp > playerPower;
+  const gText = gp != null ? `  守军战力 ${gp}${strong ? '（强于你）' : ''}` : '';
+  const text = `${owner}  城防 ${Math.ceil(c.def)}/${max}${c.def <= 0 ? '（已破）' : ''}${gText}${storeText}`;
+  return { text, color: side === PLAYER ? '#aaffaa' : strong ? '#ff7777' : '#ffffff' };
+}
+
+/**
  * 城上弓箭：按 v0.5 弓兵射击公式，射手战力 = arrow_power_k × 本章参考战力；
  * 每秒损兵比例 = min(rate_cap, lam × (射手/目标)^a) × 弓兵 shoot_mult × 目标兵种 arrow_taken（步兵 0.6）× 克制物品减伤
  */

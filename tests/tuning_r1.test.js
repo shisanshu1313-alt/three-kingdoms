@@ -3,38 +3,40 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { balance } from '../src/data/index.js';
 import combatJson from '../src/data/combat_v05.json' with { type: 'json' };
-import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, defMax, PLAYER } from '../src/systems/city.js';
+import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, cityLabel, defMax, PLAYER } from '../src/systems/city.js';
 import { pickStaleTeam } from '../src/systems/teams.js';
 import AISystem from '../src/systems/ai.js';
 import { attitude } from '../src/systems/aiBrain.js';
 import { buildV06 } from '../scripts/sync-v06.mjs';
 
-// 策划 tuning_r1（2026-10-23）：T1–T3 apply_now 生效；T4–T6 needs_user 只准备开关、默认关。数值都来自 v06.tuning（sync-v06 从 balance_v0.6.json 生成）
+// 策划 tuning_r1（2026-10-23 已定）：T1–T4 生效（tag = decided）；T5 / T6 用户否决（rejected），不进配置。数值都来自 v06.tuning（sync-v06 从 balance_v0.6.json 生成）
 const TU = balance.v06.tuning;
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/balance_v0.6.json', import.meta.url)));
 const withTuning = over => ({ ...balance, v06: { ...balance.v06, tuning: { ...TU, ...over } } });
 const ctx = (over = {}) => ({ tS: 0, dt: 0.1, chapter: 0, balance, move: combatJson.move, homeCity: null, ...over });
 
-test('配置：tuning 来自 tuning_r1.proposals —— T1 15 s、T2 0.6 / 400 px 黄巾、T3 黄巾 0.4；T4–T6 needs_user → 关', () => {
+test('配置：tuning 来自 tuning_r1.proposals（已定）—— T1 15 s、T2 0.6 / 400 px 黄巾、T3 黄巾 0.4、T4 守军下限 70；T5 / T6 不进配置', () => {
   assert.equal(TU.siege_min_s, 15);
   assert.deepEqual(TU.stale_refresh, { enabled: true, faction: '黄巾', stale_ratio: 0.6, min_dist_px: 400 });
   assert.deepEqual(TU.flee_ratio_by_faction, { 黄巾: 0.4 });
-  assert.equal(TU.garrison_power_floor.enabled, false); assert.equal(TU.garrison_power_floor.value, 70);
-  assert.equal(TU.field_regroup.enabled, false); assert.equal(TU.escape_points.enabled, false);
+  assert.deepEqual(TU.garrison_power_floor, { enabled: true, value: 70, power_vs_player: 0.5 });
+  assert.equal(TU.garrison_power_floor.power_vs_player, balance.v06.city.garrison.power_vs_player, '提案里的 0.5 = 守军配置的 power_vs_player');
+  assert.deepEqual(Object.keys(TU).sort(), ['flee_ratio_by_faction', 'garrison_power_floor', 'siege_min_s', 'stale_refresh']);
+  assert.deepEqual(fixture.tuning_r1.proposals.filter(p => p.tag === 'rejected').map(p => p.id), ['T5', 'T6']);
 });
 
-test('配置：proposal 改成 needs_user → 关掉；正式字段 city_v06.siege.siege_min_s 优先；没有 tuning_r1 → 全关（0 / 空）', () => {
+test('配置：tag 不是 decided / apply_now → 关掉；正式字段优先；没有 tuning_r1 → 全关', () => {
   const d = structuredClone(fixture);
-  for (const p of d.tuning_r1.proposals) if (['T1', 'T2', 'T3'].includes(p.id)) p.tag = 'needs_user';
+  for (const p of d.tuning_r1.proposals) if (['T1', 'T2', 'T3', 'T4'].includes(p.id)) p.tag = 'needs_user';
   let t = buildV06(d).tuning;
-  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false); assert.deepEqual(t.flee_ratio_by_faction, {});
+  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false); assert.deepEqual(t.flee_ratio_by_faction, {}); assert.equal(t.garrison_power_floor.enabled, false);
   d.city_v06.siege = { ...(d.city_v06.siege ?? {}), siege_min_s: 20 };
-  assert.equal(buildV06(d).tuning.siege_min_s, 20);
+  d.city_v06.garrison = { power_floor: 80 };
+  t = buildV06(d).tuning;
+  assert.equal(t.siege_min_s, 20); assert.deepEqual(t.garrison_power_floor, { enabled: true, value: 80 });
   const e = structuredClone(fixture); delete e.tuning_r1;
   t = buildV06(e).tuning;
-  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false);
-  const f = structuredClone(fixture); f.tuning_r1.proposals.find(p => p.id === 'T4').tag = 'apply_now';
-  assert.equal(buildV06(f).tuning.garrison_power_floor.enabled, true);
+  assert.equal(t.siege_min_s, 0); assert.equal(t.stale_refresh.enabled, false); assert.equal(t.garrison_power_floor.enabled, false);
 });
 
 test('T1：每秒城防伤害 ≤ 该章城防上限 / siege_min_s；高战力玩家满城防打到 0 ≥ 15 s（第 1–4 章）', () => {
@@ -94,10 +96,27 @@ test('T3：黄巾 flee_ratio = 0.4（其余性格值不变）；魏蜀吴群雄�
   assert.equal(new AISystem(withTuning({ flee_ratio_by_faction: {} })).personalityOf({ faction: 'bandit' }).flee_ratio, 0.6);
 });
 
-test('T4（needs_user，默认关）：守军战力下限只在开关打开时生效', () => {
-  const k = balance.v06.city.garrison.power_vs_player;
-  assert.equal(garrisonBasePower(64, balance), 64, '默认关：仍是 0.5 × 玩家');
-  const on = withTuning({ garrison_power_floor: { enabled: true, value: 70 } });
-  assert.ok(Math.abs(garrisonBasePower(64, on) * k - 70) < 1e-9);
-  assert.equal(garrisonBasePower(400, on), 400);
+test('T4：洛阳守军战力 = max(70, 0.5 × 玩家战力)（garrisonBasePower 返回再乘 power_vs_player 前的『玩家战力』）', () => {
+  const k = balance.v06.city.garrison.power_vs_player, g = pp => garrisonBasePower(pp, balance) * k;
+  assert.ok(Math.abs(g(64) - 70) < 1e-9, '开局约 64 → 70');
+  assert.ok(Math.abs(g(140) - 70) < 1e-9);
+  assert.equal(g(400), 200);
+  assert.equal(garrisonBasePower(64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } })), 64, '关掉 = 原 0.5 倍');
+});
+
+test('T4 标签：有守军的城显示守军战力；玩家战力低于守军 → 红色 +「强于你」；没守军 / 别的城不显示', () => {
+  const cs = createCities(balance), L = cs.luoyang, max = defMax(balance, 0);
+  let r = cityLabel(L, { max, garrisonPower: 70.4, playerPower: 64 });
+  assert.match(r.text, /黄巾守军\s+城防 230\/230\s+守军战力 70（强于你）/);
+  assert.equal(r.color, '#ff7777');
+  r = cityLabel(L, { max, garrisonPower: 70, playerPower: 90 });
+  assert.match(r.text, /守军战力 70$/); assert.doesNotMatch(r.text, /强于你/); assert.equal(r.color, '#ffffff');
+  r = cityLabel(L, { max, garrisonPower: 70, playerPower: 70 });
+  assert.doesNotMatch(r.text, /强于你/, '相等不提示');
+  r = cityLabel({ ...L, garrison: null }, { max, garrisonPower: null, playerPower: 10 });
+  assert.equal(r.text, '无主城  城防 230/230');
+  r = cityLabel(cs.xuchang, { max, factionName: '魏', garrisonPower: null, playerPower: 10 });
+  assert.equal(r.text, '魏大本营  城防 230/230');
+  r = cityLabel({ ...L, owner: PLAYER, garrison: null }, { max, storeText: '  存放 0/6', playerPower: 10 });
+  assert.equal(r.text, '我的主城  城防 230/230  存放 0/6'); assert.equal(r.color, '#aaffaa');
 });

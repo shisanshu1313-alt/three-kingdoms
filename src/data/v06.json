@@ -317,21 +317,9 @@
       "黄巾": 0.4
     },
     "garrison_power_floor": {
-      "enabled": false,
-      "value": 70
-    },
-    "field_regroup": {
-      "enabled": false,
-      "implemented": false,
-      "only_when": "没有主城",
-      "delay_s": 5,
-      "floor": 30,
-      "interval_s": 3
-    },
-    "escape_points": {
-      "enabled": false,
-      "implemented": false,
-      "mult": 0.5
+      "enabled": true,
+      "value": 70,
+      "power_vs_player": 0.5
     }
   },
   "_defaults": []

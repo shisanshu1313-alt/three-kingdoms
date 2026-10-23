@@ -94,6 +94,13 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
       gar: w.aiParties.filter(x => x.team.cityHold).length, store: (w.state.cityStore ?? []).map(g => g.id), ch: w.run.chapter }; });
   const c0 = await ci();
   await ok(c0.def === C.def_by_chapter[0] && c0.garrison && c0.gar === 1 && !c0.owner && !c0.home, `开局洛阳：城防 ${C.def_by_chapter[0]}、有守军（${JSON.stringify(c0)}）`);
+  // T4：守军战力 = max(70, 0.5 × 玩家)，城名标签显示守军战力；玩家更弱 → 红色 +「强于你」（标签在城圈下方，不挡城）
+  const gl = await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang, g = w.aiParties.find(x => x.team.cityHold === 'luoyang'), t = w.cityTexts.luoyang;
+    return { gp: Math.round(g.power), pp: w.player.power, text: t.text, color: t.style.color, font: parseInt(t.style.fontSize), visible: t.visible && t.alpha > 0, top: t.y - t.displayHeight * t.originY, below: L.y + window.__balance.v06.city.radius_px }; });
+  await ok(gl.gp >= 70 && gl.text.includes(`守军战力 ${gl.gp}`) && gl.visible && gl.font >= 12 && gl.top >= gl.below
+    && (gl.pp < gl.gp ? gl.text.includes('强于你') && gl.color === '#ff7777' : !gl.text.includes('强于你')), `洛阳标签显示守军战力（${JSON.stringify(gl)}）`);
+  await p.evaluate(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.cameras.main.centerOn(L.x, L.y); });
+  await sleep(p, 200); await p.screenshot({ path: path.join(OUT, 'v06-garrison-label.png') });
   // 站在城墙外（城心 + radius + 一点）攻城
   await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.player.invincibleUntil = 0; /* 无敌的队伍不开战：攻城这段要真打 */ w.field.teleport(w.player, L.x, L.y + 62); w.player.team.soldiers = 170; w.player.refresh(); w.field.refresh(w.player); });
   await W(() => __game.scene.getScene('World').debugAdvance(2));

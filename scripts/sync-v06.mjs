@@ -123,12 +123,13 @@ export function buildV06(d) {
     // 【解读】「在追」= 朝对方的接近速度 ≥ 该比例 × 自己最大速度
     no_contact_chase_frac: opt('battle_v06.no_contact_chase_frac', 0.5)
   };
-  // 策划 tuning_r1（2026-10-23）：proposals 里 tag = apply_now 的生效，needs_user 的只记数值、enabled = false（等用户拍板）。
+  // 策划 tuning_r1（2026-10-23 已定）：T1–T4 生效（见下面 on()），T5 / T6 用户否决、不实现。
   // 以后策划把值挪进正式字段（如 city_v06.siege.siege_min_s）时优先读正式字段。
   const TP = Object.fromEntries((d.tuning_r1?.proposals ?? []).map(p => [p.id, p]));
   const str = (text, re, what) => { const m = re.exec(text ?? ''); if (!m) throw new Error(`balance_v0.6.json 解析失败（${what}）：${re} 不匹配 "${text}"`); return m[1]; };
-  const on = id => TP[id]?.tag === 'apply_now';
-  const T2v = TP.T2?.value ?? {}, T4v = TP.T4?.value ?? {}, T5v = TP.T5?.value ?? {}, T6v = TP.T6?.value ?? {};
+  // tag：decided（已定，直接生效）/ apply_now（决策范围内调参，可直接做）→ 生效；needs_user / rejected（T5 野外收拢、T6 逃脱给点数，用户决定不做）→ 不进配置
+  const on = id => ['decided', 'apply_now'].includes(TP[id]?.tag);
+  const T2v = TP.T2?.value ?? {}, T4v = TP.T4?.value ?? {};
   const tuning = {
     // T1：每秒城防伤害上限 = 该章城防上限 / siege_min_s（0 = 不限）
     siege_min_s: typeof C.siege?.siege_min_s === 'number' ? C.siege.siege_min_s : on('T1') ? TP.T1.value : 0,
@@ -136,10 +137,10 @@ export function buildV06(d) {
     stale_refresh: { enabled: on('T2'), faction: '黄巾', stale_ratio: T2v.stale_ratio ?? 0.6, min_dist_px: T2v.min_dist_px ?? 400 },
     // T3：按势力（名或 id）覆盖 flee_ratio；其他势力仍按性格
     flee_ratio_by_faction: on('T3') ? { [str(TP.T3.param, /：(\S+?)单独/, 'tuning_r1.T3.param')]: TP.T3.value } : {},
-    // T4–T6：needs_user，只准备开关，默认关
-    garrison_power_floor: { enabled: on('T4'), value: T4v.garrison_power_floor ?? 70 },
-    field_regroup: { enabled: on('T5'), implemented: false, ...T5v },
-    escape_points: { enabled: on('T6'), implemented: false, mult: T6v.escape_points_mult ?? 0.5 }
+    // T4：洛阳守军战力 = max(garrison_power_floor, city_v06.garrison.power_vs_player × 玩家战力)；正式字段 city_v06.garrison.power_floor 优先
+    garrison_power_floor: typeof C.garrison?.power_floor === 'number' ? { enabled: true, value: C.garrison.power_floor }
+      : TP.T4 ? { enabled: on('T4'), value: T4v.garrison_power_floor, power_vs_player: one(TP.T4.param, /([\d.]+)\s*×\s*玩家战力/, 'tuning_r1.T4.param') }
+      : { enabled: false, value: 0 },
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },

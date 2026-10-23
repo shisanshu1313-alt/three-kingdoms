@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, cityLabel } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -505,9 +505,11 @@ export default class WorldScene extends Phaser.Scene {
       g.fillStyle(c.def <= 0 ? 0xff3333 : k < 0.35 ? 0xff9933 : 0x66ddff, 1).fillRect(c.x - w / 2, y, w * k, 6);
       if (c.hold > 0) g.fillStyle(0xaaffaa, 1).fillRect(c.x - w / 2, y + 8, w * c.hold / C.capture_hold_s, 3);
       if (c.lostHold > 0) g.fillStyle(0xff5555, 1).fillRect(c.x - w / 2, y + 8, w * c.lostHold / C.lost_hold_s, 3);
-      const owner = c.owner === PLAYER ? '我的主城' : c.owner ? `${balance.ai.factions.find(f => f.id === c.owner)?.name ?? c.owner}大本营` : c.garrison ? '黄巾守军' : '无主城';
       const store = c.owner === PLAYER ? `  存放 ${(this.state.cityStore ?? []).length}/${balance.v06.roster.storage_max}` : '';
-      this.cityTexts[c.id].setText(`${owner}  城防 ${Math.ceil(c.def)}/${max}${c.def <= 0 ? '（已破）' : ''}${store}`).setColor(side === PLAYER ? '#aaffaa' : '#ffffff');
+      const gar = c.garrison ? this.aiParties.find(p => p.team.cityHold === c.id) : null; // T4：显示守军战力
+      const L = cityLabel(c, { max, factionName: balance.ai.factions.find(f => f.id === c.owner)?.name, storeText: store, garrisonPower: gar?.power ?? null, playerPower: this.player.power });
+      if (this.cityTexts[c.id].text !== L.text) this.cityTexts[c.id].setText(L.text);
+      this.cityTexts[c.id].setColor(L.color);
     }
   }
 
