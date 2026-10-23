@@ -7,7 +7,7 @@
 数值全部来自策划定稿 `/workspace/design/balance_v0.5.json`：`npm run sync:v05`（`scripts/sync-v05.mjs`）→ `src/data/combat_v05.json`（实时战斗）+ `src/data/run_v05.json`（一局的规则）。配置里只有文字的规则在 sync 里转成数值，注释标【解读】。
 
 **怎么玩**：`npm install && npm run dev -- --port 5180`（worktree `/workspace/sanguo-game-v05`）→ http://localhost:5180/ 。标题页「开始新的一局」（有进行中的一局时可「继续」）。
-- WASD/方向键 开队伍、左键点地面 寻路、滚轮 缩放、悬停队伍 看详情；G 抽卡、B 城中整编（换兵种）、P 暂停 / 放弃本局；F1 调试视野。
+- WASD/方向键 开队伍、左键点地面 寻路、滚轮 缩放、悬停队伍 看详情；G 抽卡、B 城中整编（换兵种）、C 属性详情、P 暂停 / 放弃本局；F1 调试视野。
 - **没有撤退键**：想跑就把队伍开走，间隙 > 150 px 保持 2 s 算脱离，逃脱方 8 s 保护（背对敌人时挨打 ×1.3）。
 
 **已做完（v0.5 全部条目）**
@@ -24,7 +24,7 @@
 - 存档：只有一个自动存档 `sanguo-run-v1`（每 30 s、换章、战斗前后、弹窗关闭；交战中每 1 s 存战斗快照，读档原样继续，有 3 s 倒计时）；死亡或通关删档；旧版 `sanguo-save`（v3）启动时改名为 `sanguo-save-legacy` 并提示。全部走 `platform/storage`。
 - 输入全部经过 `platform/input.js`；同一个原生键盘事件只派发一次（Phaser 3.90 一帧内会重复派发，导致 F1 切两次、空格抽两次）。
 
-**测试**：`npm test`（node:test，233 个，含 `tests/run_v05.test.js`：策划定稿清单 ↔ 配置逐项对照、抽卡价、针对兵种、补兵、校尉军、讨伐、失败 / 胜利 / 名望 / 解锁 / 删档；`tests/combat_v05.test.js`：实时战斗）。浏览器（需 playwright-core + Chrome，开发服务器 5180）：`node tests/smoke-run.cjs`（新局 → 20 s 来袭 → 补兵 / 校尉军 → HP 0 失败 → 删档 → 再来一局 → 整编 → 暂停 → 刷新继续；截图 `/workspace/v05-run-screenshot.png`）、`node tests/smoke-v05.cjs`（接触 → 战斗中刷新读档 → 开走脱离）、`node tests/smoke.cjs http://localhost:5180/`（v0.4 玩法回归）、`node tests/smoke-dist.cjs <正式构建 URL>`（黑盒）。
+**测试**：`npm test`（node:test，243 个，含 `tests/statsView.test.js`：HUD 属性面板的派生值与变化检测；含 `tests/run_v05.test.js`：策划定稿清单 ↔ 配置逐项对照、抽卡价、针对兵种、补兵、校尉军、讨伐、失败 / 胜利 / 名望 / 解锁 / 删档；`tests/combat_v05.test.js`：实时战斗）。浏览器（需 playwright-core + Chrome，开发服务器 5180）：`node tests/smoke-run.cjs`（新局 → 20 s 来袭 → 补兵 / 校尉军 → HP 0 失败 → 删档 → 再来一局 → 整编 → 暂停 → 刷新继续；截图 `/workspace/v05-run-screenshot.png`）、`node tests/smoke-v05.cjs`（接触 → 战斗中刷新读档 → 开走脱离）、`node tests/smoke.cjs http://localhost:5180/`（v0.4 玩法回归）、`node tests/smoke-dist.cjs <正式构建 URL>`（黑盒）、`node tests/smoke-hud.cjs [URL]`（HUD 属性：小面板 → C 详情 → 属性卡 / 得到武将刷新高亮 → 点按钮收起 → 竖屏 390×844；截图 `/workspace/hud-stats-screenshot.png`、`/workspace/hud-stats-portrait.png`）。
 
 **策划已确认（2026-10-22）**：名将军被其他 AI 打掉后击败该势力校尉军算讨伐（`faction_refill.counts_when_named_lost`，只在这种情况下）；名将军补兵交战中暂停、战后不补算（`named_reinforce.pause_in_battle` / `catch_up`）；开局枪兵 = 进入第 2 章。三条都由 `npm run sync:v05` 从配置读取。目前没有待确认的【假设】。
 
@@ -62,6 +62,8 @@ node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist�
 | 鼠标左键 | A* 寻路移动到点击处（绕开山/水，偏好官道、避开森林） |
 | 鼠标悬停队伍 | 显示完整信息（武将、兵/上限、战力）；靠近玩家的队伍也自动显示 |
 | 滚轮 | 缩放 0.5x ~ 2.5x |
+| 右上属性小面板（常显） | 统帅（= 主角，永远是统帅）姓名与统率 / 武力 / 智力 / 魅力；统率最高的武将不是主角时多一行「战力/速度按 X 统率 N」（现有结算按统率最高者算，见下） |
+| C / 「属性 [C]」按钮 / 点小面板 | 展开 / 收起属性详情（不暂停游戏；点详情面板也能收起）：统帅 / 副将的四维（武将 n/3）、兵力上限、战力倍率、智力减伤、总损兵减免、魅力收编率、统率速度、行军速度、擅长兵种。抽卡属性卡、得到 / 替换武将、换兵种等变化时实时刷新，变化的数值高亮约 1.5 s。横屏在右侧，竖屏 / 窄屏贴底、字号更小 |
 | G / 右上「抽卡 [G]」按钮 | 打开抽卡（大地图暂停）；战斗中或有待安排武将时不能抽（后者会先弹出名册窗口） |
 | 抽卡界面 | 空格 或 点「抽一次」；抽取动画任意键/点击跳过；结果先展示，需要选择时按 Enter/Esc 或点「确定」进入选择；1~3 选武将（属性）或丢弃旧物品；0/R 放弃新物品 |
 | 抽卡 Esc（v0.4 esc_rule） | 待机：关闭界面；抽取动画：跳过；结果：确认（回待机或进入选择）；选武将 / 物品栏满 / 队伍满：忽略（抽卡已扣点，必须选） |
@@ -94,7 +96,7 @@ node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist�
 - `storage.js`：存储接口 `get / set / remove`。现在用 `LocalStorageAdapter`（localStorage 不可用时退回内存）；小游戏换 `WxStorageAdapter(wx | tt)`。**除这里以外不许直接用 localStorage。**
 - `lifecycle.js`：`onHide(cb)`。网页 = visibilitychange / pagehide / beforeunload；小游戏换 `WxLifecycleAdapter`（wx.onHide）。
 - `screen.js`：屏幕尺寸。网页 = `window.innerWidth/innerHeight` + Phaser RESIZE（与以前相同）；小游戏换 `WxScreenAdapter(wx | tt)`（getSystemInfoSync）。入口 `main.js` 只通过 `scaleConfig()` 取尺寸。
-- `input.js`：输入动作层。场景只监听动作（`move` 向量、`moveTo` 点地面、`confirm`/`cancel`/`primary`/`choose N`/`release`/`yes`/`no`、`openGacha`、`save`/`load`、`debugVision`/`debugPoints`、`zoom`、`tap`、`any`），不碰原始按键。现在有 `KeyboardSource`（键位与以前完全一样，见 `DEFAULT_BINDINGS`）和 `PointerSource`（鼠标/触屏点按、滚轮）；触摸摇杆以后实现 `{ moveVector(), attach(emit), detach() }` 再 `actions.addSource()` 即可。
+- `input.js`：输入动作层。场景只监听动作（`move` 向量、`moveTo` 点地面、`confirm`/`cancel`/`primary`/`choose N`/`release`/`yes`/`no`、`openGacha`、`toggleStats`（C）、`save`/`load`、`debugVision`/`debugPoints`、`zoom`、`tap`、`any`），不碰原始按键。现在有 `KeyboardSource`（键位与以前完全一样，见 `DEFAULT_BINDINGS`）和 `PointerSource`（鼠标/触屏点按、滚轮）；触摸摇杆以后实现 `{ moveVector(), attach(emit), detach() }` 再 `actions.addSource()` 即可。
 - `systems/save.js` 是纯逻辑，存储由调用方传入（单测用 `MemoryStorageAdapter`）。
 
 ## 存档（systems/save.js）
