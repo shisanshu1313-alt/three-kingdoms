@@ -11,6 +11,7 @@ import { pullCost } from '../systems/gacha.js';
 import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
 import { UNIT_NAMES, UNIT_FULL_NAMES } from '../systems/units.js';
 import { UNIT_ORDER_UNITS } from '../systems/gacha.js';
+import StatsHud from '../ui/StatsHud.js';
 
 const UI_CFG = balance.gacha_ui ?? {};
 const DEBUG_POINTS = 200;
@@ -21,9 +22,10 @@ export default class UIScene extends Phaser.Scene {
 
   create(data = {}) {
     this.world = this.scene.get('World');
+    this.stats = null; // 场景重启（再来一局 / 读档）时，上一局的 StatsHud 已随场景销毁
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · B 城中整编 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · B 城中整编 · C 属性详情 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -40,6 +42,9 @@ export default class UIScene extends Phaser.Scene {
       capture: DEBUG_HOOKS ? (import.meta.env.DEV ? ['F2', 'F5', 'F9'] : ['F5', 'F9']) : []
     });
     act.on(ACTIONS.OPEN_GACHA, () => { if (!this.pauseUi) this.openGacha(); });
+    // HUD 属性：常显小面板 + C / [属性 C] 按钮展开详情（不暂停游戏）
+    this.stats = new StatsHud(this, { getParty: () => this.world.player, getCfg: () => this.world.field?.cfg, balance });
+    act.on(ACTIONS.TOGGLE_STATS, ({ repeat }) => { if (!repeat) this.stats.toggle(); });
     // save_v05.dev：F5 / F9 只在开发 / 冒烟构建里有（正式版只有自动存档）
     if (DEBUG_HOOKS) { act.on(ACTIONS.SAVE, () => this.manualSave()); act.on(ACTIONS.LOAD, () => this.manualLoad()); }
     // 暂停菜单：P 打开 / 关闭；菜单里 Y = 放弃本局（按失败结算）
@@ -216,6 +221,7 @@ export default class UIScene extends Phaser.Scene {
   }
 
   hitsHud(pointer) {
+    if (this.stats?.hits(pointer.x, pointer.y)) return true;
     const b = this.gachaBtn;
     return b && pointer.x >= b.x && pointer.x <= b.x + 120 && pointer.y >= b.y && pointer.y <= b.y + 34;
   }
@@ -224,6 +230,7 @@ export default class UIScene extends Phaser.Scene {
     const w = this.scale.width, h = this.scale.height;
     if (this.gachaBtn) this.gachaBtn.setPosition(w - MINIMAP_SIZE - 10, MINIMAP_SIZE + 20);
     this.help.setPosition(10, h - 30);
+    this.stats?.layout();
     if (this.log) this.log.setPosition(10, h - 36);
     const x = w - MINIMAP_SIZE - 10, y = 10;
     this.minimapRect = { x, y };

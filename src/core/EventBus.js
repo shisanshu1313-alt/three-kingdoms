@@ -41,5 +41,6 @@ export const EVENTS = {
   BATTLE_START: 'battle-start',       // { battle }
   BATTLE_END: 'battle-end',           // { battle, outcome }  outcome 见 battle.applyBattleResult
   PARTY_SPAWNED: 'party-spawned',     // { party }
-  PARTY_REMOVED: 'party-removed'      // { party }
+  PARTY_REMOVED: 'party-removed',     // { party }
+  TEAM_CHANGED: 'team-changed'        // { party }  队伍数值重算后（PartyModel.refresh：属性 / 武将 / 兵种 / 物品 / 兵数变化）
 };

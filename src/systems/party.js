@@ -1,5 +1,6 @@
 import { PARTY_SIZE, CLICK_ARRIVE_DIST } from '../config.js';
 import { computePower, soldierCap, teamSpeed } from './combat.js';
+import { EventBus, EVENTS } from '../core/EventBus.js';
 
 /** '#rrggbb' / '#rgb' → 0xrrggbb（与 Phaser HexStringToColor 结果相同） */
 export function hexToInt(hex) {
@@ -51,6 +52,7 @@ export default class PartyModel {
     this.cap = soldierCap(this.team, this.balance);
     this.speed = teamSpeed(this.team, this.balance);
     this.rev++;
+    EventBus.emit(EVENTS.TEAM_CHANGED, { party: this }); // HUD 属性面板等据此刷新（不和抽卡 / 名册界面耦合）
   }
 
   /** 位置。v0.5：战斗体（FieldBattle）是位置的权威；直接设位置（读档、刷新、调试）时同步过去 */

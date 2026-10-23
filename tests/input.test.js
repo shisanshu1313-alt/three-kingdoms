@@ -62,3 +62,10 @@ test('输入源可插拔：多个移动源相加并归一化（以后的触摸�
   a.destroy();
   assert.ok(joystick.detached);
 });
+
+test('C / c → toggleStats（HUD 属性详情），不和其它动作冲突', () => {
+  for (const k of ['c', 'C']) {
+    const acts = actionsForKey(k, DEFAULT_BINDINGS, 67).map(a => a[0]);
+    assert.deepEqual(acts, [ACTIONS.ANY, ACTIONS.TOGGLE_STATS]);
+  }
+});

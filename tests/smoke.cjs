@@ -1,5 +1,5 @@
 // 冒烟测试（M2+M3+存档）：node tests/smoke.cjs [url]   需要 playwright-core 与本机 Chrome
-// 覆盖：无报错、键盘移动、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标抽一次 / 满编替换）、截图
+// 覆盖：无报错、键盘移动、HUD 属性（C）、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标抽一次 / 满编替换）、截图
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const URL = process.argv[2] || 'http://localhost:5173/';
 const ART = require('path').join(__dirname, '..', 'artifacts'); // 截图输出目录（.gitignore，不进仓库）
@@ -59,6 +59,17 @@ const OUT = ART + '/screenshot.png';
     await page.mouse.wheel(0, -100); await page.waitForTimeout(200);
     const z2 = await zoom();
     result.inputActions = { arrow: { from: a0, to: a1 }, vision: [v0, v1, v2], zoom: [z0, z1, z2], ok: a1.x < a0.x && v1 === !v0 && v2 === v0 && z1 < z0 && z2 === z0 };
+  }
+
+  // 1c) HUD 属性：小面板常显；C 展开详情（含兵力上限 / 智力减伤 / 魅力收编率），再按 C 收起（详见 tests/smoke-hud.cjs）
+  {
+    const st = () => ev(() => window.__game.scene.getScene('UI').stats.snapshot());
+    const s0 = await st();
+    await page.keyboard.press('c'); await page.waitForTimeout(150); const s1 = await st();
+    await page.keyboard.press('c'); await page.waitForTimeout(150); const s2 = await st();
+    const d = s1.detail.join('\n');
+    result.statsHud = { compact: s0.compact, open: [s0.open, s1.open, s2.open],
+      ok: !s0.open && s0.compact.join(' ').includes('统率') && s0.compact.join(' ').includes('主将') && s1.open && /兵力上限 \d+/.test(d) && /智力减伤/.test(d) && /魅力收编率/.test(d) && !s2.open };
   }
 
   // 2) 点击寻路绕障：找一处“起点—障碍—终点”水平排列且可达的位置，把玩家放到起点
@@ -337,7 +348,7 @@ const OUT = ART + '/screenshot.png';
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && result.keyboard.ok && result.inputActions.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.pauseFreeze.ok && result.pendingChoiceReload.ok && result.saveBeforeBattle.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
+  const ok = !errors.length && result.keyboard.ok && result.inputActions.ok && result.statsHud.ok && result.clickAroundObstacle.ok && result.chase.ok && result.battle.ok && result.gachaInsufficient.ok && result.gachaPull.ok && result.gachaReplace.ok && result.devF2.ok && result.pauseFreeze.ok && result.pendingChoiceReload.ok && result.saveBeforeBattle.ok && result.saveReload.ok && result.f9Load.ok && result.corruptSave.ok;
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAIL');
   process.exit(ok ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });
