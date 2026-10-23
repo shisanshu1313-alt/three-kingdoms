@@ -27,7 +27,7 @@
 
 **可复现（确定性）**：同一 runSeed → 同一结果。所有游戏随机数都走 runSeed 派生的种子流（team / gacha / combat / spawn / ai，`rng.streamSeed`）；v0.6 起 AI 游荡 / 发呆也用 `rngs.ai`（以前是 `Math.random`），存档 v6 保存 `rng.ai`（v5 → v6 迁移按 `streamSeed(runSeed, 'ai')` 补）。逻辑只由固定 0.1 s tick 推进。纯逻辑模块里没有 `Math.random` / `Date.now` 默认值了（`tests/determinism_v06.test.js` 在模拟时把 `Math.random` 换成抛错）。开发构建下 `window.__SANGUO_SIM = { seed, manualTick: true }` 固定 runSeed 并停掉实时推进（只由 `debugAdvance` 推进）；正式构建忽略它。
 
-**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；`SEEDS=1,2,3 STRAT=rush|farm|active STALL_S=6 OUT=结果.json`；`REPEAT=2` 或 `npm run sim:v06:check` 每个种子跑两遍逐字节比较，不同 → 打印差异字段、退出码 1；`TUNING=off` 关掉 tuning_r1 T1–T4 跑基线）。在 headless Chrome 里跑真实逻辑（manualTick + 固定 tick 快进）。脚本玩家：rush 直接攻洛阳 / farm 先打弱队、兵 ≥ 35 再攻 / active（移植自策划 `tuning_r1/sg06/tools/sim-r1.cjs`：只打估算比 ≥ 1.1 的、躲 ≥ 1.0 的、残血回城、会用兵种令、绕开打不过的名将军）。脚本玩家无接触 STALL_S 秒还没被 separated 规则解开才自己走开，记为「僵持」（stallInfo 记原因）。结果另记 separated 次数、撤下过弱队次数、本局 tuning。
+**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；默认种子 1–48（策划 S1：正式模拟三种策略都跑 1–48，`SEEDS=1-24` / `SEEDS=1,2,3` 可改）；`STRAT=rush|farm|active STALL_S=6 OUT=结果.json`；`REPEAT=2` 或 `npm run sim:v06:check` 每个种子跑两遍逐字节比较，不同 → 打印差异字段、退出码 1；`TUNING=off` 关掉 tuning_r1 T1–T4 跑基线）。在 headless Chrome 里跑真实逻辑（manualTick + 固定 tick 快进）。脚本玩家：rush 直接攻洛阳 / farm 先打弱队、兵 ≥ 35 再攻 / active（移植自策划 `tuning_r1/sg06/tools/sim-r1.cjs`：只打估算比 ≥ 1.1 的、躲 ≥ 1.0 的、残血回城、会用兵种令、绕开打不过的名将军）。脚本玩家无接触 STALL_S 秒还没被 separated 规则解开才自己走开，记为「僵持」（stallInfo 记原因）。结果另记 separated 次数、撤下过弱队次数、本局 tuning。
 
 **已知问题 / 待策划确认**：见 `assumptions.json` 的 `v06.notes`；没做卡面「对视野内敌人的胜算预览」。
 
