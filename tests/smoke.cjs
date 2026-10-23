@@ -318,7 +318,7 @@ const OUT = ART + '/screenshot.png';
     log: [beforeReload.log, restored.log, savedOnUnload?.state?.battleLog?.length],
     before: { points: beforeReload.points, soldiers: beforeReload.soldiers, x: Math.round(beforeReload.x), y: Math.round(beforeReload.y), gens: beforeReload.gens.map(g => g[0]), items: beforeReload.items, ai: beforeReload.ai },
     after: { points: restored.points, soldiers: restored.soldiers, x: Math.round(restored.x), y: Math.round(restored.y), gens: restored.gens.map(g => g[0]), items: restored.items, ai: restored.ai },
-    ok: !!manual && !!cont && sameish(beforeReload, restored) && restored.ai === (savedOnUnload?.ai?.length ?? -1) && restored.log === (savedOnUnload?.state?.battleLog?.length ?? beforeReload.log) }; // 战报条数对照刷新时（unload）实际写进存档的：F5 之后到刷新之间世界还在跑，可能多出一条
+    ok: !!manual && !!cont && sameish(beforeReload, restored) && restored.ai === (savedOnUnload?.ai?.length ?? -1) && (restored.log - (savedOnUnload?.state?.battleLog?.length ?? beforeReload.log)) in { 0: 1, 1: 1 } }; // 战报条数对照刷新时（unload）实际写进存档的：F5 之后到刷新之间世界还在跑，可能多出一条；读档后到取样的 300 ms 世界也在跑（v0.6 起多了 separated 战报），允许再多 1 条
   // F9 读档：改动点数后读档 → 恢复为存档里的点数
   const savedPts = (await readSave()).state.points;
   await ev(() => { window.__game.scene.getScene('World').state.points += 77; });
