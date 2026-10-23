@@ -57,8 +57,16 @@ export class WorldModel {
     const pts = tiles.map(t => ({ x: (t.x + 0.5) * T, y: (t.y + 0.5) * T }));
     // 终点：目标点可站就用精确点
     const last = tiles[tiles.length - 1];
-    if (!tiles.partial && Math.floor(x / T) === last.x && Math.floor(y / T) === last.y && party._fits(x, y, this)) {
-      pts[pts.length - 1] = { x, y };
+    if (!tiles.partial && Math.floor(x / T) === last.x && Math.floor(y / T) === last.y) {
+      if (party._fits(x, y, this)) pts[pts.length - 1] = { x, y };
+      else {
+        // QA-09：点的位置贴着障碍、色块放不下 → 不再退回格心（最多差半格，看起来「停在旁边」），
+        // 而是沿 格心→点击点 找最靠近点击点、还放得下的位置（二分 8 次，纯计算、确定性）
+        const c = pts[pts.length - 1];
+        let lo = 0, hi = 1;
+        for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (party._fits(c.x + (x - c.x) * m, c.y + (y - c.y) * m, this)) lo = m; else hi = m; }
+        if (lo > 0) pts[pts.length - 1] = { x: c.x + (x - c.x) * lo, y: c.y + (y - c.y) * lo };
+      }
     }
     // 拉直：从当前位置贪心跳到最远的直线可达路点（向前最多看 10 个）
     const out = [];

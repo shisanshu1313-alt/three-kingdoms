@@ -49,3 +49,13 @@ test('melee.step 的 defeat 事件带胜方兵数 byN / byN0（step 仍是纯函
   assert.match(fb, /wb \? soldiersOf\(wb\) : \(e\.byN/);
   assert.match(fb, /if \(wb\) syncBodyFromTeam/);
 });
+
+test('QA-14：玩家胜 → 战报带「兵 开战前→现在」，现在 = HUD 兵力（含收编）', () => {
+  const { field, W, L } = setup();
+  W.team.is_player = true;
+  removeBody(field.state, W.id);
+  const out = field._handle({ type: 'defeat', id: L.id, cause: 'rout', by: W.id, shares: { [W.id]: 1 }, n: 4, n0: 12, E: 1, power0: 40, byN: 9, byN0: 15 }, 0);
+  assert.match(out.text, /损6\//, out.text);
+  assert.ok(out.text.endsWith(` 兵15→${W.team.soldiers}`), out.text);
+  assert.ok(W.team.soldiers >= 9, '9 + 收编');
+});

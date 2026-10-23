@@ -35,6 +35,9 @@ import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
 import { getLifecycle } from '../platform/lifecycle.js';
 
+/** 标签中心 x：夹在地图内（宽 w 的标签不出左右边，pad 为额外半宽） */
+export const labelX = (x, w, worldW, pad = 0) => Math.max(w / 2 + pad + 2, Math.min(worldW - w / 2 - pad - 2, x));
+
 export default class WorldScene extends Phaser.Scene {
   constructor() { super('World'); }
 
@@ -713,7 +716,11 @@ export default class WorldScene extends Phaser.Scene {
     const [txt, col, ring] = map[type] ?? [type, '#ffffff', 0xffffff];
     const r = radiusOf(p.soldiers, this.field.cfg);
     const c = this.add.circle(p.x, p.y, r + 4).setStrokeStyle(3, ring).setDepth(12);
-    const t = this.add.text(p.x, p.y - r - 18, txt, { fontSize: '18px', color: col, stroke: '#000', strokeThickness: 4, fontStyle: 'bold' }).setOrigin(0.5).setDepth(13);
+    // QA-12：「追!」「溃!」等飘字放在队伍标签上方（以前在圆上方 18 px，正好压在队伍名上）；同一队短时间内多个飘字依次往上错开
+    const v = this.views.get(p), lab = v?.label, now = this.time.now, fx = v ?? {};
+    fx.fxStack = now - (fx.fxAt ?? -1e9) < 600 ? (fx.fxStack ?? 0) + 1 : 0; fx.fxAt = now;
+    const fy = (lab ? Math.min(lab.y - lab.height, p.y - r - 12) : p.y - r - 12) - 2 - fx.fxStack * 20;
+    const t = this.add.text(labelX(p.x, 0, this.worldW, 30), fy, txt, { fontSize: '18px', color: col, stroke: '#000', strokeThickness: 4, fontStyle: 'bold' }).setOrigin(0.5, 1).setDepth(13);
     this.minimap.ignore([c, t]);
     this.tweens.add({ targets: c, scale: 1.8, alpha: 0, duration: 450, onComplete: () => c.destroy() });
     this.tweens.add({ targets: t, y: t.y - 24, alpha: 0, duration: 900, onComplete: () => t.destroy() });
@@ -801,14 +808,17 @@ export default class WorldScene extends Phaser.Scene {
         v.setLabelMode(p.isPlayer || hovered || Math.hypot(p.x - pl.x, p.y - pl.y) < NEAR_PLAYER_FULL_LABEL_PX);
       }
       const w = v.label.width, h = v.label.height;
+      // QA-13：标签横向夹在地图内（地图左 / 右边缘的队伍名不再被切掉半截）；顶边放不下就放到圆下面
+      const lx = labelX(v.body.x, w, this.worldW);
       let bottom = v.body.y - v.radius - 12; // 留出兵数条 / 士气条
       for (let iter = 0; iter < 8; iter++) {
-        const hit = placed.find(r => v.body.x - w / 2 < r.right && v.body.x + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
+        const hit = placed.find(r => lx - w / 2 < r.right && lx + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
         if (!hit) break;
         bottom = hit.top - 1;
       }
-      v.label.setPosition(v.body.x, bottom);
-      placed.push({ left: v.body.x - w / 2, right: v.body.x + w / 2, top: bottom - h, bottom });
+      if (bottom - h < 0) bottom = v.body.y + v.radius + 14 + h;
+      v.label.setPosition(lx, bottom);
+      placed.push({ left: lx - w / 2, right: lx + w / 2, top: bottom - h, bottom });
       // 战斗中/无敌提示色
       v.label.setColor(p.inBattle ? '#ff8888' : (p.isInvincible(this.clock.now) ? '#88ffff' : (sc ? sc.color : '#ffffff')));
     }

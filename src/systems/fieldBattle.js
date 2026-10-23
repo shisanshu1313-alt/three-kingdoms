@@ -190,6 +190,8 @@ export default class FieldBattle {
       W.refresh();
       outcome.points = r.playerPoints;
       if (r.playerPoints) outcome.text += ` +${r.playerPoints}分`;
+      // QA-14：战报「损X」= 本次交战开始以来的阵亡（多队混战算全部敌人造成的），HUD 兵力还要加上「收编」、受兵力上限限制 → 玩家胜时把净变化写出来，两边对得上
+      if (W.team.is_player) outcome.text += ` 兵${roundHalfUp(wN0)}→${W.team.soldiers}`;
       outcome.shares = e.shares;
     } else {
       outcome = { outcome: 'rout', removeIds: [L.id], captured: [], toFreePool: L.team.generals.filter(g => !g.generic).map(g => g.id), pendingGenerals: [], points: 0, text: `${L.name} 溃散` };

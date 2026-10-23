@@ -61,9 +61,11 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.mouse.click(550, 600); await sleep(p, 100);
   // 开走：往左（远离敌人）一直开，直到脱离（escape）或战斗以别的方式结束
   await p.keyboard.down('a');
-  t0 = Date.now(); let shot = false;
+  t0 = Date.now(); let shot = false, sawApartHud = false;
+  const hud = () => p.evaluate(() => __game.scene.getScene('UI').info.text);
   while (Date.now() - t0 < 30000) {
     s = await st();
+    if (!sawApartHud && /脱离 \d+\.\d\/\d+(\.\d+)?s/.test(await hud())) sawApartHud = true; // QA-15：HUD 脱离进度
     if (!shot && !s.contact && s.pairs) { await p.screenshot({ path: path.join(OUT, 'v05-disengaging.png') }); shot = true; }
     // 可能有第三方加入：要等所有交战都结束（逃脱 / 别的方式）
     if (!s.inBattle && (logs.some(l => l.startsWith('[escape] 主角军')) || logs.some(l => l.startsWith('[battle-end]')))) break;
@@ -77,6 +79,11 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   console.log('after', s, logs.filter(l => /^\[(battle|escape|draw|rout)/.test(l)));
   if (!escaped) await fail('玩家开走后没有脱离（escape）');
   if (!s.prot) await fail('脱离后没有 8 s 保护');
+  if (!sawApartHud) await fail('QA-15：拉开过程中 HUD 没出现「脱离 x/2s」');
+  const hudAfter = await hud();
+  if (!/保护\d+\.\ds/.test(hudAfter)) await fail('QA-15：脱离后 HUD 没有「保护 Ns」：' + hudAfter.split('\n').slice(0, 3).join(' | '));
+  if (!logs.some(l => l.startsWith('[fx] escape'))) await fail('QA-15：没有「脱离」飘字');
+  console.log('QA-15 HUD ok', { sawApartHud, prot: hudAfter.match(/保护\d+\.\ds/)?.[0] });
   if (s.inBattle) await fail('脱离后仍在交战');
   if (errs.length) await fail('页面错误: ' + errs.join(' | '));
   console.log('SMOKE v0.5 OK');
