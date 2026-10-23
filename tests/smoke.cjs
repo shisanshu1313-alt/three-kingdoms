@@ -315,9 +315,10 @@ const OUT = ART + '/screenshot.png';
   const sameish = (a, b) => a.points === b.points && a.draws === b.draws && a.soldiers === b.soldiers && JSON.stringify(a.gens) === JSON.stringify(b.gens)
     && JSON.stringify(a.items) === JSON.stringify(b.items) && JSON.stringify(a.freePool) === JSON.stringify(b.freePool) && Math.hypot(a.x - b.x, a.y - b.y) < 8;
   result.saveReload = { manualSaveWritten: !!manual, saveVersion: manual?.saveVersion, balanceVersion: manual?.balanceVersion, unloadReason: savedOnUnload?.reason,
+    log: [beforeReload.log, restored.log, savedOnUnload?.state?.battleLog?.length],
     before: { points: beforeReload.points, soldiers: beforeReload.soldiers, x: Math.round(beforeReload.x), y: Math.round(beforeReload.y), gens: beforeReload.gens.map(g => g[0]), items: beforeReload.items, ai: beforeReload.ai },
     after: { points: restored.points, soldiers: restored.soldiers, x: Math.round(restored.x), y: Math.round(restored.y), gens: restored.gens.map(g => g[0]), items: restored.items, ai: restored.ai },
-    ok: !!manual && !!cont && sameish(beforeReload, restored) && restored.ai === (savedOnUnload?.ai?.length ?? -1) && restored.log === beforeReload.log };
+    ok: !!manual && !!cont && sameish(beforeReload, restored) && restored.ai === (savedOnUnload?.ai?.length ?? -1) && restored.log === (savedOnUnload?.state?.battleLog?.length ?? beforeReload.log) }; // 战报条数对照刷新时（unload）实际写进存档的：F5 之后到刷新之间世界还在跑，可能多出一条
   // F9 读档：改动点数后读档 → 恢复为存档里的点数
   const savedPts = (await readSave()).state.points;
   await ev(() => { window.__game.scene.getScene('World').state.points += 77; });
