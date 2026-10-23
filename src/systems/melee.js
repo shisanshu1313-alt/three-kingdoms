@@ -47,7 +47,7 @@ export function teamStats(team, balance, cfg) {
   }
   const noCharge = (team.items || []).includes('juma') ? ['cav'] : [];
   return {
-    M, genTerm, takenFrom, noCharge, drill: team.drill ?? 0,
+    M, genTerm, takenFrom, noCharge, drill: team.drill ?? 0, epCounter: team.epCounter ?? 0,
     red: Math.min(balance.power.loss_reduction_total_cap, lossReduction(team, balance) + (u.red ?? 0)),
     leadMult: 1 + cfg.move.lead_speed_k * (lead - 50),
     // v0.4 速度公式的参数（兵数在 vmaxOf 里按当前值代入）
@@ -92,10 +92,10 @@ export function counterMult(cfg, chapter) {
   const arr = cfg.move.counter_mult_by_chapter;
   return arr[clamp(chapter | 0, 0, arr.length - 1)];
 }
-/** X 克 Y 时的倍率：counter_mult[章节] + 群雄模式加成 + 操练（drill × 0.05）；不克 = 1 */
+/** X 克 Y 时的倍率：counter_mult[章节] + 群雄模式加成 + 操练（drill × 0.05）+ v0.6 兵法精通（epCounter，已乘 counter_add）；不克 = 1 */
 export function counterFactor(X, Y, cfg, chapter) {
   if (cfg.move.counters[X.unit] !== Y.unit) return 1;
-  return counterMult(cfg, chapter) + (cfg.counterAdd ?? 0) + (X.stats?.drill ?? 0) * (cfg.drillAdd ?? 0.05);
+  return counterMult(cfg, chapter) + (cfg.counterAdd ?? 0) + (X.stats?.drill ?? 0) * (cfg.drillAdd ?? 0.05) + (X.stats?.epCounter ?? 0);
 }
 /** Y 受 X 伤害的倍率（克制物品：1 − dmg_taken_from[X 兵种]） */
 export const takenMult = (Y, X) => 1 - Math.min(0.9, Y.stats?.takenFrom?.[X.unit] ?? 0);

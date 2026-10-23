@@ -7,7 +7,7 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, run as runCfg } from '../data/index.js';
 import { DEBUG_HOOKS } from '../debug.js';
 import { button } from '../ui/widgets.js';
-import { pullCost } from '../systems/gacha.js';
+import { drawCost, gachaState } from '../systems/gachaOffer.js';
 import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
 import { UNIT_NAMES, UNIT_FULL_NAMES } from '../systems/units.js';
 import { UNIT_ORDER_UNITS } from '../systems/gacha.js';
@@ -190,7 +190,7 @@ export default class UIScene extends Phaser.Scene {
   reopenPendingChoice() {
     if (this.modalOpen()) return;
     const st = this.world.state;
-    if (st.gachaPending) return this.openGacha({ force: true });
+    if (gachaState(st).offer) return this.openGacha({ force: true }); // v0.6：未选完的 4 张优先恢复
     if (st.pendingGenerals.length) this.openRoster();
   }
 
@@ -198,7 +198,7 @@ export default class UIScene extends Phaser.Scene {
   openGacha({ force = false } = {}) {
     if (this.modalOpen()) return;
     if (!force && this.world.player.inBattle) return this.toast('战斗中不能抽卡', '#ff8888', 15);
-    if (this.world.state.pendingGenerals.length && !this.world.state.gachaPending) return this.openRoster();
+    if (this.world.state.pendingGenerals.length && !gachaState(this.world.state).offer) return this.openRoster();
     this.world.trySaveNow('modal'); // 存档决定 1：打开窗口前立即存档
     if (UI_CFG.pause_world !== false) this.scene.pause('World');
     this.scene.launch('Gacha');
@@ -280,7 +280,7 @@ export default class UIScene extends Phaser.Scene {
       `${ch.name} ${fmt(tS)}/${runCfg.duration_min}:00  主角HP ${Math.ceil(r.heroHp)}/${runCfg.failure.hero_hp_max}  讨平名将 ${r.namedDefeated.length}/${runCfg.run_goal.named.length}${r.hard ? '  群雄模式' : ''}${grace}${this.world.inCity(p) ? '  城中（回血/征兵）' : ''}`,
       `坐标: (${tx}, ${ty})  像素: (${Math.round(p.x)}, ${Math.round(p.y)})`,
       `地形: ${t ? t.name : '-'}  速度×${t ? t.speed : 0}`,
-      `点数: ${st.points}（下一抽 ${pullCost(st.gachaDraws, balance.gacha)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,
+      `点数: ${st.points}（下一抽 ${drawCost(gachaState(st).n, balance)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
       `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
       `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,

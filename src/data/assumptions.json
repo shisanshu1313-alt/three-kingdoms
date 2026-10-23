@@ -43,10 +43,21 @@
       "start_offset_px": {
         "x": 0,
         "y": 220
-      }
+      },
+      "exile_replaced_points": true
     },
     "notes": {
-      "start_offset_px": "洛阳开局有黄巾守军（city_v06.cities），玩家原出生点就在洛阳城心 → 出生点下移 220 px 到城外"
+      "start_offset_px": "洛阳开局有黄巾守军（city_v06.cities），玩家原出生点就在洛阳城心 → 出生点下移 220 px 到城外",
+      "exile_replaced_points": "替换副将后，被换下的人选『流放』时也给 exile_points（+20）；定稿只写了新武将流放 +20",
+      "gacha_threat_range": "『视野 300 + 侦察 500』按 v0.5 侦察距离 500 px（含视野）理解，斥候旗再 +200；威胁 = 该范围内有克制我方当前兵种的敌队",
+      "gacha_threat_items": "威胁 ×2 用在：兵种令卡的权重，以及克制物品卡里防那个兵种的那一件（如被弓兵克时藤甲 ×2）",
+      "gacha_slot_fail": "某槽 30 次都抽不出合法卡：改给 attr_s；还不合法（全队属性满且重复）→ 该槽空，少于 4 张",
+      "gacha_growth_fallback": "成长保底换成 attr_s；全队属性都满时改给 troops_s",
+      "gacha_drill_rule": "操练合法 = 本局已用 < 3 次（同 v0.5 的每局计数；换兵种清零的是层数，不恢复次数）",
+      "gacha_general_card": "武将卡选中即生效（移出自由池）；队伍满时直接进名册弹窗（替换 / 送回主城 / 流放），不能返回改选别的卡；物品栏满 / 兵种令可以返回改选",
+      "gacha_offer_no_close": "4 张出来后不能关闭窗口，必须选 1 张（刷新页面回到同一组）",
+      "gacha_unit_order_same": "兵种令选当前兵种 = 不换，不返还点数（定稿：选了就算用掉）",
+      "gacha_counter_preview": "兵种令 / 操练 / 克制物品卡面只写效果和战力（不变），没有做对视野内敌人的胜算预览"
     }
   }
 }
