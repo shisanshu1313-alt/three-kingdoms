@@ -99,6 +99,8 @@ export default class FieldBattle {
     this.state = step(this.state, inputs, dt, this.cfg, env);
     // 第三方加入：开战的一方原本已经在打别人
     for (const e of this.state.events) if (e.type === 'engage') e.join = fighting.has(e.a) ? e.b : fighting.has(e.b) ? e.a : null;
+    // fresh = 这一场是新开的一方（开战前不在交战）；已在交战的一方（被第三方加入的）不在里面 —— 守军重算只认 fresh（power_recalc.third_party）
+    for (const e of this.state.events) if (e.type === 'engage') e.fresh = [e.a, e.b].filter(id => !fighting.has(id));
     for (const p of this.parties.values()) { this._syncParty(p); p.intent = null; }
     for (const e of this.state.events) this._handle(e, nowMs);
     return this.state.events;

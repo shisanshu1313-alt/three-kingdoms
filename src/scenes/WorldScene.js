@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, garrisonRecalc, garrisonRecalcOn, garrisonEngageSoldiers, garrisonPreviewPower, cityLabel } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, garrisonRecalc, garrisonRecalcOn, garrisonRecalcOnEngage, garrisonEngageSoldiers, garrisonPreviewPower, cityLabel } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -169,8 +169,9 @@ export default class WorldScene extends Phaser.Scene {
 
     // ---- 输入 ----
     // 输入动作层（platform/input.js）：键盘 WASD/方向键 移动、左键点击寻路、滚轮缩放、F1 调试视野
-    this.actions = createSceneInput(this, { move: true, capture: ['F1'] });
-    this.actions.on(ACTIONS.DEBUG_VISION, ({ repeat }) => { if (!repeat) this.toggleVision(); }); // 与原 Key 'down' 一致：按住不重复切换
+    // F1 调试视野：PM 2026-10-23 定 —— 和 F2 一样只在开发 / 冒烟测试构建（DEBUG_HOOKS）里有，正式版没有
+    this.actions = createSceneInput(this, { move: true, capture: DEBUG_HOOKS ? ['F1'] : [] });
+    if (DEBUG_HOOKS) this.actions.on(ACTIONS.DEBUG_VISION, ({ repeat }) => { if (!repeat) this.toggleVision(); }); // 与原 Key 'down' 一致：按住不重复切换
     this.targetMarker = this.add.rectangle(0, 0, 10, 10).setStrokeStyle(2, 0xffffff).setVisible(false).setDepth(9);
     this.pointerWorld = { x: -1e9, y: -1e9 };
 
@@ -625,14 +626,15 @@ export default class WorldScene extends Phaser.Scene {
   combatHooks() {
     const playerIn = (...ps) => ps.some(p => p?.isPlayer);
     return {
-      onEngage: (a, b) => {
+      onEngage: (a, b, e) => {
         for (const x of [a, b]) if (x?.team.raid) x.team.raid = false; // 来袭队接战后按普通 AI 行动
-        // T4 power_recalc：战斗体已按 env.engageSoldiers 换成重算后的兵数；这里把同样的重算记到守军队伍上（满编 / remain_frac / 面板战力）
-        for (const [g, o] of [[a, b], [b, a]]) if (g?.team.cityHold && o?.isPlayer && garrisonRecalcOn(balance)) {
-          const body = this.field.body(g.id);
+        // T4 power_recalc：战斗体已按 env.engageSoldiers 换成重算后的兵数；这里把同样的重算记到守军队伍上（满编 / remain_frac / 面板战力）。
+        // third_party：守军开战前已在交战（AI 在打守军时玩家加入）→ 战斗体没重算，队伍也不重算（e.fresh 不含守军）
+        for (const [g, o] of [[a, b], [b, a]]) if (garrisonRecalcOnEngage(g?.team, o?.isPlayer, e?.fresh?.includes(g?.id), balance)) {
           garrisonRecalc(g.team, this.player.power, balance);
-          if (body && body.N0start === body.N0 && Math.abs(body.N0 - g.team.soldiers) < 1e-9) { g.refresh(); console.log(`[city] ${g.name} 开战重算 兵${g.team.soldiers}（满编 ${g.team.garrisonFull}）战${g.power.toFixed(1)} 玩家战力 ${this.player.power.toFixed(1)}`); }
-          else { g.refresh(); console.log(`[city] ${g.name} 开战重算：战斗体兵数 ${body?.N0} 与队伍 ${g.team.soldiers} 不一致（第三方加入？）`); }
+          g.refresh(); console.log(`[city] ${g.name} 开战重算 兵${g.team.soldiers}（满编 ${g.team.garrisonFull}）战${g.power.toFixed(1)} 玩家战力 ${this.player.power.toFixed(1)}`);
+          const body = this.field.body(g.id);
+          if (body && Math.abs(body.N0 - g.team.soldiers) > 1e-9) console.warn(`[city] ${g.name} 开战重算：战斗体兵数 ${body.N0} 与队伍 ${g.team.soldiers} 不一致`);
         }
         EventBus.emit(EVENTS.BATTLE_START, { battle: { a, b } });
         if (playerIn(a, b)) this.trySaveNow('battle-start'); // 存档决定 1：开战即存（含战斗快照）
@@ -752,12 +754,14 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   toggleVision(on = !this.debugVision) {
+    if (!DEBUG_HOOKS) return false;
     this.debugVision = on;
     if (!on) this.debugGfx.clear();
     return on;
   }
 
   drawDebug() {
+    if (!DEBUG_HOOKS) return;
     const g = this.debugGfx.clear(), R = balance.ai.vision_px;
     const stateColor = { chase: 0xff3333, flee: 0x33ccff, return: 0xffffff, wander: 0xdddddd };
     for (const p of this.parties) {
@@ -896,7 +900,7 @@ export default class WorldScene extends Phaser.Scene {
     this.drawCombatFx();
     this.drawCities();
     this.layoutLabels();
-    if (this.debugVision) this.drawDebug();
+    if (DEBUG_HOOKS && this.debugVision) this.drawDebug();
   }
 }
 
