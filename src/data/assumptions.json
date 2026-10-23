@@ -94,8 +94,7 @@
       "battle_no_contact_chasing": "【已确认】「在追」= 朝对方的接近速度 ≥ no_contact_chase_frac（缺省 0.5，配置 battle_v06.no_contact_chase_frac）× 自己最大速度；「放箭」= 任一方 shooting 的目标是对方",
       "determinism": "【v0.6 已做】同一 runSeed 同一结果：游戏随机数全走 runSeed 派生的种子流 team / gacha / combat / spawn / ai（rng.streamSeed）；AI 游荡 / 发呆原用 Math.random，改用 rngs.ai；纯逻辑模块不再有 Math.random 默认参数（缺省用固定种子 mulberry32）；respawnPosition 必须传 rng；攻城 / 来袭选目标同距离按 id 定序。存档 v6 保存 rng.ai，v5 → v6 迁移按 streamSeed(runSeed,'ai') 补。开发构建 window.__SANGUO_SIM = { seed, manualTick } 固定种子并只由 debugAdvance 推进（正式构建忽略）。UI 的 delayedCall / tween / 读档倒计时只影响显示或暂停，不影响逻辑",
       "tuning_r1": "【策划 + 用户 2026-10-23 已定】tuning_r1 只认 tag = decided（或 apply_now）的提案：T1 siege_min_s 15（每秒城防伤害 ≤ 章节城防上限 / 15，多队共用）；T2 满 10 队时撤下 1 支战力 < 0.6 × 玩家、不在交战、距玩家 > 400 px 的普通黄巾队再按章重刷（不含来袭 / 守军 / 攻城 / 名将军 / 校尉军，最弱优先、同战力按 id）；T3 黄巾 flee_ratio 0.4；T4 洛阳守军战力 = max(garrison_power_floor 70, 0.5 × 玩家战力)，城名标签显示守军战力，玩家更弱时红字「强于你」。T5（野外收拢）/ T6（逃脱给点）rejected：没做、不进配置。名将军逃跑留到下一轮",
-      "city_edge_interp": "【解读】①换章 keep：被打过的城当前城防不变；但换章前满城防（def ≥ 旧上限）的城仍算满城防，设为新章上限（否则所有城一换章就变成「不满」并开始回复，不符合「不补满」的本意）。②regen_rule「离开满 20 s」按连续计：离开中途又贴城 / 又和守军交战 → 重新从 0 计。③「贴城」= 队伍圆接触城圆且与城主敌对（攻城方）；AI 攻城方同样暂停自己目标城的倒计时。④旧存档没有 zeroAwayS → 按 0 起算（读档后需重新离开满 20 s）",
-      "garrison_player_joins_ai_fight": "【待策划】third_party 定稿只写了「玩家和守军交战中有第三方加入 → 守军不重算」。反过来「AI 正在打守军、玩家加入」目前实现为：玩家和守军开战 = 一场新的玩家 vs 守军战斗 → 按规则重算。如需「守军已在交战就不重算」请策划确认"
+      "city_edge_interp": "【解读】①「贴城」= 队伍圆接触城圆且与城主敌对（攻城方）；AI 攻城方同样暂停自己目标城的倒计时。②旧存档没有 zeroAwayS → 按 0 起算。③「满城防」= def ≥ 旧章上限（差 0 也不算满就不抬）"
     },
     "confirmed": {
       "_comment": "策划 2026-10-23 确认按现有实现（不再是假设）",
@@ -108,11 +107,12 @@
       "garrison_power_recalc": "#T4 洛阳守军（city_v06.garrison.power_floor 70 + power_recalc，策划 2026-10-23 定稿）：玩家队伍和守军开战那一刻按当时玩家面板战力重算满编 full = max(70, 0.5×玩家)（melee env.engageSoldiers → 新一场的 N0；破城防不算开战，期间涨的战力含抽卡都算进去）；交战中不变；remain_frac = 当前兵数 / 上次重算的满编（累计，初始 1），重算后兵数 = 新满编 × remain_frac（四舍五入，至少 1；满编向上取整保证 ≥ 目标）",
       "garrison_label": "#T4 标签：不在交战 = max(70, 0.5×当前玩家战力) × remain_frac（label_applies_ratio = true），每秒（游戏时间）刷新；交战中 = 守军实际战力；「强于你」（红字）一律按标签数值判断",
       "bandit_flee_ratio": "#T3 黄巾 flee_ratio 0.4 只管 AI 扫视野的逃跑决策：我方/对方 ≤ 0.4（等于也逃）才逃；交战中途撤退不变（士气 < 30 溃败、性格撤退阈值 retreat_by_personality）。有测试锁定",
-      "garrison_third_party": "【策划 2026-10-23 定稿 city_v06.garrison.power_recalc.third_party】只有玩家队伍和守军开战才重算；AI 队伍单独打守军不重算，但它打掉的兵照样计入 remain_frac；玩家和守军交战中有第三方加入 → 守军不重算、不变（现有实现即如此）",
+      "garrison_third_party": "【策划 2026-10-23 定稿 power_recalc.third_party，PM 07:22 确认含反向】只有玩家队伍和守军开战才重算；AI 单独打守军不重算，但打掉的兵照样计入 remain_frac；第三方加入（玩家在打守军时 AI 加入，或 AI 在打守军时玩家加入）守军都不重算、不变：melee 只对开战前不在交战的一方调 engageSoldiers，FieldBattle 的 engage 事件带 fresh，WorldScene.onEngage 只在守军 fresh 时 garrisonRecalc（city.garrisonRecalcOnEngage）—— 战斗体和队伍一致",
       "garrison_old_saves": "【策划 2026-10-23 定稿 power_recalc.old_save】v5 存档迁移：remain_frac = 守军当前兵 / 旧满编（targetPower 折算的满编，差 ≤ 1 兵算满；无旧满编取 1），满编等下次和玩家开战按新规则重算（现有实现即如此）",
       "garrison_stronger_hint": "【策划 2026-10-23 定稿 power_recalc.stronger_hint → v06.json city.garrison.stronger_hint = gt】标签战力 > 玩家战力（严格大于）才显示「强于你」，相等不提示；比较的是显示出来的整数（标签和 HUD 都四舍五入）",
-      "city_chapter_change": "【策划 2026-10-23 定稿 city_v06.siege.chapter_change → v06.json city.chapter_change = keep】攻城中换章：每秒城防伤害上限立即换成新章「城防上限 ÷ 15」；当前城防值不变，不按新章上限补满（原实现按比例放大，已改）",
-      "city_regen_rule": "【策划 2026-10-23 定稿 city_v06.siege.regen_rule → v06.json city.regen_rule = away】城防归零后，玩家（或攻城的 AI）贴着城、或玩家正在和该城守军交战 → 回复倒计时暂停；离开（不贴城且不交战）满 break_window_s（20）s 才开始回复（另需 8 s 没挨打），回复后城防 > 0 要重新破城（原实现从归零那一刻计 20 s，已改）"
+      "city_chapter_change": "【策划 2026-10-23 07:22 定稿 city_v06.siege.chapter_change → v06.json city.chapter_change = keep】换章：每秒城防伤害上限立即换成新章「城防上限 ÷ 15」（cityTick 每 tick 按当前章）；城防是满的（没被打过 / 已回满）抬到新章上限；不满（正在被攻 / 还没回满）当前值不变（原实现按比例放大，已改）",
+      "city_regen_rule": "【策划 2026-10-23 07:22 定稿 city_v06.siege.regen_rule → city.regen_rule = away、city.regen_hold = pause】城防归零后，玩家（或攻城的 AI）贴着城、或玩家正在和该城守军交战 → 回复倒计时暂停（不重置）；离开（不贴城且不交战）累计满 break_window_s（20）s 才开始回复（另需 8 s 没挨打），回复后城防 > 0 要重新破城；再次破城计时从 0 开始（原实现从归零那一刻计 20 s，已改）",
+      "prod_console_f1": "【PM 2026-10-23】正式构建（vite build，mode production）用 esbuild pure 去掉 console.log / debug / info，保留 warn / error；F1 调试视野和帮助文字只在 DEBUG_HOOKS（开发 / build:smoke）里有"
     }
   }
 }
