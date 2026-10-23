@@ -1,6 +1,11 @@
 import { PARTY_SIZE, CLICK_ARRIVE_DIST } from '../config.js';
 import { computePower, soldierCap, teamSpeed } from './combat.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
+import { recalcLeader } from './leader.js';
+import { teamName, indexBalance } from './teams.js';
+
+const idxCache = new WeakMap();
+const idxOf = b => { let i = idxCache.get(b); if (!i) { i = indexBalance(b); idxCache.set(b, i); } return i; };
 
 /** '#rrggbb' / '#rgb' → 0xrrggbb（与 Phaser HexStringToColor 结果相同） */
 export function hexToInt(hex) {
@@ -48,6 +53,8 @@ export default class PartyModel {
 
   /** 队伍数值变化后调用：重算战力/上限/速度 */
   refresh() {
+    // v0.6 leader_v06.recompute_when：成员 / 属性变化、补兵、读档后都会走到这里 → 重算统帅（★）与 {统帅名}军 队名
+    recalcLeader(this.team, this.balance, t => teamName(t, this.balance, idxOf(this.balance)));
     this.power = computePower(this.team, this.balance);
     this.cap = soldierCap(this.team, this.balance);
     this.speed = teamSpeed(this.team, this.balance);

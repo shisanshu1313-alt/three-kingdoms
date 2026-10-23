@@ -2,17 +2,18 @@
  * HUD 属性面板的数据（纯 JS，无 Phaser / DOM；单测见 tests/statsView.test.js）。
  * 只做“展示用的换算”：所有数值都调用现有公式（combat.js / melee.js）并读配置，不另写系数。
  *
- *   buildStatsView(team, balance, cfg?)  → 面板数据（主角四维、主将、每名武将、派生值）
+ *   buildStatsView(team, balance, cfg?)  → 面板数据（主角四维、统帅、每名武将、派生值）
  *   flattenStats(view)                  → { 键: 值 }，用于比较变化
  *   changedKeys(prev, next)              → 变化了的键（Set），HUD 据此高亮
  *   fmtPct(x)                            → 0.125 → "12.5%"
  *
- * 统帅（显示用，PM 决定）：玩家队的统帅永远是主角，其余武将显示为副将（最多 team_rules.max_generals 名武将）。
- *   这只是显示；结算仍按现有 mainGeneral()（统率最高者）算战力倍率的统率项、统率速度、擅长兵种 —— view.calcMain 就是它，
- *   view.calcMainDiffers = 统率最高者不是主角（面板会注明“按统率最高者结算”）。v0.6 由策划统一。
+ * 统帅（v0.6 leader_v06）：玩家队统帅永远是主角（★ 统帅），其余武将是副将；结算统一走 systems/leader.js：
+ *   战力统率项 = k_lead × L（L = 主角统率 + sub_lead_k × Σ副将统率），统率速度用 min(L, speed_L_cap)，擅长兵种看副将（A4）。
+ *   view.L = { total, hero, deputies, k, speedCap, speedL } 供面板显示公式。
  * cfg = 战斗配置（melee.makeCombatConfig 的结果，即 WorldScene.field.cfg）；不传时兵种项（兵种减伤、兵种速度、统率速度）为 null。
  */
-import { mainGeneral, computePower, soldierCap, teamSpeed, lossReduction, itemEffect, affinityBonus } from './combat.js';
+import { computePower, soldierCap, teamSpeed, lossReduction, itemEffect, affinityBonus } from './combat.js';
+import { getLeader, leaderLead, speedLead, affinityGeneral, isPlayerTeam } from './leader.js';
 import { teamStats, unitDef } from './melee.js';
 
 export const ATTRS = ['lead', 'str', 'int', 'cha'];
@@ -28,26 +29,29 @@ export function recruitRate(team, balance) {
 export function buildStatsView(team, balance, cfg = null) {
   const gs = team.generals || [];
   const heroId = balance.hero?.id;
-  const mg = mainGeneral(team, balance);
+  const mg = getLeader(team, balance); // 统帅（玩家 = 主角；敌队 A3）
   const af = balance.v05?.units?.affinity?.table ?? {};
   const generals = gs.map(g => ({
     id: g.id, name: g.name, tier: g.tier ?? null, generic: !!g.generic,
     lead: g.lead, str: g.str, int: g.int, cha: g.cha,
     isHero: g.id === heroId, isMain: g === mg, affinity: af[g.id] ?? null,
-    role: g.id === heroId ? 'leader' : 'deputy' // 统帅 / 副将（显示用）
+    role: g === mg ? 'leader' : 'deputy' // ★ 统帅 / 副将
   }));
   const hero = generals.find(g => g.isHero) ?? null;
-  // 没有主角的队伍（AI）：统帅显示为第一名武将
-  const leader = hero ?? generals[0] ?? null;
-  if (!hero && leader) leader.role = 'leader';
+  const leader = generals.find(g => g.role === 'leader') ?? null;
   const p = balance.power, tr = balance.team_rules, rw = balance.rewards;
 
   const sumLead = sumOf(gs, 'lead'), sumStr = sumOf(gs, 'str'), maxInt = maxOf(gs, 'int'), maxCha = maxOf(gs, 'cha');
-  const mainLead = mg?.lead ?? 0;
+  const mainLead = leaderLead(team, balance);
+  const L06 = balance.v06?.leader;
+  const deputies = gs.filter(g => g !== mg);
+  const Lview = { total: mainLead, leader: mg?.lead ?? 0, deputies: sumOf(deputies, 'lead'), k: isPlayerTeam(team, balance) && L06 ? L06.sub_lead_k : 0,
+    speedCap: isPlayerTeam(team, balance) && L06 ? L06.speed_L_cap : null, speedL: speedLead(team, balance) };
+  const epPower = team.epPower ?? 0;
   const powerPct = itemEffect(team, balance, 'power_pct');
   const aff = affinityBonus(team, balance);
-  // 战力倍率 = 1 + k_lead×主将统率 + k_str×Σ武力 + 物品战力% + 擅长兵种（computePower 的括号内）
-  const powerMult = 1 + p.k_lead * mainLead + p.k_str * sumStr + powerPct + aff;
+  // 战力倍率 = 1 + k_lead×L + k_str×Σ武力 + 物品战力% + 擅长兵种 + 虎符（computePower 的括号内）
+  const powerMult = 1 + p.k_lead * mainLead + p.k_str * sumStr + powerPct + aff + epPower;
 
   // 损兵减免：智力部分 = min(上限, k_int × 最高智力)；合计 = lossReduction（含兵书）；战斗中再加兵种 red（melee.teamStats）
   const intRed = Math.min(p.int_loss_reduction_cap, p.k_int_loss_reduction * maxInt);
@@ -64,16 +68,14 @@ export function buildStatsView(team, balance, cfg = null) {
 
   return {
     hero, leader: leader ? { id: leader.id, name: leader.name, lead: leader.lead } : null,
-    // 结算用主将（mainGeneral = 统率最高者）；与统帅不同时面板注明
-    main: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null, calcMain: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null,
-    calcMainDiffers: !!(mg && leader && mg.id !== leader.id), maxGenerals: tr.max_generals, generals,
+    main: mg ? { id: mg.id, name: mg.name, lead: mg.lead } : null, L: Lview, maxGenerals: tr.max_generals, generals,
     unit: team.unit ?? null, soldiers: team.soldiers,
     cap: { total: soldierCap(team, balance), base: tr.soldier_cap_base, perLead: tr.soldier_cap_per_lead, sumLead, fromLead: tr.soldier_cap_per_lead * sumLead, items: itemEffect(team, balance, 'soldier_cap') },
-    power: { total: computePower(team, balance), mult: powerMult, lead: p.k_lead * mainLead, str: p.k_str * sumStr, items: powerPct, affinity: aff, genTerm: p.k_gen * sumStr, sumStr },
+    power: { total: computePower(team, balance), mult: powerMult, lead: p.k_lead * mainLead, str: p.k_str * sumStr, items: powerPct, affinity: aff, epPower, genTerm: p.k_gen * sumStr, sumStr },
     lossRed: { int: intRed, maxInt, k: p.k_int_loss_reduction, intCap: p.int_loss_reduction_cap, items: itemRed, team: teamRed, unit: unitRed, total: st ? st.red : teamRed, totalCap: p.loss_reduction_total_cap },
     recruit: { total: recruitRate(team, balance), base: rw.recruit_base, perCha: rw.recruit_per_cha, maxCha, fromCha: recruitCha, items: recruitItems, max: rw.recruit_max },
     speed: { base: baseSpeed, unit: unitSpeed, leadMult: st ? st.leadMult : null, total: st ? baseSpeed * unitSpeed * st.leadMult : null },
-    affinity: { main: mg ? (af[mg.id] ?? null) : null, active: aff > 0, bonus: balance.v05?.units?.affinity?.m_bonus ?? 0 }
+    affinity: { main: mg ? (af[mg.id] ?? null) : null, active: aff > 0, bonus: aff, by: affinityGeneral(team, balance)?.name ?? null }
   };
 }
 
@@ -87,7 +89,7 @@ export function flattenStats(v) {
   for (const g of v.generals) for (const a of ATTRS) out[`gen.${g.id}.${a}`] = g[a];
   if (v.hero) for (const a of ATTRS) out[`hero.${a}`] = v.hero[a];
   out['leader.id'] = v.leader?.id ?? null;
-  out['main.id'] = v.main?.id ?? null; out['main.lead'] = v.main?.lead ?? null;
+  out['main.id'] = v.main?.id ?? null; out.L = r(v.L.total);
   out.unit = v.unit;
   out.cap = v.cap.total;
   out.powerMult = r(v.power.mult);

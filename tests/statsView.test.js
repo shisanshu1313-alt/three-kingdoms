@@ -3,13 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as M from '../src/systems/melee.js';
-import { applyRunConfig } from '../src/systems/runConfig.js';
+import { balance } from '../src/data/index.js'; // 游戏实际配置（v0.4 + v0.5 + v0.6）
 import { computePower, soldierCap, lossReduction } from '../src/systems/combat.js';
 import { defeatResult } from '../src/systems/fieldBattle.js';
 import { buildStatsView, flattenStats, changedKeys, fmtPct, recruitRate } from '../src/systems/statsView.js';
 
 const J = f => JSON.parse(readFileSync(new URL(f, import.meta.url)));
-const balance = applyRunConfig(J('../src/data/balance.json'), J('../src/data/run_v05.json'));
 const cfg = M.makeCombatConfig(J('../src/data/combat_v05.json'), balance);
 const near = (a, b, msg = '') => assert.ok(Math.abs(a - b) < 1e-9, `${msg} ${a} != ${b}`);
 const lib = id => { const g = balance.generals.find(x => x.id === id); return { id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }; };
@@ -46,18 +45,17 @@ test('上限截断：智力减伤 ≤ int_loss_reduction_cap，收编率 ≤ rec
   const v = buildStatsView(t, balance, cfg);
   near(v.lossRed.int, 0.3); near(v.lossRed.team, 0.38); near(v.lossRed.total, 0.43);
   near(v.recruit.fromCha, balance.rewards.recruit_base + balance.rewards.recruit_per_cha * 92); near(v.recruit.total, balance.rewards.recruit_max);
-  assert.equal(v.main.id, 'zhugeliang'); // 统率最高
-  assert.ok(v.generals.find(g => g.id === 'zhugeliang').isMain);
+  assert.equal(v.main.id, 'hero'); // v0.6：玩家统帅永远是主角
+  assert.ok(v.generals.find(g => g.id === 'hero').isMain);
   assert.ok(v.generals.find(g => g.id === 'hero').isHero);
 });
 
-test('主将并列取靠前者；擅长兵种匹配时战力倍率 + m_bonus', () => {
-  const a = { ...lib('zhangfei'), lead: 85 }, b = { ...lib('guanyu'), lead: 85 };
-  assert.equal(buildStatsView(team({ generals: [hero(), a, b] }), balance, cfg).main.id, 'zhangfei');
+test('A4：副将擅长当前兵种时战力倍率 + sub_affinity_bonus（主角没有擅长兵种）', () => {
+  const a = lib('zhangfei');
   const off = buildStatsView(team({ generals: [hero(), a], unit: 'inf' }), balance, cfg);
   const on = buildStatsView(team({ generals: [hero(), a], unit: 'cav' }), balance, cfg);
-  assert.equal(on.affinity.main, 'cav'); assert.equal(on.affinity.active, true); assert.equal(off.affinity.active, false);
-  near(on.power.mult - off.power.mult, balance.v05.units.affinity.m_bonus);
+  assert.equal(on.affinity.active, true); assert.equal(on.affinity.by, '张飞'); assert.equal(off.affinity.active, false);
+  near(on.power.mult - off.power.mult, balance.v06.leader.sub_affinity_bonus);
 });
 
 test('不传战斗配置：兵种相关项为 null，其余照算', () => {
@@ -79,7 +77,7 @@ test('flattenStats / changedKeys：属性卡、换将、换兵种都能检测到
   t.generals.push(lib('zhangfei')); // 得到武将 → 主将、上限、战力等变化
   const f2 = flattenStats(buildStatsView(t, balance, cfg));
   const c2 = changedKeys(f1, f2);
-  for (const k of ['gen.zhangfei.lead', 'main.id', 'main.lead', 'cap', 'powerMult']) assert.ok(c2.has(k), k);
+  for (const k of ['gen.zhangfei.lead', 'L', 'cap', 'powerMult']) assert.ok(c2.has(k), k);
   t.unit = 'cav'; // 兵种令 → 兵种、擅长兵种、速度
   const c3 = changedKeys(f2, flattenStats(buildStatsView(t, balance, cfg)));
   for (const k of ['unit', 'affinity', 'powerMult']) assert.ok(c3.has(k), k);
@@ -89,17 +87,16 @@ test('fmtPct', () => {
   assert.equal(fmtPct(0.12), '12%'); assert.equal(fmtPct(0.668), '66.8%'); assert.equal(fmtPct(0.1234), '12.3%'); assert.equal(fmtPct(null), '-');
 });
 
-test('统帅永远是主角（显示）；结算主将仍是统率最高者，不同时标出 calcMainDiffers', () => {
+test('v0.6：统帅永远是主角，战力统率项 = k_lead × L（L = 主角统率 + 0.3×Σ副将统率），速度用 min(L,100)', () => {
   const v0 = buildStatsView(team(), balance, cfg);
-  assert.equal(v0.leader.id, 'hero'); assert.equal(v0.calcMain.id, 'hero'); assert.equal(v0.calcMainDiffers, false);
+  assert.equal(v0.leader.id, 'hero'); assert.equal(v0.L.total, 40); assert.equal(v0.L.deputies, 0);
   const t = team({ generals: [hero(), lib('zhangfei'), lib('zhugeliang')] });
   const v = buildStatsView(t, balance, cfg);
   assert.equal(v.leader.id, 'hero');
   assert.deepEqual(v.generals.map(g => g.role), ['leader', 'deputy', 'deputy']);
-  assert.equal(v.calcMain.id, 'zhugeliang'); assert.equal(v.calcMainDiffers, true); // 统率 92 > 张飞 85 > 主角 40
+  near(v.L.total, 40 + 0.3 * (85 + 92)); assert.equal(v.L.speedCap, 100);
   assert.equal(v.maxGenerals, balance.team_rules.max_generals);
-  // 结算值不变：战力倍率的统率项仍按 92 算
-  near(v.power.lead, balance.power.k_lead * 92);
+  near(v.power.lead, balance.power.k_lead * (40 + 0.3 * 177));
   near(v.power.total, computePower(t, balance));
 });
 
@@ -108,12 +105,13 @@ test('面板文字：小面板 = 统帅（主角）+ 四维；详情 = 统帅 / 
   const t = team({ generals: [hero(), lib('zhangfei')] });
   const v = buildStatsView(t, balance, cfg), flat = flattenStats(v);
   const c = compactLines(v);
-  assert.match(c[0].text, /^统帅\s+主角/); assert.match(c[1].text, /统率 40.*武力 45/); assert.match(c[2].text, /智力 40.*魅力 50/);
-  assert.match(c[3].text, /按 张飞 统率 85/); // 统率最高者 ≠ 统帅 → 注明
+  assert.match(c[0].text, /^★ 统帅\s+主角/); assert.match(c[1].text, /统率 40.*武力 45/); assert.match(c[2].text, /智力 40.*魅力 50/);
+  assert.match(c[3].text, /统率项 L 65\.5（含副将×0\.3）/); // 40 + 0.3×85
   assert.equal(compactLines(buildStatsView(team(), balance, cfg)).length, 3);
   const d = detailLines(v), all = d.map(l => l.text).join('\n');
-  for (const s of ['统帅 主角', '副将 张飞', '现按统率最高者 张飞（统率 85）结算', `兵力上限 ${v.cap.total}`, '智力减伤 12%', `魅力收编率 ${fmtPct(v.recruit.total)}`, '总损兵减免', '武将 2/3']) assert.ok(all.includes(s), s);
+  for (const s of ['★ 统帅 主角', '副将 张飞', '※ 统率项 L = 主角统率 40 + 0.3×副将统率 85 = 65.5（速度按 min(L, 100)）', `兵力上限 ${v.cap.total}`, '智力减伤 12%', `魅力收编率 ${fmtPct(v.recruit.total)}`, '总损兵减免', '武将 2/3']) assert.ok(all.includes(s), s);
   assert.ok(!all.includes('主将'), '不再显示“主将”字段');
+  assert.ok(!all.includes('统率最高'), '不再有“按统率最高者结算”的说明');
   for (const l of [...c, ...d]) for (const k of l.keys) assert.ok(k in flat, k);
   const land = statsLayout({ width: 1280, height: 720 }), port = statsLayout({ width: 390, height: 844 });
   assert.equal(land.portrait, false); assert.equal(port.portrait, true);

@@ -28,7 +28,7 @@ export function text(scene, x, y, str, size = 14, color = '#ffffff', extra = {})
 /** 武将一行：色块(档位色) + 名字 + 四项属性 */
 export function generalLine(general, { main = false } = {}) {
   const attrs = ['lead', 'str', 'int', 'cha'].map(a => `${ATTR_NAMES[a]}${general[a]}`).join(' ');
-  return `${main ? '★' : '  '}${general.name}${general.tier ? `（${general.tier}）` : general.generic ? '（头目）' : ''}  ${attrs}`;
+  return `${main ? '★ 统帅 ' : '  '}${general.name}${general.tier ? `（${general.tier}）` : general.generic ? '（头目）' : ''}  ${attrs}`;
 }
 
 export function tierColor(general) {

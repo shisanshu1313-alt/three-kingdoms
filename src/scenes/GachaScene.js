@@ -2,7 +2,7 @@ import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { canPull, pull, oddsTable, freeByTier, resolveAttrChoice, resolveItemFull, resolveUnitOrder, UNIT_ORDER_UNITS, resultFromPending, describeItem, typeName, poolEntry, emptyTierFallback, pullCost } from '../systems/gacha.js';
-import { mainGeneral } from '../systems/combat.js';
+import { getLeader } from '../systems/leader.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import { button, text, generalLine, tierColor, TIER_COLORS, hex } from '../ui/widgets.js';
 
@@ -206,8 +206,8 @@ export default class GachaScene extends Phaser.Scene {
 
     // 右：队伍武将 + 物品栏
     const x1 = this.ox + 420;
-    add(text(this, x1, y0, '队伍武将（★ 主将）', 15, '#f1c40f'));
-    const main = mainGeneral(team, balance);
+    add(text(this, x1, y0, '队伍武将（★ 统帅）', 15, '#f1c40f'));
+    const main = getLeader(team, balance);
     team.generals.forEach((g, i) => {
       const y = y0 + 26 + i * 26;
       add(this.add.rectangle(x1, y + 2, 14, 14, tierColor(g)).setOrigin(0));

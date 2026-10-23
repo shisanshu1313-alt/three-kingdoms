@@ -6,7 +6,8 @@
  * 初始队伍来自 balance.initial_teams；generals 写法："hero" / 名将 id / "generic"（按阵营 generic_general 随机）。
  */
 import { randInt } from './rng.js';
-import { mainGeneral, roundHalfUp } from './combat.js';
+import { roundHalfUp } from './combat.js';
+import { getLeader, leaderLead, recalcLeader } from './leader.js';
 
 const ATTRS = ['lead', 'str', 'int', 'cha'];
 
@@ -35,11 +36,11 @@ export function createNameAllocator(balance, rng) {
   return next;
 }
 
-/** 队伍名：玩家 = player_faction.team_name；其余按阵营 team_name_rule（{主将名} / {头目名}） */
+/** 队伍名：玩家 = player_faction.team_name；其余按阵营 team_name_rule（{主将名} = v0.6 统帅名 / {头目名}） */
 export function teamName(team, balance, idx) {
   if (team.is_player) return balance.player_faction?.team_name ?? '主角军';
   const rule = idx.factionsById[team.faction]?.team_name_rule ?? '{主将名}军';
-  const main = mainGeneral(team, balance);
+  const main = getLeader(team, balance); // v0.6：{统帅名}军（名将军 = 名将）
   return rule.replace('{主将名}', main?.name ?? team.id).replace('{头目名}', main?.name ?? team.id);
 }
 
@@ -81,6 +82,8 @@ export function buildTeam(def, balance, rng, idx = indexBalance(balance), nextNa
     generals: [], items: [...(def.items || [])], position: { ...position }, state: def.state || 'wander'
   };
   team.generals = (def.generals || []).map(ref => resolveGeneral(ref, team, idx, rng, nextName));
+  if (def.name) team.fixedName = true;
+  recalcLeader(team, balance);
   team.name = def.name || teamName(team, balance, idx);
   // home：阵营 home；黄巾（home=null）= 出生点；玩家 = 起点
   team.home = { ...(fac?.home ?? position) };
@@ -97,7 +100,7 @@ export function initialFreePool(balance) { return [...(balance.initial_free_pool
 /**
  * 补充刷新队伍（balance.spawn）：
  *   P* = 玩家面板战力 × U(power_vs_player)；先随机头目属性，再
- *   N = min(兵力上限, max(min_soldiers, round((P* − k_gen×Σ武力) / M)))，M = 1 + k_lead×主将统率 + k_str×Σ武力 + 物品%
+ *   N = min(兵力上限, max(min_soldiers, round((P* − k_gen×Σ武力) / M)))，M = 1 + k_lead×统帅统率 + k_str×Σ武力 + 物品%
  */
 export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx = indexBalance(balance), nextName, powerRange = null }) {
   const sp = balance.spawn;
@@ -107,7 +110,7 @@ export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx 
   const target = playerPower * (lo + rng() * (hi - lo));
   const p = balance.power, g = team.generals;
   const sumStr = g.reduce((s, x) => s + x.str, 0);
-  const lead = mainGeneral(team, balance).lead;
+  const lead = leaderLead(team, balance);
   const M = 1 + p.k_lead * lead + p.k_str * sumStr;
   const cap = balance.team_rules.soldier_cap_base + balance.team_rules.soldier_cap_per_lead * g.reduce((s, x) => s + x.lead, 0);
   team.soldiers = Math.min(cap, Math.max(sp.min_soldiers, roundHalfUp((target - p.k_gen * sumStr) / M)));

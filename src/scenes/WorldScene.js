@@ -24,6 +24,7 @@ import { namedReinforce, factionToRefill, factionUnit, buildRefillTeam, conquest
 import { applyRunResult, loadMeta, saveMeta } from '../systems/meta.js';
 import { DEBUG_HOOKS } from '../debug.js';
 import { changeUnit } from '../systems/gacha.js';
+import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
@@ -335,6 +336,12 @@ export default class WorldScene extends Phaser.Scene {
     for (const e of ev) {
       if (e.type === 'chapter') {
         this.applyChapter();
+        // v0.6 主角成长：每进入新章节 统率 +6 / 武力 +4（上限 100）；heroGrownCh 随 run 存档，读档不重复
+        const n = e.idx - (r.heroGrownCh ?? e.idx - 1);
+        if (n > 0) {
+          const g = growHero(pl.team, balance, n); r.heroGrownCh = e.idx;
+          if (g) { pl.refresh(); this.field.refresh(pl); pushLog(this.state, `主角成长：统率 +${g.lead}，武力 +${g.str}`, this.gameTime()); }
+        }
         pushLog(this.state, `进入${e.chapter.name}`, this.gameTime());
         this.game.events.emit('run-event', e);
         this.requestSave('chapter'); // save_v05.autosave：换章时

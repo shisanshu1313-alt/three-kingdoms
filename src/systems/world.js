@@ -1,5 +1,5 @@
 import Pathfinder from '../world/Pathfinder.js';
-import { mainGeneral } from './combat.js';
+import { getLeader } from './leader.js';
 import { memToSave } from './save.js';
 
 /**
@@ -144,7 +144,7 @@ export class WorldModel {
 export function snapshotWorld(s) {
   const now = s.clock.now;
   const teamOf = p => { const t = structuredClone(p.team); t.position = { x: p.x, y: p.y }; return t; };
-  const main = mainGeneral(s.player.team, s.balance);
+  const main = getLeader(s.player.team, s.balance); // v0.6 统帅（= 主角）
   return {
     gameTimeMs: now,
     state: structuredClone(s.state),

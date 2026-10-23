@@ -18,7 +18,8 @@
  * inputs = { [id]: { h, v, target? } }：期望朝向（弧度）、期望速度（px/s，会被截到最大速度）、弓兵目标
  * env（可选，由大地图提供，纯函数）：fits(body, x, y)、speedMult(x, y)、hostile(a, b)
  */
-import { computePower, lossReduction, mainGeneral, itemEffect, roundHalfUp } from './combat.js';
+import { computePower, lossReduction, itemEffect, roundHalfUp } from './combat.js';
+import { speedLead } from './leader.js';
 import { mulberry32 } from './rng.js';
 
 const TAU = Math.PI * 2;
@@ -37,7 +38,7 @@ export function teamStats(team, balance, cfg) {
   const genTerm = balance.power.k_gen * sumStr;
   const n0 = Math.max(1e-9, team.soldiers);
   const M = team.soldiers > 0 ? (computePower(team, balance) - genTerm) / n0 : (computePower({ ...team, soldiers: 1 }, balance) - genTerm);
-  const lead = mainGeneral(team, balance)?.lead ?? 50;
+  const lead = speedLead(team, balance); // v0.6：玩家 min(L, 100)，敌队统帅统率
   // v0.5 克制物品（units.counter_items）：dmg_taken_from {兵种: 减伤}；拒马（对骑兵）额外抵消冲锋
   const takenFrom = {};
   for (const id of team.items || []) {
@@ -81,7 +82,7 @@ export function moraleOf(b, cfg) {
   if (b.brk === null) return 100 - b.shock;
   return 100 - cfg.move.morale_loss_span * b.raw / b.brk - b.shock;
 }
-/** 最大速度：v0.4 速度(兵数, 物品) × 兵种 speed × (1 + lead_speed_k × (主将统率 − 50)) */
+/** 最大速度：v0.4 速度(兵数, 物品) × 兵种 speed × (1 + lead_speed_k × (统帅统率 − 50))；玩家用 min(L, 100) */
 export function vmaxOf(b, cfg) {
   const sp = b.stats.speed, n = soldiersOf(b);
   const base = sp.base * Math.max(sp.min, 1 - sp.pen * n) * (1 + sp.itemPct);

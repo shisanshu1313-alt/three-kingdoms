@@ -17,46 +17,23 @@ export function itemEffect(team, balance, key) {
   return sum(team.items || [], id => balance.items.find(i => i.id === id)?.effect?.[key] ?? 0);
 }
 
-/**
- * 主将（team_rules.main_general_rule，decisions.main_general）：
- *   A（默认）：队内统率最高的武将，并列取 generals 数组中靠前者；每次武将/属性变动后自动重算
- *   B：玩家手动指定（team.main_general_id），未指定或不在队中时回落到 A
- *   兼容 v0.2：若配置了 team_rules.main_general_index 则按下标
- */
-export function mainGeneral(team, balance) {
-  const gs = team.generals;
-  if (!gs.length) return undefined;
-  const idx = balance.team_rules.main_general_index;
-  if (Number.isInteger(idx)) return gs[idx] ?? gs[0];
-  const mode = balance.decisions?.find(d => d.id === 'main_general')?.chosen ?? 'A';
-  if (mode.startsWith('B') && team.main_general_id) {
-    const m = gs.find(g => g.id === team.main_general_id);
-    if (m) return m;
-  }
-  let best = gs[0];
-  for (const g of gs) if (g.lead > best.lead) best = g;
-  return best;
-}
+import { getLeader, leaderLead, affinityBonus } from './leader.js';
+export { affinityBonus };
 
-/** v0.5 武将擅长兵种（units.general_affinity）：主将擅长 = 队伍兵种时 M + m_bonus；没有 v0.5 配置时为 0 */
-export function affinityBonus(team, balance) {
-  const af = balance.v05?.units?.affinity; if (!af || !team.unit) return 0;
-  const mg = mainGeneral(team, balance);
-  return mg && af.table[mg.id] === team.unit ? af.m_bonus : 0;
-}
+/** 兼容旧名：mainGeneral = v0.6 统帅（systems/leader.js getLeader；无 v0.6 配置时 = 旧规则统率最高） */
+export const mainGeneral = (team, balance) => getLeader(team, balance);
 
-/** 面板战力：P = N × (1 + k_lead×主将统率 + k_str×Σ武力 + 物品战力% + v0.5 擅长兵种) + k_gen×Σ武力 */
+/** 面板战力：P = N × (1 + k_lead×leaderLead + k_str×Σ武力 + 物品战力% + 擅长兵种 + 虎符) + k_gen×Σ武力（v0.6：玩家 leaderLead = L） */
 export function computePower(team, balance) {
   const { k_lead, k_str, k_gen } = balance.power;
-  const lead = mainGeneral(team, balance)?.lead ?? 0;
   const sumStr = sum(team.generals, g => g.str);
-  return team.soldiers * (1 + k_lead * lead + k_str * sumStr + itemEffect(team, balance, 'power_pct') + affinityBonus(team, balance)) + k_gen * sumStr;
+  return team.soldiers * (1 + k_lead * leaderLead(team, balance) + k_str * sumStr + itemEffect(team, balance, 'power_pct') + affinityBonus(team, balance) + (team.epPower ?? 0)) + k_gen * sumStr;
 }
 
-/** 兵力上限 = soldier_cap_base + soldier_cap_per_lead × Σ统率(全队) + Σ物品 soldier_cap */
+/** 兵力上限 = soldier_cap_base + soldier_cap_per_lead × Σ统率(全队) + Σ物品 soldier_cap + v0.6 万民来投（team.capBonus） */
 export function soldierCap(team, balance) {
   const r = balance.team_rules;
-  return r.soldier_cap_base + r.soldier_cap_per_lead * sum(team.generals, g => g.lead) + itemEffect(team, balance, 'soldier_cap');
+  return r.soldier_cap_base + r.soldier_cap_per_lead * sum(team.generals, g => g.lead) + itemEffect(team, balance, 'soldier_cap') + (team.capBonus ?? 0);
 }
 
 /**

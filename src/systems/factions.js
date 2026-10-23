@@ -7,7 +7,8 @@
  *   - 讨伐：击败名将军（玩家有伤害份额）才算；名将军被其他 AI 打掉（玩家没有份额）后，玩家击败该势力的校尉军也算（策划确认）
  */
 import { randInt } from './rng.js';
-import { mainGeneral, roundHalfUp } from './combat.js';
+import { roundHalfUp } from './combat.js';
+import { leaderLead, recalcLeader } from './leader.js';
 
 /** 名将军 id → 势力（来自 initial_teams） */
 export function namedFactions(balance, run) {
@@ -79,10 +80,11 @@ export function buildRefillTeam({ id, faction, home, playerPower, balance, run, 
     lead: randInt(rng, R.lead_str[0], R.lead_str[1]), str: randInt(rng, R.lead_str[0], R.lead_str[1]),
     int: randInt(rng, R.int_cha[0], R.int_cha[1]), cha: randInt(rng, R.int_cha[0], R.int_cha[1]) };
   const team = { id, faction, is_player: false, soldiers: 1, generals: [g], items: [], position: { ...home }, state: 'wander',
-    name: `${fac?.name ?? faction}·校尉军`, home: { ...home }, unit, refill: true };
+    name: `${fac?.name ?? faction}·校尉军`, fixedName: true, home: { ...home }, unit, refill: true };
   const [lo, hi] = R.power_rand;
   const target = Math.max(R.power_floor, playerPower) * (lo + rng() * (hi - lo));
-  const p = balance.power, M = 1 + p.k_lead * mainGeneral(team, balance).lead + p.k_str * g.str;
+  const p = balance.power, M = 1 + p.k_lead * leaderLead(team, balance) + p.k_str * g.str;
+  recalcLeader(team, balance);
   const cap = balance.team_rules.soldier_cap_base + balance.team_rules.soldier_cap_per_lead * g.lead;
   team.soldiers = Math.min(cap, Math.max(balance.spawn.min_soldiers, roundHalfUp((target - p.k_gen * g.str) / M)));
   team.targetPower = target;

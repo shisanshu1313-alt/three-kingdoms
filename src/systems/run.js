@@ -18,6 +18,7 @@ export function createRun({ runId, runSeed, hard = false, startUnit = 'inf', cfg
     unitHistory: [{ t: 0, unit: startUnit }],
     reinforceT: {}, // 名将军补兵计时（秒，交战中暂停；systems/factions.js）
     namedLostToAI: [], // 被其他 AI 打掉的名将军（之后该势力的校尉军可算讨伐）
+    heroGrownCh: 0, // v0.6 主角成长已结算到第几章（下标；leader_v06.hero_growth）
     namedDefeated: [], maxPower: 0, battlesWon: 0, battles: 0,
     over: null // { result: 'defeat' | 'victory', reason, atS }
   };

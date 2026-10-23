@@ -2,7 +2,8 @@ import { createSceneInput, ACTIONS } from '../platform/input.js';
 import Phaser from 'phaser';
 import { balance } from '../data/index.js';
 import { resolvePending, replaceableIndices } from '../systems/roster.js';
-import { mainGeneral } from '../systems/combat.js';
+import { getLeader } from '../systems/leader.js';
+import { computePower } from '../systems/combat.js';
 import { button, text, generalLine, tierColor } from '../ui/widgets.js';
 
 const W = 760, H = 440;
@@ -68,15 +69,14 @@ export default class RosterScene extends Phaser.Scene {
 
     // 随从（主角不可替换）
     add(text(this, x0, y0 + 140, '替换一名随从（主角不可替换）：', 15, '#f1c40f'));
-    const curMain = mainGeneral(team, balance);
+    const curMain = getLeader(team, balance), p0 = Math.round(computePower(team, balance));
     replaceableIndices(team, balance).forEach((i, k) => {
       const old = team.generals[i], y = y0 + 170 + k * 64;
       add(this.add.rectangle(x0, y + 4, 14, 14, tierColor(old)).setOrigin(0));
       add(text(this, x0 + 22, y, generalLine(old, { main: old === curMain }), 14));
       const after = { ...team, generals: team.generals.map((x, j) => (j === i ? g : x)) };
-      const newMain = mainGeneral(after, balance);
       const fate = old.generic ? '头目离去' : '回自由池';
-      add(text(this, x0 + 22, y + 22, `替换后：${old.name}${fate}${newMain.id !== curMain.id ? `；主将变为 ${newMain.name}` : ''}`, 12, '#aaaaaa'));
+      add(text(this, x0 + 22, y + 22, `换下后战力 ${p0} → ${Math.round(computePower(after, balance))}（${old.name}${fate}）`, 12, '#aaaaaa'));
       add(button(this, this.ox + W - 200, y, 176, 40, `[${k + 1}] 替换 ${old.name}`, () => this.act('replace', i)));
     });
     // 释放
