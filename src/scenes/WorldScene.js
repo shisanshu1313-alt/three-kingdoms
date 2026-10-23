@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER , garrisonBasePower } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -46,6 +46,8 @@ export default class WorldScene extends Phaser.Scene {
     const sim = DEBUG_HOOKS ? globalThis.__SANGUO_SIM : null;
     this.manualTick = !!sim?.manualTick;
     if (sim && Number.isInteger(sim.seed) && !data.save) this.newRunOpts = { ...this.newRunOpts, seed: sim.seed >>> 0 };
+    // 模拟对比用（只在 DEBUG_HOOKS 下）：sim.tuning 覆盖 balance.v06.tuning 的键（如 TUNING=off → 关掉 T1–T3 跑基线）
+    if (sim?.tuning && balance.v06?.tuning) Object.assign(balance.v06.tuning, sim.tuning);
     this.pendingEnd = null; this.ended = false;
     try {
       this.build(data.save ?? null);
