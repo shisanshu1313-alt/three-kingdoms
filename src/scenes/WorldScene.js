@@ -273,7 +273,7 @@ export default class WorldScene extends Phaser.Scene {
     // tuning_r1 T2：满员时撤下 1 支过弱、远离玩家、不在交战的普通黄巾队，腾位按当前章节重刷（规则见 teams.pickStaleTeam）
     if (this.aiParties.length >= balance.spawn.max_ai_teams && !this.run.over) {
       const old = pickStaleTeam(this.aiParties, this.player, balance, { namedIds: new Set(runCfg.run_goal.named) });
-      if (old) { console.log(`[spawn] 撤下过弱队 ${old.name} 战${Math.round(old.power)}`); this.staleRemoved = (this.staleRemoved ?? 0) + 1; this.removeParty(old); }
+      if (old) { console.log(`[spawn] 撤下过弱队 ${old.name} 战${Math.round(old.power)}`); this.staleRemoved = (this.staleRemoved ?? 0) + 1; this.staleLog?.push(`${old.name}（战力 ${Math.round(old.power)}）`); this.removeParty(old); }
     }
     if (this.aiParties.length >= balance.spawn.max_ai_teams || this.run.over) return null;
     const rng = this.rngs.spawn;
@@ -485,7 +485,11 @@ export default class WorldScene extends Phaser.Scene {
     return city;
   }
   answerRelocate(id, yes) {
-    if (yes) this.captureCity(id); else decline(this.state, id);
+    const c = this.state.cities[id], freed = c?.devFreedOwner; // 开发 F2→2 临时放出的大本营（QA-18）
+    if (c) delete c.devFreedOwner;
+    if (yes) this.captureCity(id);
+    else if (freed) c.owner = freed; // 选 N：大本营还给原势力，名将军不会被挤出城
+    else decline(this.state, id);
   }
   onCityLost(c) {
     const { lostGenerals } = loseCity(this.state, c.id, balance, this.run.chapter);
