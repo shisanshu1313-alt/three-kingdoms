@@ -190,7 +190,7 @@ const OUT = ART + '/screenshot.png';
     ok: poor.gacha && poor.worldPaused && poor.btn && !poor.btn.enabled && poor2.points === 10 && poor2.draws === 0 && !poor2.offer && !closed.gacha && !closed.worldPaused };
   // 加点：开发模式用调试钩子 / F2；生产构建（preview）里 F2 必须无效，改为直接改 state
   const isDev = await ev(() => window.__game.scene.getScene('World').debugGrantPoints(0) !== null);
-  await page.keyboard.press('F2'); await page.waitForTimeout(200);
+  await page.keyboard.press('F2'); await page.waitForTimeout(200); await page.keyboard.press('1'); await page.waitForTimeout(200); // F2 调试菜单 → 1 点数 +200
   const afterF2 = await ev(() => window.__game.scene.getScene('World').state.points);
   result.devF2 = { isDev, pointsAfterF2: afterF2, ok: isDev ? afterF2 === 210 : afterF2 === 10 };
   await ev(() => { window.__game.scene.getScene('World').state.points = 1000; });

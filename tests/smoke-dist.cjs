@@ -29,11 +29,12 @@ const URL = process.argv[2] || 'http://localhost:4174/';
   const p1 = s1?.player?.team?.position, p2 = s2?.player?.team?.position;
   result.saveAndMove = { v: s2?.saveVersion, runId: s2?.run?.runId, p1, p2, t1: s1?.gameTimeMs, t2: s2?.gameTimeMs,
     ok: !!(p1 && p2) && s2.saveVersion === 6 && Number.isInteger(s2.rng?.ai) && !!s2.run?.runId && s2.run.runId === s1.run.runId && p2.x > p1.x && s2.gameTimeMs > s1.gameTimeMs };
-  // 4) F2 在正式构建里没有效果（点数不变）；F9 不读档（位置不回退）
+  // 4) F2 调试菜单在正式构建里不存在（F2 → 1 / 2 点数不变、不给主城）；F9 不读档（位置不回退）
   await page.keyboard.press('F2'); await page.waitForTimeout(200);
+  await page.keyboard.press('1'); await page.keyboard.press('2'); await page.waitForTimeout(200);
   await page.keyboard.press('F9'); await page.waitForTimeout(300);
   const s3 = await hideSave();
-  result.f2 = { before: s2?.state?.points, after: s3?.state?.points, ok: s3?.state?.points === s2?.state?.points && s3.gameTimeMs > s2.gameTimeMs };
+  result.f2 = { before: s2?.state?.points, after: s3?.state?.points, ok: s3?.state?.points === s2?.state?.points && (s3?.state?.homeCity ?? null) === (s2?.state?.homeCity ?? null) && s3.gameTimeMs > s2.gameTimeMs };
   // 5) 刷新页面 → 标题（继续）→ Enter → 同一局、位置接上
   const p3 = s3?.player?.team?.position;
   await page.reload(); await page.waitForTimeout(2500);
