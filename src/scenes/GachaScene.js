@@ -9,7 +9,8 @@ import { scoutRange } from '../systems/scouting.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import { button, text, generalLine, tierColor } from '../ui/widgets.js';
 
-const W = 900, H = 580;
+import { gachaLayout, PANEL_WIDE, PANEL_NARROW } from '../ui/gachaLayout.js';
+export { gachaLayout, PANEL_WIDE, PANEL_NARROW };
 export const RARITY_FRAME = { epic: 0xf1c40f, rare: 0x3498db, common: 0x8a8f98 }; // gacha_v06.rarity.frame：金 / 蓝 / 灰
 const AFF = balance.v05?.units?.affinity?.table ?? {};
 
@@ -25,10 +26,11 @@ export default class GachaScene extends Phaser.Scene {
   init() { this.world = this.scene.get('World'); this.uiState = 'IDLE'; this.result = null; this.message = ''; this.sel = null; }
 
   create() {
-    const { width, height } = this.scale;
-    this.ox = Math.round((width - W) / 2); this.oy = Math.round((height - H) / 2);
-    this.add.rectangle(0, 0, width, height, 0x000000, 0.6).setOrigin(0).setInteractive();
-    this.add.rectangle(this.ox, this.oy, W, H, 0x1b1f2a, 0.97).setOrigin(0).setStrokeStyle(2, 0xf1c40f);
+    const { width, height } = this.scale, L = this.layout = gachaLayout(width, height);
+    this.W = L.W; this.H = L.H; this.ox = L.ox; this.oy = L.oy;
+    this.cameras.main.setZoom(L.s).centerOn(L.vw / 2, L.vh / 2);
+    this.add.rectangle(0, 0, L.vw, L.vh, 0x000000, 0.6).setOrigin(0).setInteractive();
+    this.add.rectangle(this.ox, this.oy, this.W, this.H, 0x1b1f2a, 0.97).setOrigin(0).setStrokeStyle(2, 0xf1c40f);
     text(this, this.ox + 20, this.oy + 12, '抽卡 · 四选一', 22, '#f1c40f');
     this.dyn = this.add.container(0, 0);
     const act = createSceneInput(this, { pointer: false });
@@ -143,41 +145,43 @@ export default class GachaScene extends Phaser.Scene {
   render() {
     this.dyn.removeAll(true); this.epicFrames = []; this.openBtn = null;
     const add = o => { this.dyn.add(o); return o; };
-    const st = this.st, team = this.team, gs = gachaState(st), x0 = this.ox + 20, P = Math.round;
-    const cost = drawCost(gs.n, balance);
-    add(text(this, this.ox + 220, this.oy + 16, `点数 ${st.points}   下一抽 ${cost} 点   已抽 ${gs.n} 次   第 ${this.chapter + 1} 章`, 15, '#dddddd'));
+    const st = this.st, team = this.team, gs = gachaState(st), x0 = this.ox + 20, P = Math.round, W = this.W, H = this.H, wide = this.layout.cols === 4;
+    const cost = drawCost(gs.n, balance), dy = wide ? 0 : 40; // 窄屏：表头换行多，正文下移
+    add(text(this, wide ? this.ox + 220 : x0, this.oy + (wide ? 16 : 40), `点数 ${st.points}   下一抽 ${cost} 点   已抽 ${gs.n} 次   第 ${this.chapter + 1} 章`, 15, '#dddddd'));
     const lead = getLeader(team, balance);
-    add(text(this, x0, this.oy + 46, `队伍：${team.generals.map(g => (g === lead ? `★${g.name}` : g.name)).join('、')}   兵 ${team.soldiers}/${P(this.world.player.cap)}   ${UNIT_FULL_NAMES[team.unit] ?? ''}   战力 ${P(computePower(team, balance))}   物品 ${team.items.map(id => balance.items.find(i => i.id === id)?.name).join('、') || '无'}`, 13, '#aaaaaa'));
+    add(text(this, x0, this.oy + 46, `队伍：${team.generals.map(g => (g === lead ? `★${g.name}` : g.name)).join('、')}   兵 ${team.soldiers}/${P(this.world.player.cap)}   ${UNIT_FULL_NAMES[team.unit] ?? ''}   战力 ${P(computePower(team, balance))}   物品 ${team.items.map(id => balance.items.find(i => i.id === id)?.name).join('、') || '无'}`, 13, '#aaaaaa', { wordWrap: { width: W - 40 } }).setY(this.oy + (wide ? 46 : 62)));
     const by = this.oy + H - 62;
 
     if (this.uiState === 'IDLE' || this.uiState === 'RESULT') {
       const chk = canOpen(st, team, balance, this.ctx());
       if (this.result) {
         const r = this.result, c = r.card;
-        add(this.add.rectangle(x0, this.oy + 90, W - 40, 150, 0x262b38).setOrigin(0).setStrokeStyle(3, RARITY_FRAME[c.rarity]));
-        add(text(this, x0 + 16, this.oy + 102, `选了：${cardTitle(c, balance)}（${RARITY_NAMES[c.rarity]}）`, 18, '#' + RARITY_FRAME[c.rarity].toString(16).padStart(6, '0')));
-        add(text(this, x0 + 16, this.oy + 134, r.text, 15, '#ffffff', { wordWrap: { width: W - 80 } }));
-        add(text(this, x0 + 16, this.oy + 170, `战力 ${P(r.powerBefore)} → ${P(r.powerAfter)}`, 16, r.powerAfter >= r.powerBefore ? '#66ee66' : '#ff8866'));
-        if (c.rarity === 'epic') add(text(this, x0 + 16, this.oy + 200, `高阶：${this.cardLines(c).join('；')}`, 14, '#f1c40f'));
+        add(this.add.rectangle(x0, this.oy + dy + 90, W - 40, 150, 0x262b38).setOrigin(0).setStrokeStyle(3, RARITY_FRAME[c.rarity]));
+        add(text(this, x0 + 16, this.oy + dy + 102, `选了：${cardTitle(c, balance)}（${RARITY_NAMES[c.rarity]}）`, 18, '#' + RARITY_FRAME[c.rarity].toString(16).padStart(6, '0')));
+        add(text(this, x0 + 16, this.oy + dy + 134, r.text, 15, '#ffffff', { wordWrap: { width: W - 80 } }));
+        add(text(this, x0 + 16, this.oy + dy + 170, `战力 ${P(r.powerBefore)} → ${P(r.powerAfter)}`, 16, r.powerAfter >= r.powerBefore ? '#66ee66' : '#ff8866'));
+        if (c.rarity === 'epic') add(text(this, x0 + 16, this.oy + dy + 200, `高阶：${this.cardLines(c).join('；')}`, 14, '#f1c40f'));
       } else {
-        add(text(this, x0, this.oy + 100, '付费后出 4 张卡，选 1 张（每张标明效果和战力变化）。', 15, '#dddddd'));
+        add(text(this, x0, this.oy + dy + 100, '付费后出 4 张卡，选 1 张（每张标明效果和战力变化）。', 15, '#dddddd', { wordWrap: { width: W - 40 } }));
         const pr = balance.v06.gacha.rarity_by_chapter[Math.min(this.chapter, 3)];
-        add(text(this, x0, this.oy + 128, `每张：普通 ${P(pr[0] * 100)}% / 稀有 ${P(pr[1] * 100)}% / 高阶 ${P(pr[2] * 100)}%；每章第 1 次换一批免费，之后 ${balance.v06.gacha.refresh.cost} 点`, 14, '#aaaaaa'));
+        add(text(this, x0, this.oy + 128, `每张：普通 ${P(pr[0] * 100)}% / 稀有 ${P(pr[1] * 100)}% / 高阶 ${P(pr[2] * 100)}%；每章第 1 次换一批免费，之后 ${balance.v06.gacha.refresh.cost} 点`, 14, '#aaaaaa', { wordWrap: { width: W - 40 } }).setY(this.oy + dy + 128));
       }
       this.openBtn = add(button(this, x0, by, 260, 44, `抽卡（${cost} 点）[空格]`, () => this.doOpen(), { enabled: chk.ok, color: 0x8e5a00, size: 16 }));
-      add(button(this, this.ox + W - 180, by, 160, 44, '关闭 [Esc]', () => this.close()));
+      this.closeBtn = add(button(this, this.ox + W - (wide ? 180 : 170), by, wide ? 160 : 150, 44, '关闭 [Esc]', () => this.close()));
       const msg = this.message || (!chk.ok ? chk.text : '');
-      if (msg) add(text(this, x0 + 280, by + 12, msg, 14, '#ff8888'));
+      if (msg) add(wide ? text(this, x0 + 280, by + 12, msg, 14, '#ff8888') : text(this, x0, by - 50, msg, 14, '#ff8888', { wordWrap: { width: W - 40 } }));
       return;
     }
     if (this.uiState === 'ROSTER_FULL') { add(text(this, x0, by, '队伍已满：请在弹窗中安排新武将', 15, '#ffdd55')); return; }
 
     // 4 张卡
-    const offer = gs.offer, cw = 202, ch = 330, cy = this.oy + 76;
+    const offer = gs.offer, cw = 202, ch = 330, cy0 = this.oy + (wide ? 76 : 124), cols = this.layout.cols;
+    this.cardRects = [];
     offer.cards.forEach((card, i) => {
-      const cx = x0 + i * (cw + 14), frame = RARITY_FRAME[card.rarity], dim = this.sel !== null && this.sel !== i;
+      const cx = x0 + (i % cols) * (cw + 14), cy = cy0 + Math.floor(i / cols) * (ch + 14), frame = RARITY_FRAME[card.rarity], dim = this.sel !== null && this.sel !== i;
       const bg = add(this.add.rectangle(cx, cy, cw, ch, this.sel === i ? 0x34405a : 0x262b38).setOrigin(0).setStrokeStyle(card.rarity === 'common' ? 2 : 4, frame).setAlpha(dim ? 0.4 : 1));
       if (card.rarity === 'epic') this.epicFrames.push(bg);
+      this.cardRects.push({ x: cx, y: cy, w: cw, h: ch });
       bg.setInteractive({ useHandCursor: true }).on('pointerdown', (p, lx, ly, ev) => { ev?.stopPropagation?.(); if (this.uiState === 'OFFER') this.pick(i); });
       add(text(this, cx + 10, cy + 8, `[${i + 1}]`, 14, '#ffffff'));
       add(text(this, cx + cw - 10, cy + 8, RARITY_NAMES[card.rarity], 13, '#' + frame.toString(16).padStart(6, '0')).setOrigin(1, 0));
@@ -200,23 +204,25 @@ export default class GachaScene extends Phaser.Scene {
 
     if (this.uiState === 'ITEM_FULL') {
       const card = offer.cards[this.sel], it = balance.items.find(x => x.id === card.target.itemId);
-      add(text(this, x0, by - 30, `物品栏已满：丢弃一件换 ${it.name}（1~3），Esc 返回改选别的卡`, 14, '#ffdd55'));
+      const n = team.items.length, rows = wide ? 1 : n; // 窄屏：一行一个按钮，向上叠
+      add(text(this, x0, by - 30 - (rows - 1) * 50, `物品栏已满：丢弃一件换 ${it.name}（1~3），Esc 返回改选别的卡`, 14, '#ffdd55', { wordWrap: { width: W - 40 } }).setOrigin(0, 1).setY(by - 8 - (rows - 1) * 50));
       team.items.forEach((id, k) => {
         const t2 = { ...team, items: team.items.map((x, j) => (j === k ? it.id : x)) };
-        add(button(this, x0 + k * 230, by, 220, 44, `[${k + 1}] 丢 ${balance.items.find(x => x.id === id)?.name}：战力→${P(computePower(t2, balance))}`, () => this.pick(this.sel, { discard: k }), { size: 13 }));
+        add(button(this, wide ? x0 + k * 230 : x0, wide ? by : by - (n - 1 - k) * 50, wide ? 220 : 280, 44, `[${k + 1}] 丢 ${balance.items.find(x => x.id === id)?.name}：战力→${P(computePower(t2, balance))}`, () => this.pick(this.sel, { discard: k }), { size: 13 }));
       });
       add(button(this, this.ox + W - 130, by, 110, 44, '[Esc] 返回', () => this.onCancel(), { size: 13 }));
       return;
     }
     if (this.uiState === 'CHOOSE_UNIT') {
-      add(text(this, x0, by - 30, '兵种令：选择全队兵种（1~4；选了就算用掉，换兵种操练清零）；Esc 返回改选别的卡', 14, '#ffdd55'));
-      UNIT_ORDER_UNITS.forEach((u, k) => add(button(this, x0 + k * 170, by, 160, 44, `[${k + 1}] ${UNIT_FULL_NAMES[u]}${team.unit === u ? '（现）' : ''}`, () => this.pick(this.sel, { unit: u }))));
+      const rowsU = wide ? 1 : 2;
+      add(text(this, x0, by - 8 - (rowsU - 1) * 50, '兵种令：选择全队兵种（1~4；选了就算用掉，换兵种操练清零）；Esc 返回改选别的卡', 14, '#ffdd55', { wordWrap: { width: W - 40 } }).setOrigin(0, 1));
+      UNIT_ORDER_UNITS.forEach((u, k) => add(button(this, wide ? x0 + k * 170 : x0 + (k % 2) * 140, wide ? by : by - (1 - Math.floor(k / 2)) * 50, wide ? 160 : 130, 44, `[${k + 1}] ${UNIT_FULL_NAMES[u]}${team.unit === u ? '（现）' : ''}`, () => this.pick(this.sel, { unit: u }))));
       add(button(this, this.ox + W - 130, by, 110, 44, '[Esc] 返回', () => this.onCancel(), { size: 13 }));
       return;
     }
     const info = refreshInfo(st, balance, this.chapter);
-    add(text(this, x0, by + 12, '点卡片或按 1~4 选一张（必须选）', 15, '#ffdd55'));
-    this.refreshBtn = add(button(this, this.ox + W - 260, by, 240, 44, `[F] 换一批（${info.free ? '免费' : `${info.cost} 点`}）`, () => this.doRefresh(), { enabled: info.ok, size: 15 }));
-    if (this.message) add(text(this, x0 + 300, by + 12, this.message, 14, '#ff8888'));
+    add(wide ? text(this, x0, by + 12, '点卡片或按 1~4 选一张（必须选）', 15, '#ffdd55') : text(this, x0, by + 2, '点卡片或按 1~4 选一张（必须选）', 13, '#ffdd55', { wordWrap: { width: W - 300 } }));
+    this.refreshBtn = add(button(this, this.ox + W - (wide ? 260 : 240 + 20), by, 240, 44, `[F] 换一批（${info.free ? '免费' : `${info.cost} 点`}）`, () => this.doRefresh(), { enabled: info.ok, size: 15 }));
+    if (this.message) add(wide ? text(this, x0 + 300, by + 12, this.message, 14, '#ff8888') : text(this, x0, by + 50, this.message, 13, '#ff8888', { wordWrap: { width: W - 40 } }));
   }
 }

@@ -44,11 +44,19 @@ const URL = process.argv[2] || 'http://localhost:4174/';
   const p4 = s4?.player?.team?.position, pr = s3b?.player?.team?.position;
   result.reloadContinue = { p3, pReload: pr, p4, run: [s3?.run?.runId, s4?.run?.runId],
     ok: !!p4 && s4.run.runId === s3.run.runId && Math.abs(p4.x - pr.x) < 40 && Math.abs(p4.y - pr.y) < 40 };
+  // 6) 正式包里没有开发专用文字（[city] 的 console.warn 按 PM 保留）：左上坐标 / 像素 / FPS（QA-17）、F1 调试视图（PM 7:22）、F2 菜单
+  result.devText = await page.evaluate(async () => {
+    const srcs = [...document.querySelectorAll('script[src]')].map(s => s.src);
+    const js = (await Promise.all(srcs.map(u => fetch(u).then(r => r.text())))).join('\n');
+    const bad = ['坐标: (', '像素: (', 'FPS: ', '调试(F1)', 'F1 调试', 'console.log(`[city]', 'console.log(`[spawn]'].filter(k => js.includes(k));
+    return { bytes: js.length, bad };
+  });
+  result.devText.ok = result.devText.bytes > 100000 && !result.devText.bad.length;
   result.saveLogs = logs.filter(l => l.startsWith('[save]')).slice(0, 6);
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && ['noHooks', 'canvas', 'resize', 'saveAndMove', 'f2', 'reloadContinue'].every(k => result[k].ok);
+  const ok = !errors.length && ['noHooks', 'canvas', 'resize', 'saveAndMove', 'f2', 'reloadContinue', 'devText'].every(k => result[k].ok);
   console.log(ok ? 'SMOKE-DIST OK' : 'SMOKE-DIST FAIL');
   process.exit(ok ? 0 : 1);
 })();

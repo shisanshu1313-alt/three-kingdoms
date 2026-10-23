@@ -272,10 +272,15 @@ export default class UIScene extends Phaser.Scene {
   layout() {
     const w = this.scale.width, h = this.scale.height;
     if (this.gachaBtn) this.gachaBtn.setPosition(w - MINIMAP_SIZE - 10, MINIMAP_SIZE + 20);
-    this.help.setPosition(10, h - 30);
+    // 窄屏：底部帮助文字换行（不出屏），战报跟着上移
+    this.help.setWordWrapWidth(w < 700 ? w - 36 : null, true);
+    this.help.setPosition(10, h - (w < 700 ? this.help.height + 4 : 30));
     this.stats?.layout();
-    if (this.log) this.log.setPosition(10, h - 36);
+    if (this.log) this.log.setWordWrapWidth(Math.min(460, w - 36), true).setPosition(10, w < 700 ? h - this.help.height - 10 : h - 36);
     const x = w - MINIMAP_SIZE - 10, y = 10;
+    // QA-17：窄屏时左上信息换行到小地图左边、字号缩小，不盖住小地图和「抽卡」按钮
+    const narrow = w < 700;
+    this.info.setFontSize(narrow ? 11 : 14).setWordWrapWidth(Math.max(120, x - 30), true);
     this.minimapRect = { x, y };
     this.minimapFrame.clear().lineStyle(2, 0xffffff, 1).strokeRect(x - 1, y - 1, MINIMAP_SIZE + 2, MINIMAP_SIZE + 2);
   }
@@ -333,14 +338,14 @@ export default class UIScene extends Phaser.Scene {
     const fmt = x => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
     this.info.setText([
       `${ch.name} ${fmt(tS)}/${runCfg.duration_min}:00  主角HP ${Math.ceil(r.heroHp)}/${runCfg.failure.hero_hp_max}  讨平名将 ${r.namedDefeated.length}/${runCfg.run_goal.named.length}${r.hard ? '  群雄模式' : ''}${grace}${this.world.inCity(p) ? '  城中（回血/征兵）' : ''}`,
-      `坐标: (${tx}, ${ty})  像素: (${Math.round(p.x)}, ${Math.round(p.y)})`,
-      `地形: ${t ? t.name : '-'}  速度×${t ? t.speed : 0}`,
+      // QA-17（PM 2026-10-23）：坐标 / 像素 / 地形 / 缩放 / 存档 / AI 队伍数 / FPS 是调试信息，只在 DEBUG_HOOKS（开发 / build:smoke）里显示
+      ...(DEBUG_HOOKS ? [`坐标: (${tx}, ${ty})  像素: (${Math.round(p.x)}, ${Math.round(p.y)})`, `地形: ${t ? t.name : '-'}  速度×${t ? t.speed : 0}`] : []),
       `点数: ${st.points}（下一抽 ${drawCost(gachaState(st).n, balance)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
-      `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
-      `缩放: ${this.world.cameras.main.zoom.toFixed(1)}${DEBUG_HOOKS ? `  调试(F1): ${this.world.debugVision ? '开' : '关'}` : ''}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
+      `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s${DEBUG_HOOKS ? `  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}` : ''}`,
+      ...(DEBUG_HOOKS ? [`缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`] : []),
       this.cityLine(p),
-      `FPS: ${Math.round(this.game.loop.actualFps)}`,
+      ...(DEBUG_HOOKS ? [`FPS: ${Math.round(this.game.loop.actualFps)}`] : []),
       ...(battle ? [battle] : [])
     ]);
     const logLines = st.battleLog.slice(0, 5).map(e => `[${(e.time / 1000).toFixed(0)}s] ${e.text}`);
