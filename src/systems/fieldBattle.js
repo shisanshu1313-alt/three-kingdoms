@@ -82,6 +82,7 @@ export default class FieldBattle {
       const b = this.body(id); if (!b) continue;
       if (!p.isPlayer && inCombat(b)) {
         const mem = this.mem[id] ??= newCombatMem();
+        mem.noRetreat = !!p.team?.noRetreat;
         const it = combatIntent(b, this.state, mem, this.cfg, p.ai?.personality?.key ?? 'normal', dt);
         if (it) {
           // 追击 / 放弃追击 给表现层一个提示

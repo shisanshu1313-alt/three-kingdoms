@@ -51,7 +51,8 @@
         "arrow_min_soldiers": 1,
         "garrison_hold": true,
         "siege_spawn_tries": 40,
-        "empty_siege_roll_s": 60
+        "empty_siege_roll_s": 60,
+        "hold_no_flee": true
       }
     },
     "notes": {
@@ -70,7 +71,7 @@
       "city_protect_existing": "城内保护（城防 > 0、自己一方的城、≤ inside_px）：不开新战；已在打的一对按『离得很远』处理，escape_s 后脱离（谁在撤谁算逃脱）",
       "city_siege_who": "只有玩家和被派去攻城的 AI（攻玩家主城）会扣城防；路过的 AI 不攻城；无主空城只有玩家会攻（为了占）",
       "city_arrows": "城上弓箭：城防 > 0、城有归属方（含洛阳黄巾守军）时，射所有接触城圆的敌队（不只攻城方）；损兵按当前兵数 × 每秒比例，弓箭不会把队伍打到 arrow_min_soldiers（1）以下",
-      "city_capture_garrison": "洛阳占城要先消灭守军队伍（洛阳守军，开局战力 0.5 × 玩家）；守军城防 > 0 时坐镇城心，城破后按普通 AI 决策（打不过会逃出城），只追城边 hold_engage_px（160）内的敌人",
+      "city_capture_garrison": "洛阳占城要先消灭守军队伍（洛阳守军，开局战力 0.5 × 玩家）；守军城防 > 0 时坐镇城心，城破后只追城边 hold_engage_px（160）内的敌人，打不过也不逃（hold_no_flee = true，死守城心）；名将军坐镇大本营同理",
       "city_named_hold": "第 1–2 章（named_in_city_chapters）名将军坐镇大本营：城防 > 0 时待在城心；城破后同守军，只追城边 160 px 内的敌人",
       "city_relocate": "已有主城时占新城弹窗问是否迁都：Y 迁（旧主城变无主城，城防不变，存放的武将跟着走）；N 不迁，离开城心 60 px 再回来才再问",
       "city_capital_free": "势力被讨伐（名将军阵亡且没有该势力队伍）后大本营变无主城（城防不变），才能攻占",

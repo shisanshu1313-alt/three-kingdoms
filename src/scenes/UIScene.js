@@ -148,7 +148,7 @@ export default class UIScene extends Phaser.Scene {
     if (!chk.ok) return this.toast(chk.text, '#ff8888', 15);
     this.world.trySaveNow('modal');
     this.scene.pause('World');
-    this.scene.launch('City');
+    this.scene.launch('City', {});
     this.scene.bringToTop('City');
   }
 
@@ -251,7 +251,7 @@ export default class UIScene extends Phaser.Scene {
     if (this.modalOpen() || !this.world.state.pendingGenerals.length) return;
     this.world.trySaveNow('modal'); // 存档决定 1：打开窗口前立即存档
     this.scene.pause('World');
-    this.scene.launch('Roster');
+    this.scene.launch('Roster', { returnTo: null }); // Phaser 不传 data 会沿用上次的（returnTo: 'Gacha'），关掉名册时会把已关闭的抽卡窗口拉起来
     this.scene.bringToTop('Roster');
   }
 

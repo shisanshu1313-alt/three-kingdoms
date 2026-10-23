@@ -36,7 +36,7 @@ export function combatIntent(X, state, mem, cfg, personalityKey = 'normal', dt =
   const [rTh, lossTh] = AS.retreat_by_personality[personalityKey] ?? AS.retreat_by_personality.normal;
   const eSelf = effPower(X, T, cfg, state.chapter);
   const eOpp = foes.reduce((s, Y) => s + effPower(Y, X, cfg, state.chapter), 0);
-  if (mem.mode === 'retreat' || (eSelf / Math.max(1e-9, eOpp) <= rTh && X.raw >= lossTh)) {
+  if (!mem.noRetreat && (mem.mode === 'retreat' || (eSelf / Math.max(1e-9, eOpp) <= rTh && X.raw >= lossTh))) { // noRetreat：v0.6 守城队死守
     mem.mode = 'retreat';
     return out(h + Math.PI, vm, 'retreat');
   }

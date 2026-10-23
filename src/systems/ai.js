@@ -94,6 +94,7 @@ export default class AISystem {
     }
     // v0.6 守城：城防 > 0 时坐镇城中；城破后只追打城边 hold_engage_px 内的敌人 【假设】
     const hold = this.holdCityOf(p);
+    p.team.noRetreat = !!(hold && this.cityCfg.hold_no_flee); // 守城队交战时也不撤（combatAI mem.noRetreat）
     let canChase = this.canChaseFn(p, nowS);
     if (hold) {
       if (hold.def > 0) {
@@ -108,7 +109,8 @@ export default class AISystem {
       self: { id: p.id, faction: p.faction, power: p.power, x: p.x, y: p.y, home: p.team.home },
       others: snaps, mem: p.ai, cfg: this.cfg, personality: p.ai.personality, now: nowS, canChase
     });
-    if (hold && res.state === 'wander') { res.state = 'hold'; res.holdCity = hold.id; }
+    // 守城队不逃（hold_no_flee）：城破后死守城心，打不过也不弃城 【假设】
+    if (hold && (res.state === 'wander' || (res.state === 'flee' && this.cityCfg.hold_no_flee))) { res.state = 'hold'; res.holdCity = hold.id; res.targetId = null; }
     Object.assign(p.ai, res);
     p.team.state = res.state;
     if (res.state !== prev || res.targetId !== prevT) {

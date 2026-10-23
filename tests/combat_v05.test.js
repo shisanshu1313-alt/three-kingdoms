@@ -336,3 +336,25 @@ test('正式版：玩家兵力归零 → player-wiped（不再保留 5 兵），
   assert.equal(end.soldiers, 0); assert.equal(end.wiped, true); assert.equal(end.endKind, 'player-wiped');
   assert.equal(s.bodies.P.N0, 0);
 });
+
+test('v0.6 守城队死守：mem.noRetreat 时打不过也不撤（retreat_by_personality 不生效）', () => {
+  const mk = () => { const s = world([[team('W', { soldiers: 20 }), 0, 0], [team('S', { soldiers: 120, generals: [gen('gs', 80, 80)] }), 0, 0]]); touch(s, 'W', 'S'); s.bodies.W.foes = ['S']; s.bodies.S.foes = ['W']; s.bodies.W.raw = 0.9; return s; };
+  const a = combatIntent(mk().bodies.W, mk(), newCombatMem(), cfg, 'normal', 0.1);
+  const s = mk(), mem = { ...newCombatMem(), noRetreat: true };
+  const b = combatIntent(s.bodies.W, s, mem, cfg, 'normal', 0.1);
+  assert.equal(a.mode, 'retreat');
+  assert.notEqual(b.mode, 'retreat');
+});
+
+test('v0.6 城内受保护的一对（env.noEngage）不开战、也不互相推挤', () => {
+  let s = world([[team('A'), 0, 0], [team('B'), 0, 0]]);
+  touch(s, 'A', 'B'); s.bodies.B.x = s.bodies.A.x + 4; // 大幅重叠
+  const x0 = [s.bodies.A.x, s.bodies.B.x];
+  for (let i = 0; i < 5; i++) s = M.step(s, stay(s), 0.1, cfg, { noEngage: () => true });
+  assert.equal(Object.keys(s.pairs).length, 0);
+  assert.deepEqual([s.bodies.A.x, s.bodies.B.x], x0);
+  // 对照：没有保护 → 开战
+  let s2 = world([[team('A'), 0, 0], [team('B'), 0, 0]]); touch(s2, 'A', 'B');
+  for (let i = 0; i < 5; i++) s2 = M.step(s2, stay(s2), 0.1, cfg);
+  assert.equal(Object.keys(s2.pairs).length, 1);
+});
