@@ -23,7 +23,7 @@
 - **主城被攻 / 趁虚攻打不派黄巾**：`city_v06.raid_exclude` = ["黄巾"]（按势力名或 id），20 s 派兵和第 3 章趁虚攻打都用它。
 - 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
 
-**测试**：`npm test` 330 个（含 `gacha_v06` / `roster` / `city_v06` / `city_edge_v06`（强于你 / 换章 / 城防回复三条边界规则、守军第三方加入、正式构建去日志 / 去 F1） / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（26 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v6 读档 / 洛阳标签显示守军战力 / 开战时重算守军；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），`node tests/smoke-debug.cjs`（9 项，开发服务器：F2 调试菜单 → 点数 / 立即主城 / 迁都 Y / 填满队伍触发 T2），`node tests/smoke-resize.cjs`（13 项：重开 ×3 / 结算→再来一局后 resize 监听数不变、抽卡面板开着时转屏重新布局、放弃本局后的标题页 resize 后仍居中），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
+**测试**：`npm test` 364 个（含 `gacha_v06` / `roster` / `city_v06` / `city_edge_v06`（强于你 / 换章 / 城防回复三条边界规则、守军第三方加入、正式构建去日志 / 去 F1） / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（26 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v6 读档 / 洛阳标签显示守军战力 / 开战时重算守军；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），`node tests/smoke-debug.cjs`（12 项，开发服务器：F2 调试菜单 → 点数 / 立即主城 / 迁都 Y / 填满队伍触发 T2），`node tests/smoke-resize.cjs`（13 项：重开 ×3 / 结算→再来一局后 resize 监听数不变、抽卡面板开着时转屏重新布局、放弃本局后的标题页 resize 后仍居中），`node tests/smoke-title.cjs`（19 项：第一次打开 →「开始」→ has_started_run 写入 → 没存档再打开是正常版；「操作说明 [H]」键盘 / 鼠标 / 触屏开关；旧档迁移；380 / 360 宽面板在屏内），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
 
 **可复现（确定性）**：同一 runSeed → 同一结果。所有游戏随机数都走 runSeed 派生的种子流（team / gacha / combat / spawn / ai，`rng.streamSeed`）；v0.6 起 AI 游荡 / 发呆也用 `rngs.ai`（以前是 `Math.random`），存档 v6 保存 `rng.ai`（v5 → v6 迁移按 `streamSeed(runSeed, 'ai')` 补）。逻辑只由固定 0.1 s tick 推进。纯逻辑模块里没有 `Math.random` / `Date.now` 默认值了（`tests/determinism_v06.test.js` 在模拟时把 `Math.random` 换成抛错）。开发构建下 `window.__SANGUO_SIM = { seed, manualTick: true }` 固定 runSeed 并停掉实时推进（只由 `debugAdvance` 推进）；正式构建忽略它。
 
@@ -61,7 +61,7 @@
 
 ## 运行
 
-- 标题页（BootScene → TitleScene，QA-10 / 策划定）：**每次打开都先到标题页**。第一次打开（没有进行中的一局、没有局外解锁）只显示「开始 [Enter]」按钮和一行操作说明（Enter / 点按按钮都开始，竖屏约 380 宽放得下）；有存档时照旧（继续 / 放弃本局），有局外解锁时显示新一局选项。
+- 标题页（BootScene → TitleScene，QA-10 / 策划定）：**每次打开都先到标题页**。第一次打开（没有进行中的一局、没有局外解锁）只显示「开始 [Enter]」按钮和一行操作说明（Enter / 点按按钮都开始，竖屏约 380 宽放得下）；有存档时照旧（继续 / 放弃本局），有局外解锁时显示新一局选项。**点过「开始」进过一局就不再是第一次打开**（策划 2026-10-23：局外数据 meta 里存 `has_started_run = true`，走存储接口；哪怕没解锁、中途放弃也算）：之后标题页是正常版（没有操作说明那行），底部有小入口「操作说明 [H]」打开说明面板（H / 点按打开，Esc / Enter / H / 点「关闭」/ 点面板外关闭；竖屏 ~380 宽放得下）。旧档迁移：meta 没有这个字段时，`runs > 0` / 有解锁 / 存储里已有任何存档（进行中的一局、坏档、已归档旧档）都算 true 并写回。
 
 
 ```bash
@@ -79,6 +79,7 @@ npm run sim:v06        # 20 分钟无界面模拟（见上）
 node tests/smoke.cjs http://localhost:5173/        # 完整冒烟（开发服务器或 dist-smoke；需 playwright-core + Chrome；截图写到 artifacts/，不进仓库）
 node tests/smoke-dist.cjs http://localhost:4174/   # 黑盒冒烟（正式 dist：确认没有调试钩子，只看键盘 + 存档内容）
 node tests/smoke-resize.cjs http://localhost:5182/ # resize / 重开：监听不累积、抽卡面板转屏重排、标题居中
+node tests/smoke-title.cjs http://localhost:5182/  # 标题页：has_started_run、「操作说明」入口（键盘 / 鼠标 / 触屏、竖屏）
 ```
 
 **调试钩子**（`src/debug.js`）：`window.__game`、`window.__balance` 只在 `npm run dev` 和 `build:smoke`（`.env.smoke` 里 `VITE_DEBUG_HOOKS=1`）里有；正式 `dist/` 里被常量折叠删除（`grep __game dist/assets/*.js` 为空）。**F2 调试菜单（开发专用）**：`UIScene` 在 `if (import.meta.env.DEV)` 里动态 `import('../ui/DebugMenu.js')`（它再引用 `systems/devTools.js`），正式构建里整段连同两个模块被删掉、也不产出单独的 chunk；`grep -r "调试菜单\|DebugMenu\|devTools\|【调试】" dist/` 为空（`tests/devtools.test.js` 检查只能动态加载，`smoke-dist.cjs` 检查 F2 → 1 / 2 在正式版里无效）。
@@ -100,6 +101,7 @@ node tests/smoke-resize.cjs http://localhost:5182/ # resize / 重开：监听不
 | Enter / 1 | 有进行中的一局：继续（存档时正在交战 → 暂停，倒计时 3 s 继续战斗） |
 | N / 2 → Y / N | 新的一局：先确认放弃当前这局（Y 放弃，按失败结算、名望照常计入；N 取消） |
 | 第一次打开 Enter / 点「开始」 | 开始新的一局（标题页只有「开始」+ 一行操作说明） |
+| 标题页（正常版）H / 点「操作说明」 | 打开操作说明面板（Esc / Enter / H / 点「关闭」/ 点面板外关闭） |
 | 新一局面板 1 / 2 / 3 / 4 · Enter | 切换开局兵种 / 开局武将 / 开局物品 / 群雄模式（需已解锁）；Enter 开始 |
 | 结算画面 Enter / Esc | 再来一局 / 回标题 |
 

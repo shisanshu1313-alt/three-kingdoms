@@ -74,7 +74,7 @@ let n = 0;
   await ok(C.mode === 'run' && centered(C), `刷新后标题页「继续 / 放弃本局」且居中（mode ${C.mode}）`);
   await p.keyboard.press('n'); await p.waitForTimeout(300); await p.keyboard.press('y'); await p.waitForTimeout(500);
   C = await center();
-  await ok((C.mode === 'first' || C.mode === 'options') && centered(C), `放弃本局后回到新一局面板（${C.mode}）：标题 / 按钮水平居中，镜头 = 画布 = 窗口（${JSON.stringify(C)}）`);
+  await ok(C.mode === 'options' && centered(C), `放弃本局后回到新一局面板（${C.mode}；进过一局 → 正常版，不再是第一次打开）：标题 / 按钮水平居中，镜头 = 画布 = 窗口（${JSON.stringify(C)}）`);
   await p.screenshot({ path: path.join(SHOTS, 'resize-title-after-abandon-1280.png') });
   for (const [w, h] of [[390, 844], [1920, 1080], [1024, 640]]) {
     await size(w, h); C = await center();

@@ -1,14 +1,29 @@
 /**
  * v0.5 局外数据（meta_progression B：解锁型，只横向、不加数值）。纯函数 + 存储接口（platform/storage.js），键 save_v05.keys.meta。
- *   meta = { version, fameTotal, runs, clears, bestSurvivedS, bestPower, namedEver[], maxChapterEver, unlocked[], recordedRunIds[] }
+ *   meta = { version, fameTotal, runs, clears, bestSurvivedS, bestPower, namedEver[], maxChapterEver, unlocked[], recordedRunIds[], has_started_run }
+ *   has_started_run（策划 2026-10-23）：点过「开始」进过一局就是 true（哪怕没解锁、中途放弃）→ 标题页不再是「第一次打开」版。
  *   名望只用于判定累计门槛，不消耗；同一 runId 只记一次（save_v05.death：带 runId 防重复累计）。
  */
 export const META_VERSION = 1;
 
 export function createMeta() {
   return { version: META_VERSION, fameTotal: 0, runs: 0, clears: 0, bestSurvivedS: 0, bestPower: 0,
-    namedEver: [], maxChapterEver: 0, unlocked: [], recordedRunIds: [] };
+    namedEver: [], maxChapterEver: 0, unlocked: [], recordedRunIds: [], has_started_run: false };
 }
+
+/**
+ * 是否已经开过局（纯函数）。旧档迁移：meta 里没有 has_started_run 字段时，meta.runs > 0 / 有解锁 / 存储里已有任何存档
+ * （进行中的一局，含损坏 / 不兼容的；或已归档的旧版存档）都算 true。
+ */
+export function hasStartedRun(meta, { runSave = false, legacy = false } = {}) {
+  return !!(meta?.has_started_run || meta?.runs > 0 || meta?.unlocked?.length || runSave || legacy);
+}
+/** 标记已开过局（不改入参） */
+/** 存储里的 meta 文本是否已经写了 has_started_run = true（旧档迁移后写回一次用） */
+export function storedStartedFlag(text) {
+  try { return JSON.parse(text)?.has_started_run === true; } catch { return false; }
+}
+export const markStartedRun = (meta) => ({ ...(meta ?? createMeta()), has_started_run: true });
 
 function condMet(c, m) {
   if (c.chapter_reached != null && m.maxChapterEver < c.chapter_reached) return false;
@@ -51,7 +66,9 @@ export function parseMeta(text) {
   try {
     const m = JSON.parse(text);
     if (!m || typeof m !== 'object' || m.version !== META_VERSION) return createMeta();
-    return { ...createMeta(), ...m };
+    const out = { ...createMeta(), ...m };
+    if (typeof m.has_started_run !== 'boolean') out.has_started_run = hasStartedRun(m); // 旧档：没有这个字段 → 按 runs / 解锁推断
+    return out;
   } catch { return createMeta(); }
 }
 export const loadMeta = (storage, key) => parseMeta(storage.get(key));
