@@ -23,6 +23,11 @@ const URL = process.argv[2] || 'http://localhost:4174/';
   // 3) 正式版没有 F5 / F9（save_v05.dev）：存档只靠自动存档；这里用 pagehide（平台生命周期 → 立即存档）触发
   const readSave = () => page.evaluate(() => { const t = localStorage.getItem('sanguo-run-v1'); return t && JSON.parse(t); });
   const hideSave = async () => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await page.waitForTimeout(300); return readSave(); };
+  // QA-10：首次打开（无存档）先是标题页「开始」，Enter 开局（以前是直接进局）
+  result.firstTitle = { saveBefore: !!(await readSave()) };
+  await page.keyboard.press('Enter'); await page.waitForTimeout(1500);
+  result.firstTitle.saveAfter = !!(await hideSave());
+  result.firstTitle.ok = !result.firstTitle.saveBefore && result.firstTitle.saveAfter;
   const s1 = await hideSave();
   await page.keyboard.down('d'); await page.waitForTimeout(1200); await page.keyboard.up('d');
   const s2 = await hideSave();
@@ -56,7 +61,7 @@ const URL = process.argv[2] || 'http://localhost:4174/';
   result.errors = errors;
   console.log(JSON.stringify(result, null, 2));
   await browser.close();
-  const ok = !errors.length && ['noHooks', 'canvas', 'resize', 'saveAndMove', 'f2', 'reloadContinue', 'devText'].every(k => result[k].ok);
+  const ok = !errors.length && ['noHooks', 'canvas', 'resize', 'firstTitle', 'saveAndMove', 'f2', 'reloadContinue', 'devText'].every(k => result[k].ok);
   console.log(ok ? 'SMOKE-DIST OK' : 'SMOKE-DIST FAIL');
   process.exit(ok ? 0 : 1);
 })();
