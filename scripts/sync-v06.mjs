@@ -112,9 +112,11 @@ export function buildV06(d) {
   const defaults = [];
   const opt = (path, def) => {
     const v = path.split('.').reduce((o, k) => o?.[k], d);
-    if (typeof v === 'number') return v;
+    if (Array.isArray(def) ? Array.isArray(v) : typeof v === 'number') return v;
     defaults.push(path); return def;
   };
+  // 策划 2026-10-23：主城被攻（20 s 派兵 + 第 3 章趁虚攻打）都不派这些势力（按势力名或 id）
+  city.raid_exclude = opt('city_v06.raid_exclude', ['黄巾']);
   const battle = {
     // 双方连续 no_contact_end_s 秒没接触、谁也没在追、谁也没在放箭 → 这一场以 'separated' 结束（之后同 apart：pair_cd_s 内不再开打，没有保护）
     no_contact_end_s: opt('battle_v06.no_contact_end_s', 4),

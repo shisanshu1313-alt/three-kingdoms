@@ -193,18 +193,25 @@ export function siegeEmptyDue(runCity, { away, dt, chapter }, balance, rng) {
  * 没有 → { spawn: faction }（调用方在 spawn_dist_px 处刷一支 spawn_ratio 倍的讨伐军）。
  * teams：[{ id, faction, power, x, y, named, garrison, inBattle, siegeTarget }]
  */
+/** 【策划 2026-10-23】city.raid_exclude（势力名或 id，默认 ["黄巾"]）：这些势力不来攻玩家主城（20 s 派兵、趁虚攻打都不派） */
+export function raidExcluded(faction, balance) {
+  const ex = C6(balance).raid_exclude ?? ['黄巾'];
+  const name = balance.ai?.factions?.find(f => f.id === faction)?.name;
+  return ex.includes(faction) || (name != null && ex.includes(name));
+}
 export function pickSiegeTeam(city, teams, playerPower, conquered, balance) {
   const A = C6(balance).ai_siege_player;
   const facs = Object.entries(C6(balance).capitals).map(([cid, f]) => ({ f, d: dist(balance.cities.find(x => x.id === cid).px, city) }))
-    .filter(x => !conquered.has(x.f)).sort((a, b) => a.d - b.d);
+    .filter(x => !conquered.has(x.f) && !raidExcluded(x.f, balance)).sort((a, b) => a.d - b.d);
   if (!facs.length) return null;
   const f = facs[0].f;
   const cands = teams.filter(t => t.faction === f && !t.named && !t.garrison && !t.inBattle && !t.siegeTarget && t.power >= A.min_ratio * playerPower)
-    .sort((a, b) => dist(a, city) - dist(b, city));
+    .sort((a, b) => dist(a, city) - dist(b, city) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return cands.length ? { team: cands[0], faction: f } : { spawn: f };
 }
-/** 空城被攻：离主城最近的敌队（不含名将军、守军、交战中、已在攻城的） */
-export function pickNearbyTeam(city, teams) {
-  const c = teams.filter(t => !t.named && !t.garrison && !t.inBattle && !t.siegeTarget).sort((a, b) => dist(a, city) - dist(b, city));
+/** 空城被攻：离主城最近的敌队（不含名将军、守军、交战中、已在攻城的、raid_exclude 的势力（黄巾）） */
+export function pickNearbyTeam(city, teams, balance) {
+  const c = teams.filter(t => !t.named && !t.garrison && !t.inBattle && !t.siegeTarget && !(balance && raidExcluded(t.faction, balance)))
+    .sort((a, b) => dist(a, city) - dist(b, city) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return c[0] ?? null;
 }

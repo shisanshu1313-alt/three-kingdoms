@@ -279,3 +279,24 @@ test('#8 主城攻城计时：第 1 章的时间不算（进第 2 章从 0 开�
   assert.equal(due, 0);
   go(60, true); assert.equal(due, 1);
 });
+
+import { raidExcluded } from '../src/systems/city.js';
+test('raid_exclude（默认 ["黄巾"]）：趁虚攻打和 20 s 派兵都不派黄巾；按势力名或 id 匹配；配置可改', () => {
+  assert.deepEqual(balance.v06.city.raid_exclude, ['黄巾']);
+  assert.equal(raidExcluded('bandit', balance), true);
+  assert.equal(raidExcluded('wei', balance), false);
+  const cs = createCities(balance), L = cs.luoyang;
+  const teams = [{ id: 'yb', faction: 'bandit', power: 50, x: L.x + 5, y: L.y }, { id: 'w', faction: 'wei', power: 50, x: L.x + 300, y: L.y }];
+  assert.equal(pickNearbyTeam(L, teams, balance).id, 'w', '黄巾离得最近也不派');
+  assert.equal(pickNearbyTeam(L, teams.slice(0, 1), balance), null);
+  // 改配置：排除魏（按 id）→ 20 s 派兵换下一个最近的势力；趁虚攻打不派魏
+  const b2 = { ...balance, v06: { ...balance.v06, city: { ...balance.v06.city, raid_exclude: ['wei'] } } };
+  assert.equal(raidExcluded('bandit', b2), false); assert.equal(raidExcluded('wei', b2), true);
+  const a = pickSiegeTeam(L, teams, 100, new Set(), balance), b = pickSiegeTeam(L, teams, 100, new Set(), b2);
+  assert.equal(a.team?.faction ?? a.faction ?? a.spawn, 'wei');
+  assert.notEqual(b.team?.faction ?? b.faction ?? b.spawn, 'wei');
+  assert.equal(pickNearbyTeam(L, teams, b2).id, 'yb');
+  // 按势力名
+  const b3 = { ...balance, v06: { ...balance.v06, city: { ...balance.v06.city, raid_exclude: ['魏'] } } };
+  assert.equal(raidExcluded('wei', b3), true);
+});

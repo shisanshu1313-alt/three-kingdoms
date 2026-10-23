@@ -376,7 +376,7 @@ export default class WorldScene extends Phaser.Scene {
     const d = Math.hypot(pl.x - home.x, pl.y - home.y);
     if (siegePlayerDue(r.city, { inside: d <= C.inside_px, tS, dt, chapter: r.chapter }, balance)) this.dispatchSiege(home);
     if (siegeEmptyDue(r.city, { away: d > C.ai_siege_empty.away_px, dt, chapter: r.chapter }, balance, this.rngs.spawn)) {
-      const t = pickNearbyTeam(home, this.aiTeamInfo());
+      const t = pickNearbyTeam(home, this.aiTeamInfo(), balance);
       if (t) this.startSiege(this.aiParties.find(p => p.id === t.id), home, '趁主城空虚');
     }
   }
