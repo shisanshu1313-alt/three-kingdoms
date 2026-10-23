@@ -259,6 +259,7 @@
     "break_window_s": 20,
     "chapter_change": "keep",
     "regen_rule": "away",
+    "regen_hold": "pause",
     "capture_hold_s": 5,
     "capture_inside_px": 60,
     "lost_hold_s": 10,

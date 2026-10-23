@@ -85,13 +85,16 @@ export function buildV06(d) {
     regen_pct_per_s: one(S.regen, /每秒回\s*(\d+)%/, 'regen pct') / 100,
     break_window_s: one(S.regen, /(\d+)\s*秒内保持\s*0/, 'break window'),
     // 策划 2026-10-23 city_v06.siege.chapter_change：攻城中换章 → 每秒伤害上限立即按新章（cityTick 每 tick 用当前章上限）；
-    // 'keep' = 当前城防值不变（不按新章上限补满）/ 'scale' = 旧版「按比例放大」
-    chapter_change: /当前城防值不变|不按新章上限补满/.test(S.chapter_change ?? '') ? 'keep' : /按比例/.test(S.chapter_change ?? '') ? 'scale'
+    // 'keep' = 城防满的（没被打过）抬到新章上限，不满的当前值不变 / 'scale' = 旧版「按比例放大」
+    chapter_change: /当前(城防)?值不变|不按新章上限补满/.test(S.chapter_change ?? '') ? 'keep' : /按比例/.test(S.chapter_change ?? '') ? 'scale'
       : (() => { throw new Error(`balance_v0.6.json 解析失败（siege.chapter_change）："${S.chapter_change}"`); })(),
     // 策划 2026-10-23 city_v06.siege.regen_rule：城防归零后，玩家贴着城或正在和守军交战 → 回复倒计时暂停；玩家离开（不贴城且不和守军交战）
-    // 满 break_window_s 秒才开始回复。'away' = 按玩家离开的连续时间计；'since_zero'（没有该字段）= 旧规则，从归零那一刻起算
+    // 累计满 break_window_s 秒才开始回复。'away' = 按玩家离开的时间计；'since_zero'（没有该字段）= 旧规则，从归零那一刻起算
     regen_rule: S.regen_rule ? (one(S.regen_rule, /满\s*(\d+)\s*秒/, 'regen_rule s') === one(S.regen, /(\d+)\s*秒内保持\s*0/, 'break window') ? 'away'
       : (() => { throw new Error('siege.regen_rule 的秒数和 siege.regen 的城破窗口不一致'); })()) : 'since_zero',
+    // 策划 2026-10-23 07:22 regen_rule：「倒计时暂停（不重置），再离开时接着计」→ 'pause'（离开时间累计）；只写「暂停」没写不重置 → 'reset'（回来就清零）
+    regen_hold: !S.regen_rule ? null : /不重置|接着计|累计/.test(S.regen_rule) ? 'pause' : /暂停/.test(S.regen_rule) ? 'reset'
+      : (() => { throw new Error(`balance_v0.6.json 解析失败（siege.regen_rule）："${S.regen_rule}"`); })(),
     capture_hold_s: one(C.main_city.capture, /停\s*(\d+)\s*秒/, 'capture hold'),
     capture_inside_px: one(C.main_city.capture, /(\d+)\s*px/, 'capture px'),
     lost_hold_s: one(PC.lost, /停\s*(\d+)\s*秒/, 'lost hold'),

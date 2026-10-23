@@ -9,7 +9,7 @@
  *   citySide(city)                          城的归属方（owner ?? 守军势力 ?? null）
  *   protectingCity(p, cities, balance)      p 在自己一方城防 > 0 的城里（≤ inside_px）→ 受保护（不能被攻击，也不能攻击城外）
  *   cityTick(cities, parties, ctx)          攻城伤害 / 城上弓箭 / 回复 / 城破窗口 / 占城计时 / 失守计时 → { events, losses }
- *   applyChapter(cities, ch, balance)       换章：城防上限换新；chapter_change 'keep' = 当前城防不变（满城防 → 新上限）
+ *   applyChapter(cities, ch, balance)       换章：城防上限换新；chapter_change 'keep' = 不满的城当前城防不变，满城防 → 新上限
  *   capture / loseCity / relocate           占城（立为主城 / 迁都）、失守（无主城 30%，存放的武将回自由池）
  */
 import { loseStore } from './roster.js';
@@ -113,11 +113,21 @@ export function garrisonRecalc(team, playerPower, balance) {
 /**
  * T4 power_recalc 开战回调（WorldScene 传给 melee.step 的 env.engageSoldiers）：玩家队和洛阳守军开战的那一刻，
  * 守军兵数 = 按当时玩家战力重算的满编 × remain_frac。不改原队（只算数），onEngage 里再对真队伍 garrisonRecalc（结果相同）。
- * garrisonTeam 不是守军 / 对手不是玩家 / 没开 recalc / 守军已在交战（第三方加入）→ null（不改）。
+ * garrisonTeam 不是守军 / 对手不是玩家 / 没开 recalc → null（不改）。守军已在交战（第三方加入，含「AI 在打守军、玩家加入」）时
+ * melee.startPair 根本不调这个回调（只对开战前不在交战的一方调），所以战斗体不变。
  */
 export function garrisonEngageSoldiers(garrisonTeam, foeIsPlayer, playerPower, balance) {
   if (!garrisonRecalcOn(balance) || !garrisonTeam?.cityHold || !foeIsPlayer) return null;
   return garrisonRecalc({ ...garrisonTeam }, playerPower, balance).soldiers;
+}
+
+/**
+ * onEngage 里要不要对守军队伍做 garrisonRecalc（和战斗体保持一致）：策划 power_recalc.third_party ——
+ * 只有玩家队伍和守军开战才重算；守军开战前已在交战（第三方加入：AI 在打守军时玩家加入，或玩家在打守军时 AI 加入）→ 不重算、不变。
+ * garrisonFresh = 守军在这一场是新开战的一方（FieldBattle engage 事件的 fresh 含守军 id）。
+ */
+export function garrisonRecalcOnEngage(garrisonTeam, foeIsPlayer, garrisonFresh, balance) {
+  return garrisonRecalcOn(balance) && !!garrisonTeam?.cityHold && !!foeIsPlayer && !!garrisonFresh;
 }
 
 /**
@@ -159,7 +169,7 @@ export function arrowRate(target, ch, balance, mv) {
   return Math.min(mv.rate_cap, mv.lam * Math.pow(ratio, mv.a)) * (arc.shoot_mult ?? 1) * (tu.arrow_taken ?? 1) * taken;
 }
 
-/** 城破窗口是否已过：regen_rule 'away' = 玩家离开（不贴城、不和守军交战）连续满 break_window_s；'since_zero' = 旧规则，从归零起算 */
+/** 城破窗口是否已过：regen_rule 'away' = 玩家离开（不贴城、不和守军交战）累计满 break_window_s（regen_hold 'reset' 时为连续）；'since_zero' = 旧规则，从归零起算 */
 export function breakWindowOver(c, tS, held, C) {
   if (c.def > 0) return true;
   if (C.regen_rule === 'away') return !held && (c.zeroAwayS ?? 0) >= C.break_window_s;
@@ -184,10 +194,10 @@ export function cityTick(cities, parties, ctx) {
     if (c.def > 0 && citySide(c)) for (const p of hostile) losses[p.id] = (losses[p.id] ?? 0) + arrowRate(p, chapter, balance, move) * p.soldiers * dt;
     // 攻城：玩家打任何敌对的城；AI 只打它的攻城目标（路过的不算）
     const sieging = hostile.filter(p => p.isPlayer || p.siegeTarget === c.id);
-    // 策划 siege.regen_rule（'away'）：城防为 0 时，有攻城方贴着城（玩家贴着敌对 / 无主城就算）或玩家正在和这座城的守军交战 → 回复倒计时暂停并清零；
-    // 都没有 → 累计「离开」时间 zeroAwayS，满 break_window_s 才开始回复（回复后城防 > 0，要重新破城）
+    // 策划 siege.regen_rule（'away'）：城防为 0 时，有攻城方贴着城（玩家贴着敌对 / 无主城就算）或玩家正在和这座城的守军交战 → 回复倒计时暂停
+    // （regen_hold 'pause' = 不重置，再离开接着计；'reset' = 清零）；都没有 → 累计「离开」时间 zeroAwayS，满 break_window_s 才开始回复（回复后城防 > 0，要重新破城）
     const held = sieging.length > 0 || !!ctx.playerFightingGarrison?.includes?.(c.id);
-    if (c.def <= 0) c.zeroAwayS = held ? 0 : (c.zeroAwayS ?? 0) + dt;
+    if (c.def <= 0) c.zeroAwayS = held ? (C.regen_hold === 'reset' ? 0 : c.zeroAwayS ?? 0) : (c.zeroAwayS ?? 0) + dt;
     if (sieging.length) {
       c.lastHitS = tS;
       if (c.def > 0) {
@@ -217,8 +227,8 @@ export function cityTick(cities, parties, ctx) {
 
 /**
  * 换章：城防上限换成新章的（每秒城防伤害上限在 cityTick 里按当前章上限 ÷ siege_min_s 算，换章那一 tick 立即生效）。
- * 策划 siege.chapter_change = 'keep'：当前城防值不变、不按新章上限补满（之后照常按新上限的 3%/s 回复）；
- * 【解读】满城防（没被打过 / 已回满）的城仍算满城防 → 设为新章上限。'scale'（旧版）：按比例放大。
+ * 策划 siege.chapter_change = 'keep'（07:22 定稿）：城防是满的（没被打过 / 已回满）→ 抬到新章上限；
+ * 不满（正在被攻 / 还没回满）→ 当前值不变（之后照常按新上限的 3%/s 回复）。'scale'（旧版）：按比例放大。
  */
 export function applyChapter(cities, ch, balance) {
   const mode = C6(balance).chapter_change ?? 'scale';
