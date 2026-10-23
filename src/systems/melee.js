@@ -340,7 +340,9 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
       X.wiped = true; // 正式版：兵力归零 = 本局失败（failure 规则 B，由 run 层处理）
       continue;
     }
-    ev({ type: 'defeat', id: X.id, cause, by, shares, n: soldiersOf(X), n0: X.N0start ?? X.N0, E: by && B[by] ? eff(by, X.id) / Math.max(1e-9, eff(X.id, by)) : 1, power0: X.N0start * X.stats.M + X.stats.genTerm });
+    ev({ type: 'defeat', id: X.id, cause, by, shares, n: soldiersOf(X), n0: X.N0start ?? X.N0, E: by && B[by] ? eff(by, X.id) / Math.max(1e-9, eff(X.id, by)) : 1, power0: X.N0start * X.stats.M + X.stats.genTerm,
+      // 胜方此刻的兵数（胜方可能同一 tick 也被打败、战斗体随后被移除 → fieldBattle._defeat 用这两个值，不再读战斗体）
+      byN: by && B[by] ? soldiersOf(B[by]) : null, byN0: by && B[by] ? (B[by].N0start ?? B[by].N0) : null });
     for (const f of [...X.foes]) endPair(pairKey(X.id, f), 'defeat');
     X.dead = true;
   }

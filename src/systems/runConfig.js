@@ -84,9 +84,9 @@ export function chapterIndexAt(tS, run) {
 }
 export const chapterOf = (tS, run) => run.chapters[chapterIndexAt(tS, run)];
 
-/** 本章刷新战力区间（群雄模式 +spawn_power_add） */
-export function spawnPowerRange(chIdx, run, hard = false) {
-  const [lo, hi] = run.chapters[chIdx].spawn_power_vs_player;
+/** 本章刷新战力区间（群雄模式 +spawn_power_add）；tuning = balance.v06.tuning（tuning_r2 N2 / N3 的 chapter_spawn_power 覆盖 run_v05 的值） */
+export function spawnPowerRange(chIdx, run, hard = false, tuning = null) {
+  const [lo, hi] = tuning?.chapter_spawn_power?.[chIdx]?.to ?? run.chapters[chIdx].spawn_power_vs_player;
   const add = hard ? (run.meta.unlocks.find(u => u.id === 'hard_mode')?.spawn_power_add ?? 0) : 0;
   return [lo + add, hi + add];
 }

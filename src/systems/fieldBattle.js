@@ -173,18 +173,21 @@ export default class FieldBattle {
     L.team.soldiers = roundHalfUp(lb.n);
     let outcome;
     if (W) {
+      // 胜方战斗体可能已不在：同一 tick 胜方也被打败（互相打垮），melee.step 已移除它的战斗体 → 用 defeat 事件里记下的胜方兵数（byN / byN0）
       const wb = this.body(W.id);
-      const wBefore = roundHalfUp(soldiersOf(wb));
+      const wN = wb ? soldiersOf(wb) : (e.byN ?? W.team.soldiers), wN0 = wb ? (wb.N0start ?? wN) : (e.byN0 ?? wN);
+      const wBefore = roundHalfUp(wN);
       W.team.soldiers = wBefore;
       const r = defeatResult(W.team, L.team, {
         R: e.E, power0: e.power0, playerShare: sharesOfPlayer(e.shares, this.parties),
-        winnerLosses: roundHalfUp(Math.max(0, (wb?.N0start ?? wBefore) - soldiersOf(wb))), loserDead: roundHalfUp(Math.max(0, (e.n0 ?? lb.n) - lb.n))
+        winnerLosses: roundHalfUp(Math.max(0, wN0 - wN)), loserDead: roundHalfUp(Math.max(0, (e.n0 ?? lb.n) - lb.n))
       }, this.balance);
       outcome = applyBattleResult(W.team, L.team, r, this.balance, this.rng);
       // 胜方仍可能在战斗中：收编按差值加到战斗体
       const delta = W.team.soldiers - wBefore;
       if (wb && delta) { wb.N0 = Math.max(0, (soldiersOf(wb) + delta) / Math.max(1e-9, 1 - wb.raw * (1 - wb.stats.red))); }
-      syncBodyFromTeam(wb, W.team, this.balance, this.cfg); W.refresh();
+      if (wb) syncBodyFromTeam(wb, W.team, this.balance, this.cfg);
+      W.refresh();
       outcome.points = r.playerPoints;
       if (r.playerPoints) outcome.text += ` +${r.playerPoints}分`;
       outcome.shares = e.shares;

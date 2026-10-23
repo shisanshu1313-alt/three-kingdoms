@@ -326,6 +326,30 @@
       "power_vs_player": 0.5,
       "recalc": "battle_start",
       "label_applies_ratio": true
+    },
+    "chapter_spawn_power": {
+      "2": {
+        "id": "N2",
+        "from": [
+          0.6,
+          1.15
+        ],
+        "to": [
+          0.6,
+          1
+        ]
+      },
+      "3": {
+        "id": "N3",
+        "from": [
+          0.7,
+          1.3
+        ],
+        "to": [
+          0.7,
+          1.1
+        ]
+      }
     }
   },
   "_defaults": []

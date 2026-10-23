@@ -26,7 +26,7 @@ test('配置：tuning 来自 tuning_r1.proposals（已定）—— T1 15 s、T2 
   assert.equal(fixture.city_v06.garrison.power_floor, 70, '正式字段 city_v06.garrison.power_floor');
   assert.ok(fixture.city_v06.garrison.power_recalc?.when, '正式字段 city_v06.garrison.power_recalc → 开战时重算');
   assert.equal(TU.garrison_power_floor.power_vs_player, balance.v06.city.garrison.power_vs_player, '提案里的 0.5 = 守军配置的 power_vs_player');
-  assert.deepEqual(Object.keys(TU).sort(), ['flee_ratio_by_faction', 'garrison_power_floor', 'siege_min_s', 'stale_refresh']);
+  assert.deepEqual(Object.keys(TU).sort(), ['chapter_spawn_power', 'flee_ratio_by_faction', 'garrison_power_floor', 'siege_min_s', 'stale_refresh'], 'tuning_r1 四项 + tuning_r2 N2/N3（chapter_spawn_power）');
   assert.deepEqual(fixture.tuning_r1.proposals.filter(p => p.tag === 'rejected').map(p => p.id), ['T5', 'T6']);
 });
 

@@ -286,7 +286,7 @@ export default class WorldScene extends Phaser.Scene {
     const n = ++this.spawnCounter;
     // 章节缩放（chapters.spawn_power_vs_player，群雄模式 +0.1）+ 黄巾兵种分布（第 3 章起针对玩家 60 s 前的兵种）
     const team = assignUnit(buildRespawnTeam({
-      id: `spawn_${n}`, position: pos, playerPower: this.player.power, powerRange: spawnPowerRange(r.chapter, runCfg, r.hard),
+      id: `spawn_${n}`, position: pos, playerPower: this.player.power, powerRange: spawnPowerRange(r.chapter, runCfg, r.hard, balance.v06?.tuning),
       balance, rng, idx: index, nextName: nextBanditName
     }), combatJson, rng, { mix: runCfg.chapters[r.chapter].bandit_units, targetUnit: targetUnitFor(r, tS, runCfg, combatJson.move.counters) });
     const p = this.addParty(team);

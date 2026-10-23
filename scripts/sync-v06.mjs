@@ -158,6 +158,13 @@ export function buildV06(d) {
           label_applies_ratio: typeof C.garrison.power_recalc?.label_applies_ratio === 'boolean' ? C.garrison.power_recalc.label_applies_ratio : true }
       : TP.T4 ? { enabled: on('T4'), value: T4v.garrison_power_floor, power_vs_player: one(TP.T4.param, /([\d.]+)\s*×\s*玩家战力/, 'tuning_r1.T4.param'), recalc: 'spawn' }
       : { enabled: false, value: 0, recalc: 'spawn' },
+    // 策划 tuning_r2 apply_now（N2 / N3）：按章节覆盖黄巾刷新战力区间（× 玩家战力）。键 = 章节下标（0 起）；from 用来核对 run_v05.json 原值
+    // N1 是模拟脚本（tools/sim-v06.cjs 追击），不进游戏配置；needs_user（U1 / U2）不实现
+    chapter_spawn_power: Object.fromEntries((d.tuning_r2?.apply_now ?? []).filter(a => /spawn_power_vs_player/.test(a.param ?? '')).map(a => {
+      const i = one(a.param, /run\.chapters\[(\d+)\]\.spawn_power_vs_player/, `tuning_r2.${a.id}.param`);
+      if (!Array.isArray(a.to) || a.to.length !== 2 || !Array.isArray(a.from)) throw new Error(`tuning_r2.${a.id}：from / to 不是 [lo, hi]`);
+      return [i, { id: a.id, from: a.from, to: a.to }];
+    })),
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },

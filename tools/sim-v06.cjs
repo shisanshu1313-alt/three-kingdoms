@@ -2,7 +2,7 @@
 // 在 headless Chrome 里跑真实游戏逻辑（WorldScene.debugAdvance 固定 tick），用一个简单的脚本玩家：
 //   抽卡（选战力最高的卡；队伍满的武将直接流放）→ 走向洛阳攻城占城 → 之后守主城、出城打比自己弱的队、残血回城。
 // 可复现：同一种子每次结果完全相同（window.__SANGUO_SIM 固定 runSeed + manualTick，见下）。REPEAT=2 每个种子跑两遍并逐字节比较结果 JSON（不同 → 退出码 1）。
-// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 跑基线）
+// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 和 tuning_r2 N2/N3 跑基线）；PURSUE=0（关掉 tuning_r2 N1 追击）PURSUE_RATIO=0.9
 const { chromium } = require(process.env.PW_PATH || '/workspace/.tools/node_modules/playwright-core');
 const URL = process.argv[2] || 'http://localhost:5182/';
 const SEEDS = (process.env.SEEDS || '1,2,3').split(',').map(Number);
@@ -11,7 +11,7 @@ const OUT = process.env.OUT || null;
 const REPEAT = Math.max(1, Number(process.env.REPEAT || 1));
 // TUNING=off：关掉 tuning_r1 的 T1–T4（基线对比）；TUNING='{"siege_min_s":20}' 之类：覆盖 balance.v06.tuning 的键（只在 dev 构建有效）
 const TUNING_OVERRIDE = process.env.TUNING === 'off'
-  ? JSON.stringify({ siege_min_s: 0, stale_refresh: { enabled: false }, flee_ratio_by_faction: {}, garrison_power_floor: { enabled: false } })
+  ? JSON.stringify({ siege_min_s: 0, stale_refresh: { enabled: false }, flee_ratio_by_faction: {}, garrison_power_floor: { enabled: false }, chapter_spawn_power: {} })
   : (process.env.TUNING ? JSON.stringify(JSON.parse(process.env.TUNING)) : 'null');
 
 // 可复现：固定 runSeed（所有游戏随机数流都从它派生）+ manualTick（实时循环不推进逻辑，只由 debugAdvance 按固定 0.1 s tick 推进）。
@@ -22,7 +22,7 @@ const seedScript = seed => `(() => {
 })();`;
 
 async function botInit(p, SEED) {
-  await p.evaluate(async ([STRAT, FARM_SOLD, STALL_S, SEED]) => {
+  await p.evaluate(async ([STRAT, FARM_SOLD, STALL_S, SEED, PURSUE, PURSUE_RATIO]) => {
     const G = await import('/src/systems/gachaOffer.js'), R = await import('/src/systems/roster.js'), L = await import('/src/systems/leader.js');
     const D = await import('/src/data/index.js'), U = await import('/src/systems/gacha.js'), M = await import('/src/systems/melee.js');
     const bal = D.balance, w = __game.scene.getScene('World'), gs = __game.scene.getScene('Gacha');
@@ -31,7 +31,7 @@ async function botInit(p, SEED) {
     B.tuning = JSON.parse(JSON.stringify(bal.v06.tuning ?? null)); // 本局实际生效的 tuning（写进结果，便于对比）
     __game.events.on('city-prompt', e => { B.prompts++; w.answerRelocate(e.cityId, false); });
     // v0.6 battle.no_contact_end_s：记玩家参与的 'separated' 结束次数（游戏规则自己解开的僵持）
-    B.separated = 0; B.stallS = STALL_S;
+    B.separated = 0; B.stallS = STALL_S; B.pursue = PURSUE; B.pursueRatio = PURSUE_RATIO; B.pursuits = 0;
     const H = w.field.hooks, onSep = H.onSeparated;
     H.onSeparated = (a, b, e) => { if (a?.isPlayer || b?.isPlayer) B.separated++; return onSep?.(a, b, e); };
     // ===== STRAT=active：移植自策划 /workspace/tuning_r1/sg06/tools/sim-r1.cjs（按策划模拟 sim_v06_gacha.py 的玩家规则：
@@ -100,7 +100,13 @@ async function botInit(p, SEED) {
       const myPairs = Object.values(w.field.state.pairs).filter(q => q.a === P.id || q.b === P.id);
       B.noContactS = P.inBattle && !myPairs.some(q => q.wasContact) ? (B.noContactS ?? 0) + 1 : 0;
       if (B.noContactS > B.stallS) { B.stalls = (B.stalls ?? 0) + (B.noContactS === B.stallS + 1 ? 1 : 0); if (!goal) goal = home ?? B.start; }
-      if (goal && (!P.inBattle || mode === 'flee' || mode === 'rest_flee' || B.noContactS > B.stallS)) {
+      // 策划 tuning_r2 N1（移植自 /workspace/tuning_r2/sg06b/tools/sim-r2.cjs 的 PURSUE 段）：交战中对手在撤退（combatMode = retreat）或已溃，
+      // 且我方估算 ≥ PURSUE_RATIO（默认 0.9）倍 → 像真人一样点击追上去。默认开；PURSUE=0 关掉（= 旧脚本）
+      if (B.pursue && P.inBattle && mode !== 'flee' && mode !== 'rest_flee') {
+        const foe = myPairs.map(q => w.parties.find(x => x.id === (q.a === P.id ? q.b : q.a))).find(o => o && (o.combatMode === 'retreat' || w.field.body(o.id)?.routed) && est(P, o) >= B.pursueRatio);
+        if (foe) { w.model.clickMove(P, foe.x, foe.y); P._goal = { x: foe.x, y: foe.y }; B.pursuits++; mode = 'pursue'; }
+      }
+      if (mode !== 'pursue' && goal && (!P.inBattle || mode === 'flee' || mode === 'rest_flee' || B.noContactS > B.stallS)) {
         if (!P.path || !P._goal || Math.hypot(P._goal.x - goal.x, P._goal.y - goal.y) > 40) { w.model.clickMove(P, goal.x, goal.y); P._goal = { x: goal.x, y: goal.y }; }
       }
       B.mode = mode; B.modeCnt = B.modeCnt ?? {}; B.modeCnt[mode] = (B.modeCnt[mode] ?? 0) + 1;
@@ -189,7 +195,13 @@ async function botInit(p, SEED) {
           B.stallInfo.push({ t: Math.round(t), noContactT: q.noContactT, gap: Math.round(Math.hypot(o.x - me.x, o.y - me.y) - (me.r ?? 0) - (o.r ?? 0)), meV: +(me.v ?? 0).toFixed(1), oV: +(o.v ?? 0).toFixed(1), oUnit: o.unit, meShoot: me.shooting ?? null, oShoot: o.shooting ?? null, pairs: myPairs.length }); }
       }
       if (B.noContactS > B.stallS) { B.stalls = (B.stalls ?? 0) + (B.noContactS === B.stallS + 1 ? 1 : 0); if (!goal) goal = home ?? B.start; }
-      if (goal && (!P.inBattle || mode === 'flee' || B.noContactS > B.stallS)) {
+      // 策划 tuning_r2 N1（移植自 /workspace/tuning_r2/sg06b/tools/sim-r2.cjs 的 PURSUE 段）：交战中对手在撤退（combatMode = retreat）或已溃，
+      // 且我方估算 ≥ PURSUE_RATIO（默认 0.9）倍 → 像真人一样点击追上去。默认开；PURSUE=0 关掉（= 旧脚本）
+      if (B.pursue && P.inBattle && mode !== 'flee') {
+        const foe = myPairs.map(q => w.parties.find(x => x.id === (q.a === P.id ? q.b : q.a))).find(o => o && (o.combatMode === 'retreat' || w.field.body(o.id)?.routed) && est(P, o) >= B.pursueRatio);
+        if (foe) { w.model.clickMove(P, foe.x, foe.y); P._goal = { x: foe.x, y: foe.y }; B.pursuits++; mode = 'pursue'; }
+      }
+      if (mode !== 'pursue' && goal && (!P.inBattle || mode === 'flee' || B.noContactS > B.stallS)) {
         if (!P.path || !P._goal || Math.hypot(P._goal.x - goal.x, P._goal.y - goal.y) > 40) { w.model.clickMove(P, goal.x, goal.y); P._goal = { x: goal.x, y: goal.y }; }
       }
       B.mode = mode;
@@ -217,7 +229,7 @@ async function botInit(p, SEED) {
         enemies: ens.length, enemyAffinity: ens.filter(e => L.affinityBonus(e.team, bal) > 0).length, enemyLeadAvg: eLead.length ? +(eLead.reduce((a, b) => a + b, 0) / eLead.length).toFixed(3) : null,
         enemyPowerMax: Math.round(Math.max(0, ...ens.map(e => e.power))) });
     };
-  }, [process.env.STRAT || 'farm', Number(process.env.FARM_SOLD || 35), Number(process.env.STALL_S || 6), SEED]);
+  }, [process.env.STRAT || 'farm', Number(process.env.FARM_SOLD || 35), Number(process.env.STALL_S || 6), SEED, process.env.PURSUE !== '0', Number(process.env.PURSUE_RATIO || 0.9)]);
 }
 
 (async () => {
@@ -239,21 +251,25 @@ async function botInit(p, SEED) {
     const t0 = await p.evaluate(() => { __game.loop.sleep(); return __game.scene.getScene('World').clock.now; }); // 停掉渲染循环（省时间）
     if (t0 !== 0) throw new Error(`manualTick 没生效：开局时钟 ${t0}`);
     await botInit(p, seed);
-    let over = null;
+    let over = null, crash = null;
     for (let s = 0; s < MIN * 60 && !over; s += 10) {
-      over = await p.evaluate(() => {
+      try { over = await p.evaluate(() => {
         const w = __game.scene.getScene('World'), B = window.__bot;
         for (let i = 0; i < 10 && !w.pendingEnd; i++) { B.step(); w.debugAdvance(1); if (Math.round(w.clock.now / 1000) % 60 === 0) B.sample(); }
         return w.pendingEnd ? w.pendingEnd.summary : null;
-      });
+      }); } catch (e) { // 游戏逻辑抛错：记下来（结果里 crash 字段、汇总里单列），不让整批停掉
+        crash = { msg: String(e).split('\n').slice(0, 4).join(' | '), t: await p.evaluate(() => Math.round(__game.scene.getScene('World').clock.now / 1000)) };
+        console.log('CRASH seed', seed, JSON.stringify(crash)); break;
+      }
     }
     const res = await p.evaluate(() => { const B = window.__bot, w = __game.scene.getScene('World');
       return { endT: Math.round(w.clock.now / 1000), luoyangSiegeStartS: B.luoyangSiegeStartS, luoyangDefZeroS: B.luoyangDefZeroS, garrisonDeadS: B.garrisonDeadS, luoyangCapS: B.luoyangCapS,
+        pursuits: B.pursuits, points: w.state.points, run: { namedDefeated: w.run.namedDefeated, battles: w.run.battles, won: w.run.battlesWon },
         minHpBeforeCap: Math.round(B.minHpBeforeCap), minSoldBeforeCap: B.minSoldBeforeCap, draws: B.draws, battles: Object.values(B.battles), samples: B.samples, events: B.events, prompts: B.prompts, stalls: B.stalls ?? 0, separated: B.separated, stallInfo: B.stallInfo ?? [], modeCnt: B.modeCnt ?? null, siegeDur: B.siegeDur ?? null, staleRemoved: w.staleRemoved ?? 0, tuning: B.tuning, home: w.state.homeCity, heroHp: Math.round(w.run.heroHp) }; });
-    res.seed = seed; res.over = over; res.consoleLogs = logs; res.errors = errs;
+    res.seed = seed; res.over = over; res.crash = crash; res.consoleLogs = logs; res.errors = errs;
     all.push(res);
     const s = res.samples;
-    console.log(`seed ${seed}: end ${res.endT}s ${over ? `${over.result}(${over.reason})` : 'alive'} | 洛阳 接近 ${res.luoyangSiegeStartS}s 城防0 ${res.luoyangDefZeroS}s 守军灭 ${res.garrisonDeadS}s 占城 ${res.luoyangCapS}s | 占城前最低 HP ${res.minHpBeforeCap} 兵 ${res.minSoldBeforeCap} | 抽卡 ${res.draws.length} 次 | 交战 ${res.battles.length} 队 | 僵持（脚本走开）${res.stalls} 次 · separated ${res.separated} 次 | 撤下过弱队 ${res.staleRemoved} | errors ${errs.length}`);
+    console.log(`seed ${seed}: end ${res.endT}s ${crash ? 'CRASH' : over ? `${over.result}(${over.reason})` : 'alive'} | 洛阳 接近 ${res.luoyangSiegeStartS}s 城防0 ${res.luoyangDefZeroS}s 守军灭 ${res.garrisonDeadS}s 占城 ${res.luoyangCapS}s | 占城前最低 HP ${res.minHpBeforeCap} 兵 ${res.minSoldBeforeCap} | 抽卡 ${res.draws.length} 次 | 交战 ${res.battles.length} 队 | 僵持（脚本走开）${res.stalls} 次 · separated ${res.separated} 次 | 追击 ${res.pursuits} 次 | 撤下过弱队 ${res.staleRemoved} | errors ${errs.length}`);
     for (const x of s) console.log('  ', JSON.stringify(x));
     await ctxB.close();
   }
