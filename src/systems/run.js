@@ -8,7 +8,7 @@
  *   - 名望 = round(存活分钟 × 2 + 击败名将数 × 50 + 最高战力 / 10)
  * run 是可存档的纯数据；所有函数返回事件列表，表现由 WorldScene / UIScene 处理。
  */
-import { chapterIndexAt, counterOf } from './runConfig.js';
+import { chapterIndexAt, counterOf, firstBattleAtS } from './runConfig.js';
 
 export function createRun({ runId, runSeed, hard = false, startUnit = 'inf', cfg }) {
   return {
@@ -43,12 +43,13 @@ export function targetUnitFor(run, tS, cfg, counters) {
  * 每个固定 tick 调用。p = { soldiers, cap, power, inBattle, inCity }
  * 返回事件：chapter / raid / recruit / fail
  */
-export function runTick(run, tS, dt, p, cfg) {
+/** tuning = balance.v06.tuning（可省略）：U1-B 来袭时刻覆盖 */
+export function runTick(run, tS, dt, p, cfg, tuning = null) {
   const ev = [];
   if (run.over) return ev;
   const ch = chapterIndexAt(tS, cfg);
   if (ch !== run.chapter) { run.chapter = ch; run.maxChapter = Math.max(run.maxChapter, ch); ev.push({ type: 'chapter', idx: ch, chapter: cfg.chapters[ch] }); }
-  if (!run.raidDone && tS >= cfg.first_battle.at_s) { run.raidDone = true; ev.push({ type: 'raid' }); }
+  if (!run.raidDone && tS >= firstBattleAtS(cfg, tuning)) { run.raidDone = true; ev.push({ type: 'raid' }); }
   run.maxPower = Math.max(run.maxPower, p.power);
   // 先判失败（HP 归零后同一 tick 的脱战回血不能把它救回来）
   const f0 = checkFail(run, p.soldiers, tS);

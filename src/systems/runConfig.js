@@ -27,7 +27,7 @@ export function applyRunConfig(b, run) {
     if (t.faction === b.player_faction.id) return { ...t, position: { ...start } };
     if (t.position && typeof t.position === 'object') {
       // [解读] 坐标按 0.5 缩放后，初始黄巾离玩家出生点太近（≈150 px，游荡就会撞上）；推到至少 spawn_dist_px[0] 外，
-      // 保证开局第一战是 20 s 的“来袭”（fast_pace.first_battle）
+      // 保证开局第一战是 first_battle.at_s（U1-B：50 s）的“来袭”（fast_pace.first_battle）
       let x = t.position.x * scale, y = t.position.y * scale;
       const dx = x - start.x, dy = y - start.y, d = Math.hypot(dx, dy), min = run.density.spawn_dist_px[0];
       if (d < min) { const k = min / Math.max(1e-9, d); x = start.x + dx * k; y = start.y + dy * k; }
@@ -96,4 +96,9 @@ export const counterAddOf = (run, hard) => (hard ? (run.meta.unlocks.find(u => u
 /** 克制 unit 的兵种（counters：X 克 counters[X]）→ 反查“谁克 u” */
 export function counterOf(u, counters) {
   return Object.keys(counters).find(k => counters[k] === u) ?? null;
+}
+
+/** 开局第一次来袭时刻（s）：tuning_r2 U1-B（balance.v06.tuning.first_battle_at_s）覆盖 run_v05 的 first_battle.at_s */
+export function firstBattleAtS(run, tuning = null) {
+  return tuning?.first_battle_at_s?.to ?? run.first_battle.at_s;
 }

@@ -159,12 +159,21 @@ export function buildV06(d) {
       : TP.T4 ? { enabled: on('T4'), value: T4v.garrison_power_floor, power_vs_player: one(TP.T4.param, /([\d.]+)\s*×\s*玩家战力/, 'tuning_r1.T4.param'), recalc: 'spawn' }
       : { enabled: false, value: 0, recalc: 'spawn' },
     // 策划 tuning_r2 apply_now（N2 / N3）：按章节覆盖黄巾刷新战力区间（× 玩家战力）。键 = 章节下标（0 起）；from 用来核对 run_v05.json 原值
-    // N1 是模拟脚本（tools/sim-v06.cjs 追击），不进游戏配置；needs_user（U1 / U2）不实现
+    // N1 是模拟脚本（tools/sim-v06.cjs 追击），不进游戏配置；needs_user 只实现 tuning_r2.decisions 里用户已定、有确定值的项（U1-B）
     chapter_spawn_power: Object.fromEntries((d.tuning_r2?.apply_now ?? []).filter(a => /spawn_power_vs_player/.test(a.param ?? '')).map(a => {
       const i = one(a.param, /run\.chapters\[(\d+)\]\.spawn_power_vs_player/, `tuning_r2.${a.id}.param`);
       if (!Array.isArray(a.to) || a.to.length !== 2 || !Array.isArray(a.from)) throw new Error(`tuning_r2.${a.id}：from / to 不是 [lo, hi]`);
       return [i, { id: a.id, from: a.from, to: a.to }];
     })),
+    // tuning_r2.decisions.U1 = B（用户 2026-10-23 定）：开局第一次来袭 first_battle.at_s 从 X s 改到 Y s（数值从 rule 文字里取，from 用来核对 run_v05.json 原值）
+    // U2 = A（不改，无配置）；U3 = C 的具体权重「待策划验证后定值」→ 不进配置
+    first_battle_at_s: (() => {
+      const u1 = d.tuning_r2?.decisions?.U1;
+      if (!u1 || u1.choice !== 'B') return null;
+      const m = /从\s*(\d+(?:\.\d+)?)\s*s\s*改到\s*(\d+(?:\.\d+)?)\s*s/.exec(u1.rule ?? '');
+      if (!m) throw new Error(`tuning_r2.decisions.U1.rule 读不出「从 X s 改到 Y s」：${u1.rule}`);
+      return { id: 'U1', choice: 'B', from: Number(m[1]), to: Number(m[2]) };
+    })(),
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },

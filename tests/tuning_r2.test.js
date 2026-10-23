@@ -15,7 +15,7 @@ test('同步：tuning_r2 的 N2 / N3 进 v06.tuning.chapter_spawn_power（和 fi
   assert.deepEqual(built[2], { id: 'N2', from: byId.N2.from, to: byId.N2.to });
   assert.deepEqual(built[3], { id: 'N3', from: byId.N3.from, to: byId.N3.to });
   for (const [i, o] of Object.entries(built)) assert.deepEqual(run.chapters[i].spawn_power_vs_player, o.from, `第 ${+i + 1} 章原值 = from`);
-  assert.equal(Object.keys(built).length, 2, 'U1 / U2（needs_user）不进配置');
+  assert.equal(Object.keys(built).length, 2, '只有 N2 / N3 两章（U1 走 first_battle_at_s，见 tuning_u1.test.js）');
 });
 
 test('spawnPowerRange：第 3 章 [0.6,1.0]、第 4 章 [0.7,1.1]（来自配置），第 1–2 章不变；群雄模式照样 +add', () => {

@@ -350,6 +350,12 @@
           1.1
         ]
       }
+    },
+    "first_battle_at_s": {
+      "id": "U1",
+      "choice": "B",
+      "from": 20,
+      "to": 50
     }
   },
   "_defaults": []

@@ -2,7 +2,7 @@
 // 在 headless Chrome 里跑真实游戏逻辑（WorldScene.debugAdvance 固定 tick），用一个简单的脚本玩家：
 //   抽卡（选战力最高的卡；队伍满的武将直接流放）→ 走向洛阳攻城占城 → 之后守主城、出城打比自己弱的队、残血回城。
 // 可复现：同一种子每次结果完全相同（window.__SANGUO_SIM 固定 runSeed + manualTick，见下）。REPEAT=2 每个种子跑两遍并逐字节比较结果 JSON（不同 → 退出码 1）。
-// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 和 tuning_r2 N2/N3 跑基线）；PURSUE=0（关掉 tuning_r2 N1 追击）PURSUE_RATIO=0.9
+// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 和 tuning_r2 N2/N3、U1 跑基线）；PURSUE=0（关掉 tuning_r2 N1 追击）PURSUE_RATIO=0.9
 const { chromium } = require(process.env.PW_PATH || '/workspace/.tools/node_modules/playwright-core');
 const URL = process.argv[2] || 'http://localhost:5182/';
 const SEEDS = (process.env.SEEDS || '1,2,3').split(',').map(Number);
@@ -11,7 +11,7 @@ const OUT = process.env.OUT || null;
 const REPEAT = Math.max(1, Number(process.env.REPEAT || 1));
 // TUNING=off：关掉 tuning_r1 的 T1–T4（基线对比）；TUNING='{"siege_min_s":20}' 之类：覆盖 balance.v06.tuning 的键（只在 dev 构建有效）
 const TUNING_OVERRIDE = process.env.TUNING === 'off'
-  ? JSON.stringify({ siege_min_s: 0, stale_refresh: { enabled: false }, flee_ratio_by_faction: {}, garrison_power_floor: { enabled: false }, chapter_spawn_power: {} })
+  ? JSON.stringify({ siege_min_s: 0, stale_refresh: { enabled: false }, flee_ratio_by_faction: {}, garrison_power_floor: { enabled: false }, chapter_spawn_power: {}, first_battle_at_s: null })
   : (process.env.TUNING ? JSON.stringify(JSON.parse(process.env.TUNING)) : 'null');
 
 // 可复现：固定 runSeed（所有游戏随机数流都从它派生）+ manualTick（实时循环不推进逻辑，只由 debugAdvance 按固定 0.1 s tick 推进）。

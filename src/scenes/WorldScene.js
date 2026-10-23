@@ -312,7 +312,7 @@ export default class WorldScene extends Phaser.Scene {
     return p;
   }
 
-  /** 开局遭遇战（fast_pace.first_battle）：20 s 时在玩家 350–450 px 处刷一支 0.6–0.8 倍战力的黄巾，直冲玩家，无视新手保护 */
+  /** 开局遭遇战（fast_pace.first_battle）：first_battle.at_s（tuning_r2 U1-B 改为 50 s，见 firstBattleAtS）时在玩家 350–450 px 处刷一支 0.6–0.8 倍战力的黄巾，直冲玩家，无视新手保护 */
   spawnRaid() {
     const fb = runCfg.first_battle, rng = this.rngs.spawn, pl = this.player;
     let pos = null;
@@ -547,7 +547,7 @@ export default class WorldScene extends Phaser.Scene {
     if (r.over) return;
     const tS = this.clock.now / 1000;
     recordUnit(r, tS, pl.team.unit);
-    const ev = runTick(r, tS, dt, { soldiers: pl.team.soldiers, cap: pl.cap, power: pl.power, inBattle: pl.inBattle, inCity: this.inCity(pl) }, runCfg);
+    const ev = runTick(r, tS, dt, { soldiers: pl.team.soldiers, cap: pl.cap, power: pl.power, inBattle: pl.inBattle, inCity: this.inCity(pl) }, runCfg, balance.v06?.tuning);
     // polish_merged.4：名将军每累计 60 s（不在交战中）补兵；交战中计时暂停，战后不补算
     for (const { id, add } of namedReinforce(r, dt, this.aiParties.map(p => ({ id: p.id, soldiers: p.team.soldiers, cap: p.cap, inBattle: !!p.inBattle })), runCfg)) {
       const p = this.aiParties.find(x => x.id === id);

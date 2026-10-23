@@ -1,4 +1,4 @@
-// v0.5 一局 冒烟：开新局 → 快进游戏时钟（开发钩子 debugAdvance，按固定 tick 跑完整模拟）→ ~20 s 开局遭遇战（来袭黄巾冲玩家并交战）
+// v0.5 一局 冒烟：开新局 → 快进游戏时钟（开发钩子 debugAdvance，按固定 tick 跑完整模拟）→ first_battle.at_s（U1-B：50 s）开局遭遇战（来袭黄巾冲玩家并交战）
 // → 主角 HP 归零 → 失败：run 存档被删除、局外数据写入、显示结算画面 → 再来一局可以正常开始。
 // 用法：node tests/smoke-run.cjs [url]（默认 http://localhost:5180/）；截图：/workspace/v05-run-screenshot.png + artifacts/
 const path = require('path');
@@ -16,7 +16,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   p.on('console', m => { logs.push(m.text()); if (m.type() === 'error') errs.push(m.text()); });
   const fail = async (msg) => { console.error('FAIL:', msg); console.error(logs.slice(-40).join('\n')); await p.screenshot({ path: path.join(OUT, 'run-fail.png') }); await b.close(); process.exit(1); };
   const ok = (c, msg) => (c ? console.log('ok  ', msg) : fail(msg));
-  const W = fn => p.evaluate(fn);
+  const W = (fn, a) => p.evaluate(fn, a);
 
   // 旧版存档：放一个 v0.4 的 sanguo-save → 启动时应归档为 sanguo-save-legacy 并提示
   await p.goto(URL); await W(() => { localStorage.clear(); localStorage.setItem('sanguo-save', '{"saveVersion":3,"old":true}'); }); await p.reload(); await sleep(p, 2500);
@@ -28,16 +28,19 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await ok(run0.active && run0.runId && run0.ch === 0 && run0.grace === 90 && run0.hp === 100, `新一局开始（${JSON.stringify(run0)}）`);
   await W(() => __game.scene.pause('World')); // 下面只用快进推进，避免真实时间干扰
 
-  // 19 s：还没有来袭；推进到 20 s：来袭黄巾出现在 350–450 px
-  const before = await W(() => { const w = __game.scene.getScene('World'); w.debugAdvance(19 - w.clock.now / 1000); return { t: w.clock.now / 1000, raid: w.run.raidId }; });
-  await ok(!before.raid, `19 s 时尚无开局遭遇战（t=${before.t.toFixed(1)}）`);
-  const raid = await W(() => {
+  // 来袭时刻来自配置：v06.tuning.first_battle_at_s（tuning_r2 U1-B，50 s）覆盖 run_v05 first_battle.at_s（20 s）
+  const AT = (() => { const fs = require('fs'), pth = require('path'); const v06 = JSON.parse(fs.readFileSync(pth.join(__dirname, '../src/data/v06.json'), 'utf8')), r5 = JSON.parse(fs.readFileSync(pth.join(__dirname, '../src/data/run_v05.json'), 'utf8'));
+    return v06.tuning?.first_battle_at_s?.to ?? r5.first_battle.at_s; })();
+  // AT−1 s：还没有来袭；推进到 AT：来袭黄巾出现在 350–450 px
+  const before = await W(at => { const w = __game.scene.getScene('World'); w.debugAdvance(at - 1 - w.clock.now / 1000); return { t: w.clock.now / 1000, raid: w.run.raidId }; }, AT);
+  await ok(!before.raid, `${AT - 1} s 时尚无开局遭遇战（t=${before.t.toFixed(1)}）`);
+  const raid = await W(at => {
     const w = __game.scene.getScene('World');
-    while (!w.run.raidId && w.clock.now < 25000) w.debugAdvance(0.1);
+    while (!w.run.raidId && w.clock.now < (at + 5) * 1000) w.debugAdvance(0.1);
     const r = w.aiParties.find(a => a.id === w.run.raidId), pl = w.player;
     return r && { t: w.clock.now / 1000, id: r.id, name: r.name, dist: Math.hypot(r.x - pl.x, r.y - pl.y), ratio: r.power / pl.power, raid: !!r.team.raid, state: r.ai?.state };
-  });
-  await ok(raid && Math.abs(raid.t - 20) < 0.25 && raid.dist >= 340 && raid.dist <= 475 && /* 刷在 350–450 px，再加推进一步内双方的移动 */ raid.ratio > 0.5 && raid.ratio < 0.95, `20 s 刷出来袭黄巾（${JSON.stringify(raid)}）`);
+  }, AT);
+  await ok(raid && Math.abs(raid.t - AT) < 0.25 && raid.dist >= 340 && raid.dist <= 475 && /* 刷在 350–450 px，再加推进一步内双方的移动 */ raid.ratio > 0.5 && raid.ratio < 0.95, `${AT} s 刷出来袭黄巾（${JSON.stringify(raid)}）`);
   const fight = await W(() => {
     const w = __game.scene.getScene('World'), id = w.run.raidId;
     for (let i = 0; i < 300; i++) {
@@ -47,7 +50,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
     }
     return null;
   });
-  await ok(fight && fight.inBattle && fight.t < 50, `开局遭遇战：来袭队冲到玩家并交战（${JSON.stringify(fight)}）`);
+  await ok(fight && fight.inBattle && fight.t < AT + 30, `开局遭遇战：来袭队冲到玩家并交战（${JSON.stringify(fight)}）`);
   await ok(fight.otherChasers === 0, '新手保护（90 s）内其他 AI 不追玩家');
   await W(() => __game.scene.resume('World')); await sleep(p, 700);
   await W(() => __game.scene.pause('World'));
