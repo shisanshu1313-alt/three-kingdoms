@@ -13,7 +13,7 @@ import { inCombat, soldiersOf, shownSoldiers, moraleOf, radiusOf, vmaxOf, addSol
 import { assignUnit } from '../systems/units.js';
 import combatJson from '../data/combat_v05.json' with { type: 'json' };
 import { createGameState, pushLog } from '../systems/gameState.js';
-import { buildRespawnTeam } from '../systems/teams.js';
+import { buildRespawnTeam, pickStaleTeam } from '../systems/teams.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom, run as runCfg } from '../data/index.js';
 import { mulberry32, streamSeed } from '../systems/rng.js';
@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER , garrisonBasePower } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -267,6 +267,11 @@ export default class WorldScene extends Phaser.Scene {
 
   /** 补充刷新：落点规则见 WorldModel.respawnPosition（spawn.position_rule） */
   respawn() {
+    // tuning_r1 T2：满员时撤下 1 支过弱、远离玩家、不在交战的普通黄巾队，腾位按当前章节重刷（规则见 teams.pickStaleTeam）
+    if (this.aiParties.length >= balance.spawn.max_ai_teams && !this.run.over) {
+      const old = pickStaleTeam(this.aiParties, this.player, balance, { namedIds: new Set(runCfg.run_goal.named) });
+      if (old) { console.log(`[spawn] 撤下过弱队 ${old.name} 战${Math.round(old.power)}`); this.staleRemoved = (this.staleRemoved ?? 0) + 1; this.removeParty(old); }
+    }
     if (this.aiParties.length >= balance.spawn.max_ai_teams || this.run.over) return null;
     const rng = this.rngs.spawn;
     const pos = this.model.respawnPosition(this.player, balance, rng);
@@ -346,7 +351,8 @@ export default class WorldScene extends Phaser.Scene {
   spawnGarrison() {
     const G = balance.v06.city.garrison, c = this.state.cities[G.city];
     if (!c?.garrison) return null;
-    const team = assignUnit(buildRespawnTeam({ id: `garrison_${G.city}`, position: { x: c.x, y: c.y }, playerPower: this.player.power,
+    const gPlayer = garrisonBasePower(this.player.power, balance); // tuning_r1 T4（needs_user，默认关）
+    const team = assignUnit(buildRespawnTeam({ id: `garrison_${G.city}`, position: { x: c.x, y: c.y }, playerPower: gPlayer,
       powerRange: [G.power_vs_player, G.power_vs_player], balance, rng: this.rngs.spawn, idx: index, nextName: nextBanditName }),
     combatJson, this.rngs.spawn, { mix: runCfg.chapters[0].bandit_units });
     Object.assign(team, { name: `${c.name}守军`, fixedName: true, cityHold: G.city, home: { x: c.x, y: c.y } });

@@ -60,6 +60,19 @@ export const inContact = (p, city, balance) => dist(p, city) <= C6(balance).radi
 /** 每秒城防伤害 = dmg_k × 攻方战力 × 兵种攻城倍率 */
 export const siegeDps = (power, unit, balance) => C6(balance).dmg_k * power * (C6(balance).unit_siege_mult[unit] ?? 1);
 
+/** tuning_r1 T1：每秒城防伤害上限 = 该章城防上限 / siege_min_s（满城防打到 0 至少 siege_min_s 秒）；siege_min_s 缺省 / 0 = 不限 */
+export function siegeDpsCapped(dps, defMaxNow, balance) {
+  const m = balance.v06?.tuning?.siege_min_s;
+  return m > 0 ? Math.min(dps, defMaxNow / m) : dps;
+}
+
+/** tuning_r1 T4（needs_user，garrison_power_floor.enabled 默认 false）：守军战力 = max(floor, power_vs_player × 玩家战力)，
+ *  返回给 buildRespawnTeam 用的『玩家战力』（再乘 power_vs_player）；关着 = 原样 */
+export function garrisonBasePower(playerPower, balance) {
+  const F = balance.v06?.tuning?.garrison_power_floor, k = C6(balance).garrison.power_vs_player;
+  return F?.enabled ? Math.max(playerPower, F.value / k) : playerPower;
+}
+
 /**
  * 城上弓箭：按 v0.5 弓兵射击公式，射手战力 = arrow_power_k × 本章参考战力；
  * 每秒损兵比例 = min(rate_cap, lam × (射手/目标)^a) × 弓兵 shoot_mult × 目标兵种 arrow_taken（步兵 0.6）× 克制物品减伤
@@ -93,7 +106,7 @@ export function cityTick(cities, parties, ctx) {
     if (sieging.length) {
       c.lastHitS = tS;
       if (c.def > 0) {
-        c.def -= sieging.reduce((s, p) => s + siegeDps(p.power, p.unit, balance), 0) * dt;
+        c.def -= siegeDpsCapped(sieging.reduce((s, p) => s + siegeDps(p.power, p.unit, balance), 0), max, balance) * dt;
         if (c.def <= 0) { c.def = 0; c.zeroAtS = tS; events.push({ type: 'breached', city: c }); }
       }
     } else if (c.def < max && tS - c.lastHitS >= C.regen_idle_s && (c.zeroAtS == null || tS - c.zeroAtS >= C.break_window_s)) {

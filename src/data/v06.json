@@ -305,9 +305,34 @@
     "no_contact_end_s": 4,
     "no_contact_chase_frac": 0.5
   },
-  "_defaults": [
-    "city_v06.raid_exclude",
-    "battle_v06.no_contact_end_s",
-    "battle_v06.no_contact_chase_frac"
-  ]
+  "tuning": {
+    "siege_min_s": 15,
+    "stale_refresh": {
+      "enabled": true,
+      "faction": "黄巾",
+      "stale_ratio": 0.6,
+      "min_dist_px": 400
+    },
+    "flee_ratio_by_faction": {
+      "黄巾": 0.4
+    },
+    "garrison_power_floor": {
+      "enabled": false,
+      "value": 70
+    },
+    "field_regroup": {
+      "enabled": false,
+      "implemented": false,
+      "only_when": "没有主城",
+      "delay_s": 5,
+      "floor": 30,
+      "interval_s": 3
+    },
+    "escape_points": {
+      "enabled": false,
+      "implemented": false,
+      "mult": 0.5
+    }
+  },
+  "_defaults": []
 }

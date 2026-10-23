@@ -117,3 +117,21 @@ export function buildRespawnTeam({ id, position, playerPower, balance, rng, idx 
   team.targetPower = target;
   return team;
 }
+
+/**
+ * tuning_r1 T2（stale_refresh）：场上已满 max_ai_teams 时，挑 1 支要撤下的『过弱普通黄巾队』，腾位按当前章节重刷。
+ * 条件：势力 = stale_refresh.faction（id 或名字）、战力 < stale_ratio × 玩家战力、不在交战、距玩家 > min_dist_px；
+ * 不含来袭（raid）、守军（cityHold）、攻城队（siegeTarget）、名将军（namedIds）、校尉军（refill）。
+ * 多支符合 → 战力最低的（同战力按 id），保证确定性。没开 / 没有符合的 → null。纯函数。
+ */
+export function pickStaleTeam(parties, player, balance, { namedIds = new Set() } = {}) {
+  const S = balance.v06?.tuning?.stale_refresh;
+  if (!S?.enabled || !player) return null;
+  const fac = S.faction ?? '黄巾';
+  const facOk = f => f === fac || balance.ai?.factions?.find(x => x.id === f)?.name === fac;
+  const c = parties.filter(p => facOk(p.faction) && !p.isPlayer && !p.inBattle && !p.team?.raid && !p.team?.cityHold && !p.team?.siegeTarget
+    && !p.team?.refill && !namedIds.has(p.id) && !String(p.id).startsWith('refill_')
+    && p.power < S.stale_ratio * player.power && Math.hypot(p.x - player.x, p.y - player.y) > S.min_dist_px);
+  c.sort((a, b) => a.power - b.power || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return c[0] ?? null;
+}

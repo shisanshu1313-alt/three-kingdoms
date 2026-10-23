@@ -28,11 +28,12 @@ function stalled(gap = 50) {
 const until = (s, n, pred, inputs = stay) => { for (let i = 0; i < n; i++) { s = M.step(s, inputs(s), 0.1, cfg); if (pred(s)) return { s, t: s.t, hit: true }; } return { s, t: s.t, hit: false }; };
 const sepEv = s => s.events.find(e => e.type === 'separate' && e.kind === 'separated');
 
-test('配置：battle.no_contact_end_s = 4（定稿还没有该字段 → 读配置失败用答复默认值，记在 _defaults）', () => {
+test('配置：battle.no_contact_end_s = 4、chase_frac = 0.5（定稿 battle_v06 已写入，读的是配置，不再走默认值）', () => {
   assert.equal(NC.no_contact_end_s, 4);
   assert.equal(cfg.noContact.end_s, NC.no_contact_end_s);
   assert.equal(cfg.noContact.chase_frac, NC.no_contact_chase_frac);
-  assert.ok(balance.v06._defaults.includes('battle_v06.no_contact_end_s'));
+  assert.equal(NC.no_contact_chase_frac, 0.5);
+  assert.ok(!balance.v06._defaults.includes('battle_v06.no_contact_end_s'));
   assert.equal(M.makeCombatConfig(combatJson, { ...balance, v06: undefined }).noContact, null, '没有 v0.6 配置时不启用');
 });
 

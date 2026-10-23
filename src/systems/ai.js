@@ -11,6 +11,7 @@ import { mulberry32 } from './rng.js'; // 默认随机数也是种子流（游�
 export default class AISystem {
   constructor(balance, rng = mulberry32(0x5eed)) {
     this.cfg = balance.ai;
+    this.tuning = balance.v06?.tuning ?? null;
     this.rng = rng;
     this.factions = Object.fromEntries(this.cfg.factions.map(f => [f.id, f]));
     this.tickAcc = Infinity; // 第一帧立即决策
@@ -41,7 +42,10 @@ export default class AISystem {
 
   personalityOf(party) {
     const key = this.factions[party.faction]?.personality ?? 'normal';
-    return { key, ...this.cfg.personality[key] };
+    // tuning_r1 T3：按势力（id 或名字）覆盖逃跑阈值（黄巾 0.4），其他势力仍按性格
+    const byFac = this.tuning?.flee_ratio_by_faction ?? {}, name = this.factions[party.faction]?.name;
+    const fr = byFac[party.faction] ?? (name != null ? byFac[name] : undefined);
+    return typeof fr === 'number' ? { key, ...this.cfg.personality[key], flee_ratio: fr } : { key, ...this.cfg.personality[key] };
   }
 
   init(p) {
