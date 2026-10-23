@@ -2,7 +2,7 @@
 // 在 headless Chrome 里跑真实游戏逻辑（WorldScene.debugAdvance 固定 tick），用一个简单的脚本玩家：
 //   抽卡（选战力最高的卡；队伍满的武将直接流放）→ 走向洛阳攻城占城 → 之后守主城、出城打比自己弱的队、残血回城。
 // Math.random / crypto 按种子替换 → 同一种子结果可复现。
-// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json
+// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）
 const { chromium } = require(process.env.PW_PATH || '/workspace/.tools/node_modules/playwright-core');
 const URL = process.argv[2] || 'http://localhost:5182/';
 const SEEDS = (process.env.SEEDS || '1,2,3').split(',').map(Number);
@@ -17,13 +17,17 @@ const seedScript = seed => `(() => {
 })();`;
 
 async function botInit(p) {
-  await p.evaluate(async ([STRAT, FARM_SOLD]) => {
+  await p.evaluate(async ([STRAT, FARM_SOLD, STALL_S]) => {
     const G = await import('/src/systems/gachaOffer.js'), R = await import('/src/systems/roster.js'), L = await import('/src/systems/leader.js');
     const D = await import('/src/data/index.js'), U = await import('/src/systems/gacha.js'), M = await import('/src/systems/melee.js');
     const bal = D.balance, w = __game.scene.getScene('World'), gs = __game.scene.getScene('Gacha');
     const B = window.__bot = { log: [], samples: [], events: [], seen: new WeakSet(), draws: [], battles: {}, minHpBeforeCap: 100, minSoldBeforeCap: 1e9,
       luoyangCapS: null, luoyangDefZeroS: null, luoyangSiegeStartS: null, garrisonDeadS: null, prompts: 0, strat: STRAT, farmSold: FARM_SOLD, start: { x: w.player.x, y: w.player.y } };
     __game.events.on('city-prompt', e => { B.prompts++; w.answerRelocate(e.cityId, false); });
+    // v0.6 battle.no_contact_end_s：记玩家参与的 'separated' 结束次数（游戏规则自己解开的僵持）
+    B.separated = 0; B.stallS = STALL_S;
+    const H = w.field.hooks, onSep = H.onSeparated;
+    H.onSeparated = (a, b, e) => { if (a?.isPlayer || b?.isPlayer) B.separated++; return onSep?.(a, b, e); };
     // 模态窗口不需要：直接关掉（debugAdvance 不受暂停影响）
     const ctx = () => { gs.world = w; return gs.ctx(); };
     const tS = () => w.clock.now / 1000;
@@ -88,8 +92,15 @@ async function botInit(p) {
       // 交战中：一直没接触（对方放弃追击后原地停住，pair 不会自己解除）超过 3 s → 照常走开（真人玩家也会走开）
       const myPairs = Object.values(w.field.state.pairs).filter(q => q.a === P.id || q.b === P.id);
       B.noContactS = P.inBattle && !myPairs.some(q => q.wasContact) ? (B.noContactS ?? 0) + 1 : 0;
-      if (B.noContactS > 3) { B.stalls = (B.stalls ?? 0) + (B.noContactS === 4 ? 1 : 0); if (!goal) goal = home ?? B.start; }
-      if (goal && (!P.inBattle || mode === 'flee' || B.noContactS > 3)) {
+      // v0.6 起游戏规则在 no_contact_end_s（4 s）解开；脚本玩家等 STALL_S（默认 6 s）还没解开才自己走开 = 残留僵持
+      if (B.noContactS === B.stallS + 1) { // 记下没被规则解开的原因（诊断用）
+        const S = w.field.state, bs = S.bodies;
+        B.stallInfo = B.stallInfo ?? [];
+        for (const q of myPairs) { const o = bs[q.a === P.id ? q.b : q.a], me = bs[P.id]; if (!o || !me) continue;
+          B.stallInfo.push({ t: Math.round(t), noContactT: q.noContactT, gap: Math.round(Math.hypot(o.x - me.x, o.y - me.y) - (me.r ?? 0) - (o.r ?? 0)), meV: +(me.v ?? 0).toFixed(1), oV: +(o.v ?? 0).toFixed(1), oUnit: o.unit, meShoot: me.shooting ?? null, oShoot: o.shooting ?? null, pairs: myPairs.length }); }
+      }
+      if (B.noContactS > B.stallS) { B.stalls = (B.stalls ?? 0) + (B.noContactS === B.stallS + 1 ? 1 : 0); if (!goal) goal = home ?? B.start; }
+      if (goal && (!P.inBattle || mode === 'flee' || B.noContactS > B.stallS)) {
         if (!P.path || !P._goal || Math.hypot(P._goal.x - goal.x, P._goal.y - goal.y) > 40) { w.model.clickMove(P, goal.x, goal.y); P._goal = { x: goal.x, y: goal.y }; }
       }
       B.mode = mode;
@@ -117,7 +128,7 @@ async function botInit(p) {
         enemies: ens.length, enemyAffinity: ens.filter(e => L.affinityBonus(e.team, bal) > 0).length, enemyLeadAvg: eLead.length ? +(eLead.reduce((a, b) => a + b, 0) / eLead.length).toFixed(3) : null,
         enemyPowerMax: Math.round(Math.max(0, ...ens.map(e => e.power))) });
     };
-  }, [process.env.STRAT || 'farm', Number(process.env.FARM_SOLD || 35)]);
+  }, [process.env.STRAT || 'farm', Number(process.env.FARM_SOLD || 35), Number(process.env.STALL_S || 6)]);
 }
 
 (async () => {
@@ -144,11 +155,11 @@ async function botInit(p) {
     }
     const res = await p.evaluate(() => { const B = window.__bot, w = __game.scene.getScene('World');
       return { endT: Math.round(w.clock.now / 1000), luoyangSiegeStartS: B.luoyangSiegeStartS, luoyangDefZeroS: B.luoyangDefZeroS, garrisonDeadS: B.garrisonDeadS, luoyangCapS: B.luoyangCapS,
-        minHpBeforeCap: Math.round(B.minHpBeforeCap), minSoldBeforeCap: B.minSoldBeforeCap, draws: B.draws, battles: Object.values(B.battles), samples: B.samples, events: B.events, prompts: B.prompts, stalls: B.stalls ?? 0, home: w.state.homeCity, heroHp: Math.round(w.run.heroHp) }; });
+        minHpBeforeCap: Math.round(B.minHpBeforeCap), minSoldBeforeCap: B.minSoldBeforeCap, draws: B.draws, battles: Object.values(B.battles), samples: B.samples, events: B.events, prompts: B.prompts, stalls: B.stalls ?? 0, separated: B.separated, stallInfo: B.stallInfo ?? [], home: w.state.homeCity, heroHp: Math.round(w.run.heroHp) }; });
     res.seed = seed; res.over = over; res.consoleLogs = logs; res.errors = errs;
     all.push(res);
     const s = res.samples;
-    console.log(`seed ${seed}: end ${res.endT}s ${over ? `${over.result}(${over.reason})` : 'alive'} | 洛阳 接近 ${res.luoyangSiegeStartS}s 城防0 ${res.luoyangDefZeroS}s 守军灭 ${res.garrisonDeadS}s 占城 ${res.luoyangCapS}s | 占城前最低 HP ${res.minHpBeforeCap} 兵 ${res.minSoldBeforeCap} | 抽卡 ${res.draws.length} 次 | 交战 ${res.battles.length} 队 | 僵持解除 ${res.stalls} 次 | errors ${errs.length}`);
+    console.log(`seed ${seed}: end ${res.endT}s ${over ? `${over.result}(${over.reason})` : 'alive'} | 洛阳 接近 ${res.luoyangSiegeStartS}s 城防0 ${res.luoyangDefZeroS}s 守军灭 ${res.garrisonDeadS}s 占城 ${res.luoyangCapS}s | 占城前最低 HP ${res.minHpBeforeCap} 兵 ${res.minSoldBeforeCap} | 抽卡 ${res.draws.length} 次 | 交战 ${res.battles.length} 队 | 僵持（脚本走开）${res.stalls} 次 · separated ${res.separated} 次 | errors ${errs.length}`);
     for (const x of s) console.log('  ', JSON.stringify(x));
     await ctxB.close();
   }
