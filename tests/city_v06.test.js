@@ -193,3 +193,89 @@ test('melee：env.noEngage → 接触也不开战；已在打的一对按脱离�
   for (let i = 0; i < 40 && !ended; i++) { s = step(s, {}, cfg.tick_s, cfg, env); ended = Object.keys(s.pairs).length === 0; }
   assert.ok(ended, '保护后脱离');
 });
+
+// ---------------- 策划 2026-10-23 答复 ----------------
+import { factionsHostile, hostileToCity } from '../src/systems/city.js';
+import AISystem from '../src/systems/ai.js';
+
+test('#4 城上弓箭：打所有接触城的敌队，只打与城主敌对的；友军 / 同盟路过不射（敌对判定与战场同一个函数）', () => {
+  const cs = createCities(balance), X = cs.xuchang; // 魏
+  const at = (id, faction, dy) => ({ id, faction, x: X.x, y: X.y + dy, r: 15, unit: 'inf', power: 100, soldiers: 50 });
+  const parties = [at('e1', 'shu', 40), at('e2', 'bandit', -40), at('f1', 'wei', 30), at('ally', 'wu', 20)];
+  let r = cityTick(cs, parties, ctx({ tS: 1, hostile: factionsHostile }));
+  assert.ok(r.losses.e1 > 0 && r.losses.e2 > 0 && r.losses.ally > 0, '没有同盟时其他势力都是敌人');
+  assert.equal(r.losses.f1, undefined, '自己势力不射');
+  // 同盟（hostile 判定说 wu–wei 不敌对）→ 吴军路过不挨箭
+  const allied = (a, b) => factionsHostile(a, b) && !([a, b].includes('wu') && [a, b].includes('wei'));
+  r = cityTick(cs, parties, ctx({ tS: 1.1, hostile: allied }));
+  assert.ok(r.losses.e1 > 0 && r.losses.e2 > 0);
+  assert.equal(r.losses.ally, undefined, '同盟路过不射');
+  assert.equal(hostileToCity({ faction: 'wu' }, X, allied), false);
+  assert.equal(hostileToCity({ faction: 'wu' }, X), true, '默认 = 势力不同即敌对');
+  // 玩家的城：玩家自己不挨箭，敌队挨箭
+  X.owner = PLAYER;
+  r = cityTick(cs, [{ ...at('pl', PLAYER, 0), isPlayer: true }, at('e3', 'wei', 40)], ctx({ tS: 1.2, hostile: factionsHostile }));
+  assert.equal(r.losses.pl, undefined); assert.ok(r.losses.e3 > 0);
+});
+
+test('#5 守军、坐镇的名将永不撤退；第 3 章名将离城出征 → 普通撤退规则', () => {
+  const ai = new AISystem(balance), cs = createCities(balance);
+  ai.cities = cs; ai.rules = { graceUntilS: 0, namedIds: new Set(['wei_caocao']), namedLeashPx: null };
+  const C = balance.v06.city;
+  const garrison = { id: 'g1', faction: 'bandit', team: { cityHold: 'luoyang' } };
+  const named = { id: 'wei_caocao', faction: 'wei', team: {} };
+  const plain = { id: 'w9', faction: 'wei', team: {} };
+  for (const ch of [1, 2, 3]) {
+    ai.holdNamed = C.named_in_city_chapters.includes(ch);
+    assert.equal(ai.noRetreatOf(garrison), true, `守军第 ${ch} 章`);
+    assert.equal(ai.noRetreatOf(named), ch <= 2, `名将第 ${ch} 章`);
+    assert.equal(ai.noRetreatOf(plain), false);
+  }
+  assert.deepEqual(C.named_in_city_chapters, [1, 2]);
+});
+
+test('#6 迁都后旧主城变无主城（没有守军）→ 也能回血 / 征兵 / 整编（C4 own_or_neutral）', () => {
+  const s = createGameState(balance); s.cities = createCities(balance);
+  const L = s.cities.luoyang; L.garrison = null;
+  capture(s, 'luoyang');
+  freeConqueredCapitals(s.cities, new Set(['wei']));
+  capture(s, 'xuchang');
+  assert.equal(L.owner, null); assert.equal(L.garrison, null);
+  assert.equal(serviceCity(L), true);
+  assert.equal(serviceCity(s.cities.xuchang), true);
+  assert.equal(serviceCity(s.cities.chengdu), false, '势力的城不行');
+  assert.equal(balance.v06.city.service_cities, 'own_or_neutral');
+});
+
+test('#7 主城被攻：最近的未被讨伐势力派兵，黄巾（bandit）永不派', () => {
+  const cs = createCities(balance), L = cs.luoyang;
+  const fac = new Set(Object.values(balance.v06.city.capitals));
+  assert.ok(!fac.has('bandit'), '黄巾没有大本营');
+  // 黄巾的队伍离得最近、战力最高，也不会被选中
+  const teams = [{ id: 'yb', faction: 'bandit', power: 999, x: L.x + 5, y: L.y }, { id: 'w', faction: 'wei', power: 100, x: L.x + 400, y: L.y }];
+  for (let i = 0; i < 20; i++) {
+    const pick = pickSiegeTeam(L, teams, 100, new Set(), balance);
+    assert.notEqual(pick.team?.faction ?? pick.spawn ?? pick.faction, 'bandit');
+  }
+  // 最近的势力被讨伐后换下一个最近的
+  const a = pickSiegeTeam(L, teams, 100, new Set(), balance), fa = a.team?.faction ?? a.faction;
+  const b = pickSiegeTeam(L, teams, 100, new Set([fa]), balance), fb = b.team?.faction ?? b.faction;
+  assert.notEqual(fa, fb); assert.notEqual(fb, 'bandit');
+});
+
+test('#8 主城攻城计时：第 1 章的时间不算（进第 2 章从 0 开始）；之后连续在城 20 s 才派兵，出城清零', () => {
+  const A = balance.v06.city.ai_siege_player, rc = {};
+  assert.equal(A.from_chapter, 2); assert.equal(A.hold_s, 20);
+  for (let i = 0; i < 500; i++) assert.equal(siegePlayerDue(rc, { inside: true, tS: i * 0.1, dt: 0.1, chapter: 0 }, balance), false);
+  assert.equal(rc.insideS, 0, '第 1 章一直是 0');
+  // 进入第 2 章：不能马上派，要再连续待 20 s
+  let t = 50, at = null;
+  for (let i = 0; i < 300 && at == null; i++) { t = +(t + 0.1).toFixed(3); if (siegePlayerDue(rc, { inside: true, tS: t, dt: 0.1, chapter: 1 }, balance)) at = t; }
+  assert.ok(Math.abs(at - 50 - A.hold_s) < 0.15, String(at));
+  // 出城清零：待 15 s → 出城 → 再待 15 s 不派
+  const rc2 = {}; let due = 0; t = 0;
+  const go = (n, inside) => { for (let i = 0; i < n; i++) { t = +(t + 0.1).toFixed(3); if (siegePlayerDue(rc2, { inside, tS: t, dt: 0.1, chapter: 1 }, balance)) due++; } };
+  go(150, true); go(1, false); assert.equal(rc2.insideS, 0); go(150, true);
+  assert.equal(due, 0);
+  go(60, true); assert.equal(due, 1);
+});

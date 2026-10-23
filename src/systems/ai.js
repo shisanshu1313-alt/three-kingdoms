@@ -33,6 +33,10 @@ export default class AISystem {
     }
     return null;
   }
+  /** 【策划 2026-10-23 #5】守军和守城的名将永不撤退；第 3 章起名将军离城出征（holdNamed = false）→ 按普通 AI 撤退规则 */
+  noRetreatOf(p, hold = this.holdCityOf(p)) {
+    return !!(hold && this.cityCfg.hold_no_flee);
+  }
 
   personalityOf(party) {
     const key = this.factions[party.faction]?.personality ?? 'normal';
@@ -94,7 +98,7 @@ export default class AISystem {
     }
     // v0.6 守城：城防 > 0 时坐镇城中；城破后只追打城边 hold_engage_px 内的敌人 【假设】
     const hold = this.holdCityOf(p);
-    p.team.noRetreat = !!(hold && this.cityCfg.hold_no_flee); // 守城队交战时也不撤（combatAI mem.noRetreat）
+    p.team.noRetreat = this.noRetreatOf(p, hold); // 守城队交战时也不撤（combatAI mem.noRetreat）
     let canChase = this.canChaseFn(p, nowS);
     if (hold) {
       if (hold.def > 0) {

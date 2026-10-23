@@ -48,9 +48,12 @@ export function protectingCity(p, cities, balance) {
 export const noEngage = (a, b, cities, balance) => !!(protectingCity(a, cities, balance) || protectingCity(b, cities, balance));
 
 /** 敌对：城有归属方时 = 势力不同；无主空城只有玩家会攻（为了占城） */
-export function hostileToCity(p, city) {
+/** 势力之间是否敌对（战场和城上弓箭共用一个口径；目前没有同盟系统 = 势力不同即敌对） */
+export const factionsHostile = (fa, fb) => fa !== fb;
+/** 【策划 2026-10-23 #4】城上弓箭只射与城主敌对的队伍；友军 / 同盟路过不射。hostile = 势力敌对判定（默认 factionsHostile） */
+export function hostileToCity(p, city, hostile = factionsHostile) {
   const side = citySide(city);
-  return side ? p.faction !== side : !!p.isPlayer;
+  return side ? hostile(p.faction, side) : !!p.isPlayer;
 }
 export const inContact = (p, city, balance) => dist(p, city) <= C6(balance).radius_px + (p.r ?? 0);
 
@@ -82,8 +85,8 @@ export function cityTick(cities, parties, ctx) {
   const { tS, dt, chapter, balance, move, homeCity } = ctx, C = C6(balance), events = [], losses = {};
   const max = defMax(balance, chapter);
   for (const c of Object.values(cities)) {
-    const hostile = parties.filter(p => hostileToCity(p, c) && inContact(p, c, balance));
-    // 城上弓箭（城防 > 0 且城有归属方）：打所有接触城的敌队
+    const hostile = parties.filter(p => hostileToCity(p, c, ctx.hostile) && inContact(p, c, balance));
+    // 城上弓箭（城防 > 0 且城有归属方）：打所有接触城、且与城主敌对的队伍（友军 / 同盟路过不射）
     if (c.def > 0 && citySide(c)) for (const p of hostile) losses[p.id] = (losses[p.id] ?? 0) + arrowRate(p, chapter, balance, move) * p.soldiers * dt;
     // 攻城：玩家打任何敌对的城；AI 只打它的攻城目标（路过的不算）
     const sieging = hostile.filter(p => p.isPlayer || p.siegeTarget === c.id);
@@ -166,8 +169,11 @@ export function nearestCity(p, cities) {
  */
 export function siegePlayerDue(runCity, { inside, tS, dt, chapter }, balance) {
   const A = C6(balance).ai_siege_player;
+  // 【策划 2026-10-23 #8】from_chapter（第 2 章）之前在城里的时间不算：计时一直是 0，进入第 2 章从 0 开始；
+  // 之后连续在城 hold_s 秒才派兵，出城清零
+  if (chapter + 1 < A.from_chapter) { runCity.insideS = 0; return false; }
   runCity.insideS = inside ? (runCity.insideS ?? 0) + dt : 0;
-  if (chapter + 1 < A.from_chapter || runCity.insideS < A.hold_s) return false;
+  if (runCity.insideS < A.hold_s) return false;
   if (tS - (runCity.lastDispatchS ?? -1e9) < A.cooldown_s) return false;
   runCity.lastDispatchS = tS;
   return true;

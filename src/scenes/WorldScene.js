@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, PLAYER } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -362,7 +362,7 @@ export default class WorldScene extends Phaser.Scene {
       return { id: p.id, x: p.x, y: p.y, r: this.cityRadiusOf(p), faction: p.faction, unit: p.team.unit, power: p.power,
         soldiers: b && inCombat(b) ? soldiersOf(b) : p.team.soldiers, isPlayer: p.isPlayer, siegeTarget: p.team.siegeTarget ?? null, takenFrom: b?.stats?.takenFrom };
     });
-    const { events, losses } = cityTick(cs, parties, { tS, dt, chapter: r.chapter, balance, move: combatJson.move, homeCity: this.state.homeCity });
+    const { events, losses } = cityTick(cs, parties, { tS, dt, chapter: r.chapter, balance, move: combatJson.move, homeCity: this.state.homeCity, hostile: factionsHostile });
     for (const [id, n] of Object.entries(losses)) this.arrowLoss(this.parties.find(p => p.id === id), n);
     for (const e of events) {
       const c = e.city;
@@ -795,7 +795,7 @@ export default class WorldScene extends Phaser.Scene {
       this._env = {
         fits: (b, x, y) => pl._fits(x, y, m),
         speedMult: (x, y) => m.speedAt(x, y),
-        hostile: (a, b) => a.faction !== b.faction,
+        hostile: (a, b) => factionsHostile(a.faction, b.faction),
         noEngage: (a, b) => noEngage(a, b, this.state.cities, balance) // v0.6 城内保护
       };
     }
