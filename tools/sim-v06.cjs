@@ -2,7 +2,7 @@
 // 在 headless Chrome 里跑真实游戏逻辑（WorldScene.debugAdvance 固定 tick），用一个简单的脚本玩家：
 //   抽卡（选战力最高的卡；队伍满的武将直接流放）→ 走向洛阳攻城占城 → 之后守主城、出城打比自己弱的队、残血回城。
 // 可复现：同一种子每次结果完全相同（window.__SANGUO_SIM 固定 runSeed + manualTick，见下）。REPEAT=2 每个种子跑两遍并逐字节比较结果 JSON（不同 → 退出码 1）。
-// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1-48（默认，策划 S1）| 1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 和 tuning_r2 N2/N3、U1 跑基线）；PURSUE=0（关掉 tuning_r2 N1 追击）PURSUE_RATIO=0.9
+// 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；STRAT=farm（默认）|rush|active（active = 策划 tuning_r1 的主动脚本玩家）；SEEDS=1-48（默认，策划 S1）| 1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）；TUNING=off（关掉 tuning_r1 T1–T4 和 tuning_r2 N2/N3 跑基线；不含 U3-C 和 U1-B）；PURSUE=0（关掉 tuning_r2 N1 追击）PURSUE_RATIO=0.9
 const { chromium } = require(process.env.PW_PATH || '/workspace/.tools/node_modules/playwright-core');
 const URL = process.argv[2] || 'http://localhost:5182/';
 // 策划 S1（2026-10-23）：正式模拟默认种子 1–48（rush / farm / active 都一样）；SEEDS 可写 1,2,3 或 1-24 或混合 1-4,9
@@ -11,7 +11,9 @@ if (!SEEDS.length || SEEDS.some(x => !Number.isInteger(x))) throw new Error(`SEE
 const MIN = Number(process.env.MINUTES || 20);
 const OUT = process.env.OUT || null;
 const REPEAT = Math.max(1, Number(process.env.REPEAT || 1));
-// TUNING=off：关掉 tuning_r1 的 T1–T4（基线对比）；TUNING='{"siege_min_s":20}' 之类：覆盖 balance.v06.tuning 的键（只在 dev 构建有效）
+// TUNING=off：关掉 tuning_r1 的 T1–T4（基线对比）；不含 U3-C 和 U1-B（策划 2026-10-23）。
+//   当前实现：U3-C（general_A 22）同步时已写进 v06.gacha.pools，这个开关不还原；下面的覆盖里 first_battle_at_s: null 会让开局来袭回到 run_v05 的 20 s。
+//   TUNING='{"siege_min_s":20}' 之类：覆盖 balance.v06.tuning 的键（只在 dev 构建有效）
 const TUNING_OVERRIDE = process.env.TUNING === 'off'
   ? JSON.stringify({ siege_min_s: 0, stale_refresh: { enabled: false }, flee_ratio_by_faction: {}, garrison_power_floor: { enabled: false }, chapter_spawn_power: {}, first_battle_at_s: null })
   : (process.env.TUNING ? JSON.stringify(JSON.parse(process.env.TUNING)) : 'null');

@@ -19,7 +19,7 @@
   - T3 黄巾 `flee_ratio` = 0.4（≤ 0.4 就逃，等于也逃；其他势力仍按性格 0.6 / 0.8 / 1.0）。只管「看见就逃」，交战中的撤退不变（士气 < 30 溃逃），有单测锁定。名将军逃跑留到下一轮，没动。
   - T4 洛阳守军战力 = max(`garrison_power_floor` 70, 0.5 × 玩家战力)，**在玩家开始和守军交战时重算**（`city_v06.garrison.power_recalc`，策划 2026-10-23 定稿；规则见下面「玩法」）；城名下方「守军战力 N」标签，标签战力严格大于玩家战力（按显示的整数，相等不提示）→ 红字「强于你」（`city.cityLabel`，`power_recalc.stronger_hint`）。
   - T5（野外收拢）/ T6（逃脱给点数）：用户否决（rejected），没做、不进配置。
-- **调参 tuning_r2**（`balance_v0.6.json` 的 `tuning_r2` → `v06.tuning`）：N2 / N3 第 3 / 4 章黄巾刷新战力 [0.6,1.0] / [0.7,1.1]（`chapter_spawn_power`）；N1 是模拟脚本追击（`tools/sim-v06.cjs`，不进游戏）；**U1 = B（用户 2026-10-23 定）：开局第一次来袭 20 s → 50 s**（`first_battle_at_s`，从 `decisions.U1.rule` 读，`firstBattleAtS()` 覆盖 `run_v05.first_battle.at_s`）。U2 = A 不改；**U3 = C（策划定 22）：抽卡 `gacha_v06.pools.rare.general_A` 12 → 22**，其他权重不变（同步时按 `decisions.U3.value` 覆盖进 `v06.gacha.pools`，`v06.tuning.gacha_pool_weights` 记 from → to；`TUNING=off` 不还原这一项）。
+- **调参 tuning_r2**（`balance_v0.6.json` 的 `tuning_r2` → `v06.tuning`）：N2 / N3 第 3 / 4 章黄巾刷新战力 [0.6,1.0] / [0.7,1.1]（`chapter_spawn_power`）；N1 是模拟脚本追击（`tools/sim-v06.cjs`，不进游戏）；**U1 = B（用户 2026-10-23 定）：开局第一次来袭 20 s → 50 s**（`first_battle_at_s`，从 `decisions.U1.rule` 读，`firstBattleAtS()` 覆盖 `run_v05.first_battle.at_s`）。U2 = A 不改；**U3 = C（策划定 22）：抽卡 `gacha_v06.pools.rare.general_A` 12 → 22**，其他权重不变（同步时按 `decisions.U3.value` 覆盖进 `v06.gacha.pools`，`v06.tuning.gacha_pool_weights` 记 from → to；`TUNING=off` 不还原这一项）。`TUNING=off` 开关说明：不含 U3-C 和 U1-B（策划 2026-10-23；当前实现里 U3-C 不还原，`first_battle_at_s` 被置 null → 来袭回到 20 s）。
 - **主城被攻 / 趁虚攻打不派黄巾**：`city_v06.raid_exclude` = ["黄巾"]（按势力名或 id），20 s 派兵和第 3 章趁虚攻打都用它。
 - 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
 
@@ -27,7 +27,7 @@
 
 **可复现（确定性）**：同一 runSeed → 同一结果。所有游戏随机数都走 runSeed 派生的种子流（team / gacha / combat / spawn / ai，`rng.streamSeed`）；v0.6 起 AI 游荡 / 发呆也用 `rngs.ai`（以前是 `Math.random`），存档 v6 保存 `rng.ai`（v5 → v6 迁移按 `streamSeed(runSeed, 'ai')` 补）。逻辑只由固定 0.1 s tick 推进。纯逻辑模块里没有 `Math.random` / `Date.now` 默认值了（`tests/determinism_v06.test.js` 在模拟时把 `Math.random` 换成抛错）。开发构建下 `window.__SANGUO_SIM = { seed, manualTick: true }` 固定 runSeed 并停掉实时推进（只由 `debugAdvance` 推进）；正式构建忽略它。
 
-**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；默认种子 1–48（策划 S1：正式模拟三种策略都跑 1–48，`SEEDS=1-24` / `SEEDS=1,2,3` 可改）；`STRAT=rush|farm|active STALL_S=6 OUT=结果.json`；`REPEAT=2` 或 `npm run sim:v06:check` 每个种子跑两遍逐字节比较，不同 → 打印差异字段、退出码 1；`TUNING=off` 关掉 tuning_r1 T1–T4 跑基线）。在 headless Chrome 里跑真实逻辑（manualTick + 固定 tick 快进）。脚本玩家：rush 直接攻洛阳 / farm 先打弱队、兵 ≥ 35 再攻 / active（移植自策划 `tuning_r1/sg06/tools/sim-r1.cjs`：只打估算比 ≥ 1.1 的、躲 ≥ 1.0 的、残血回城、会用兵种令、绕开打不过的名将军）。脚本玩家无接触 STALL_S 秒还没被 separated 规则解开才自己走开，记为「僵持」（stallInfo 记原因）。结果另记 separated 次数、撤下过弱队次数、本局 tuning。
+**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；默认种子 1–48（策划 S1：正式模拟三种策略都跑 1–48，`SEEDS=1-24` / `SEEDS=1,2,3` 可改）；`STRAT=rush|farm|active STALL_S=6 OUT=结果.json`；`REPEAT=2` 或 `npm run sim:v06:check` 每个种子跑两遍逐字节比较，不同 → 打印差异字段、退出码 1；`TUNING=off` 关掉 tuning_r1 T1–T4 跑基线，不含 U3-C 和 U1-B）。在 headless Chrome 里跑真实逻辑（manualTick + 固定 tick 快进）。脚本玩家：rush 直接攻洛阳 / farm 先打弱队、兵 ≥ 35 再攻 / active（移植自策划 `tuning_r1/sg06/tools/sim-r1.cjs`：只打估算比 ≥ 1.1 的、躲 ≥ 1.0 的、残血回城、会用兵种令、绕开打不过的名将军）。脚本玩家无接触 STALL_S 秒还没被 separated 规则解开才自己走开，记为「僵持」（stallInfo 记原因）。结果另记 separated 次数、撤下过弱队次数、本局 tuning。
 
 **已知问题 / 待策划确认**：见 `assumptions.json` 的 `v06.notes`；没做卡面「对视野内敌人的胜算预览」。
 

@@ -49,7 +49,7 @@ export default class WorldScene extends Phaser.Scene {
     const sim = DEBUG_HOOKS ? globalThis.__SANGUO_SIM : null;
     this.manualTick = !!sim?.manualTick;
     if (sim && Number.isInteger(sim.seed) && !data.save) this.newRunOpts = { ...this.newRunOpts, seed: sim.seed >>> 0 };
-    // 模拟对比用（只在 DEBUG_HOOKS 下）：sim.tuning 覆盖 balance.v06.tuning 的键（如 TUNING=off → 关掉 T1–T3 跑基线）
+    // 模拟对比用（只在 DEBUG_HOOKS 下）：sim.tuning 覆盖 balance.v06.tuning 的键（如 TUNING=off → 关掉 T1–T3 跑基线；不含 U3-C 和 U1-B）
     if (sim?.tuning && balance.v06?.tuning) Object.assign(balance.v06.tuning, sim.tuning);
     this.pendingEnd = null; this.ended = false;
     try {
