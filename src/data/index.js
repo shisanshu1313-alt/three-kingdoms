@@ -1,21 +1,23 @@
 /**
  * 数据入口：统一加载策划配置。
  * balance.json 是 /workspace/design/balance_v0.4.json 的副本（npm run sync:balance 同步）；
- * run_v05.json / combat_v05.json 由 /workspace/design/balance_v0.5.json 生成（npm run sync:v05），叠加后导出 balance。
+ * run_v05.json / combat_v05.json 由 /workspace/design/balance_v0.5.json 生成（npm run sync:v05）；
+ * v06.json 由 balance_v0.6.json（定稿）生成（npm run sync:v06），依次叠加后导出 balance。
  * 初始队伍 = balance.initial_teams；阵营颜色 = balance.ai.factions[].color / player_faction.color。
  */
 import balanceV04 from './balance.json' with { type: 'json' };
 import run from './run_v05.json' with { type: 'json' };
-import { applyRunConfig } from '../systems/runConfig.js';
+import v06 from './v06.json' with { type: 'json' };
+import { applyRunConfig, applyV06 } from '../systems/runConfig.js';
 import display from './display.json' with { type: 'json' };
 import assumptions from './assumptions.json' with { type: 'json' };
 import { buildTeam, indexBalance, createNameAllocator } from '../systems/teams.js';
 import { mulberry32 } from '../systems/rng.js';
 import { TEAM_SEED } from '../config.js';
 
-/** 游戏用的数值：v0.4 balance + v0.5 一局规则（systems/runConfig.js → applyRunConfig） */
-const balance = applyRunConfig(balanceV04, run);
-export { balance, balanceV04, run, display, assumptions };
+/** 游戏用的数值：v0.4 balance + v0.5 一局规则（applyRunConfig）+ v0.6 定稿（applyV06，程序侧假设 = assumptions.v06.values） */
+const balance = applyV06(applyRunConfig(balanceV04, run), v06, assumptions.v06?.values);
+export { balance, balanceV04, run, v06, display, assumptions };
 export const index = indexBalance(balance);
 
 /** 队伍/名字用的种子随机数（存档会保存其状态） */

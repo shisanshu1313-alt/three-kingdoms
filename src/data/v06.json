@@ -1,0 +1,301 @@
+{
+  "_source": {
+    "file": "balance_v0.6.json",
+    "version": "0.6",
+    "note": "由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改"
+  },
+  "decisions": {
+    "G1": "C",
+    "G2": "A",
+    "G3": "A",
+    "G4": "A",
+    "G5": "C",
+    "G6": "B",
+    "G7": "A",
+    "A1": "B",
+    "A2": "B",
+    "A3": "B",
+    "A4": "B",
+    "B1": "A",
+    "B2": "A",
+    "C1": "A",
+    "C2": "A",
+    "C3": "A",
+    "C4": "A",
+    "C5": "A",
+    "C6": "A"
+  },
+  "untested": [
+    "主城攻城数值只按 v0.5 战斗公式推算，未进 20 分钟全图模拟",
+    "拿下洛阳前没有回血/补兵点，早期死亡率可能上升",
+    "统率加速（L 封顶 100）和敌方擅长兵种 +0.10 未进模拟"
+  ],
+  "gacha": {
+    "cost": {
+      "base": 50,
+      "step": 5,
+      "cap": 150
+    },
+    "rarities": [
+      "common",
+      "rare",
+      "epic"
+    ],
+    "rarity_by_chapter": [
+      [
+        0.87,
+        0.12,
+        0.01
+      ],
+      [
+        0.87,
+        0.12,
+        0.01
+      ],
+      [
+        0.87,
+        0.12,
+        0.01
+      ],
+      [
+        0.87,
+        0.12,
+        0.01
+      ]
+    ],
+    "pools": {
+      "common": {
+        "attr_s": 32,
+        "troops_s": 20,
+        "item": 14,
+        "item_counter": 8,
+        "unit_order": 10,
+        "drill": 6
+      },
+      "rare": {
+        "attr_b": 40,
+        "troops_b": 35,
+        "general_A": 12
+      },
+      "epic": {
+        "ep_attr": 25,
+        "ep_troops": 25,
+        "ep_power": 20,
+        "ep_counter": 15,
+        "general_S": 15
+      }
+    },
+    "offer_size": 4,
+    "max_tries": 30,
+    "downgrade_every": 10,
+    "max_same_kind": 2,
+    "max_general_cards": 1,
+    "max_unit_order": 1,
+    "growth_kinds": [
+      "attr_s",
+      "attr_b",
+      "troops_s",
+      "troops_b",
+      "ep_attr",
+      "ep_troops"
+    ],
+    "growth_fallback": "attr_s",
+    "troops_illegal_ratio": 0.9,
+    "drill_max": 3,
+    "epic_stack_max": 2,
+    "cards": {
+      "attr_s": {
+        "rarity": "common",
+        "amount": 2,
+        "cap": 100
+      },
+      "attr_b": {
+        "rarity": "rare",
+        "amount": 5
+      },
+      "troops_s": {
+        "rarity": "common",
+        "min": 3,
+        "pct": 0.03
+      },
+      "troops_b": {
+        "rarity": "rare",
+        "min": 6,
+        "pct": 0.08
+      },
+      "item": {
+        "rarity": "common",
+        "items": [
+          "war_drum",
+          "fine_horse",
+          "supply_cart",
+          "art_of_war",
+          "banner",
+          "scout_flag"
+        ]
+      },
+      "item_counter": {
+        "rarity": "common",
+        "items": [
+          "juma",
+          "tengjia",
+          "zhongkai"
+        ],
+        "threat_mult": 2
+      },
+      "unit_order": {
+        "rarity": "common",
+        "refund": 0
+      },
+      "drill": {
+        "rarity": "common"
+      },
+      "general_A": {
+        "rarity": "rare",
+        "tier": "A"
+      },
+      "general_S": {
+        "rarity": "epic",
+        "tier": "S"
+      },
+      "ep_attr": {
+        "rarity": "epic",
+        "name": "天命所归",
+        "attrs": [
+          "lead",
+          "str"
+        ],
+        "amount": 6,
+        "cap": 100
+      },
+      "ep_troops": {
+        "rarity": "epic",
+        "name": "万民来投",
+        "cap_add": 30,
+        "fill": true
+      },
+      "ep_power": {
+        "rarity": "epic",
+        "name": "虎符",
+        "m_add": 0.1
+      },
+      "ep_counter": {
+        "rarity": "epic",
+        "name": "兵法精通",
+        "counter_add": 0.1
+      }
+    },
+    "refresh": {
+      "free_per_chapter": 1,
+      "cost": 20,
+      "max_per_draw": 1
+    },
+    "counter_kinds": [
+      "unit_order",
+      "drill",
+      "item_counter"
+    ],
+    "counter_mult_by_chapter": [
+      1,
+      1,
+      1.5,
+      2
+    ],
+    "threat_mult": 2,
+    "threat_range": "scout"
+  },
+  "leader": {
+    "sub_lead_k": 0.3,
+    "speed_L_cap": 100,
+    "sub_affinity_bonus": 0.05,
+    "enemy_affinity_bonus": 0.1,
+    "hero_growth": {
+      "lead": 6,
+      "str": 4,
+      "cap": 100
+    },
+    "enemy_score": [
+      "lead",
+      "str"
+    ],
+    "named_armies": [
+      "wei_caocao",
+      "shu_guanyu",
+      "wu_zhouyu",
+      "qun_lvbu"
+    ]
+  },
+  "roster": {
+    "max_generals": 3,
+    "storage_max": 3,
+    "swap_radius_px": 200,
+    "exile_points": 20
+  },
+  "city": {
+    "radius_px": 48,
+    "inside_px": 60,
+    "dmg_k": 0.1,
+    "unit_siege_mult": {
+      "inf": 1.2,
+      "spr": 1,
+      "arc": 0.8,
+      "cav": 0.7
+    },
+    "def_by_chapter": [
+      230,
+      420,
+      700,
+      870
+    ],
+    "arrow_power_k": 0.25,
+    "arrow_ref_power": [
+      115,
+      166,
+      234,
+      249
+    ],
+    "regen_idle_s": 8,
+    "regen_pct_per_s": 0.03,
+    "break_window_s": 20,
+    "capture_hold_s": 5,
+    "capture_inside_px": 60,
+    "lost_hold_s": 10,
+    "lost_def_ratio": 0.3,
+    "garrison": {
+      "city": "luoyang",
+      "faction": "bandit",
+      "power_vs_player": 0.5
+    },
+    "capitals": {
+      "xuchang": "wei",
+      "chengdu": "shu",
+      "jianye": "wu",
+      "changan": "qun"
+    },
+    "named_in_city_chapters": [
+      1,
+      2
+    ],
+    "named_leash_px": 420,
+    "ai_siege_player": {
+      "from_chapter": 2,
+      "hold_s": 20,
+      "min_ratio": 0.8,
+      "spawn_dist_px": [
+        400,
+        800
+      ],
+      "spawn_ratio": [
+        0.8,
+        1.2
+      ],
+      "cooldown_s": 60
+    },
+    "ai_siege_empty": {
+      "from_chapter": 3,
+      "away_px": 500,
+      "chance_per_min": 0.2
+    },
+    "service_cities": "own_or_neutral"
+  }
+}

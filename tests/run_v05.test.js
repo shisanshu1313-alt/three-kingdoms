@@ -17,9 +17,8 @@ import { SAVE_KEY, META_KEY, clearSave, hasSave, writeSave } from '../src/system
 
 const J = f => JSON.parse(readFileSync(new URL(f, import.meta.url)));
 const b04 = J('../src/data/balance.json'), cfg = J('../src/data/run_v05.json'), cj = J('../src/data/combat_v05.json');
-// 优先读工作区里策划的正式配置；CI 里没有就读仓库里的副本 tests/fixtures/
-const designUrl = new URL('../../design/balance_v0.5.json', import.meta.url);
-const design = J(existsSync(designUrl) ? designUrl : './fixtures/balance_v0.5.json');
+// 单测不读工作区 design/（CI 里没有）：只读仓库里的副本 tests/fixtures/
+const design = J('./fixtures/balance_v0.5.json');
 const balance = applyRunConfig(b04, cfg);
 const mc = { ...M.makeCombatConfig(cj, balance), fixedRoll: 1 };
 

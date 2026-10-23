@@ -36,5 +36,17 @@
       "named_reinforce.in_battle：交战中暂停补兵计时，战后不补算",
       "开局枪兵：进入第 2 章（20 分钟局第 4 分钟）"
     ]
+  },
+  "v06": {
+    "_comment": "v0.6 程序侧【假设】：balance_v0.6.json 定稿里没写死、程序按最合理的理解实现的点。values 是数值/开关（游戏读取），notes 是说明。",
+    "values": {
+      "start_offset_px": {
+        "x": 0,
+        "y": 220
+      }
+    },
+    "notes": {
+      "start_offset_px": "洛阳开局有黄巾守军（city_v06.cities），玩家原出生点就在洛阳城心 → 出生点下移 220 px 到城外"
+    }
   }
 }

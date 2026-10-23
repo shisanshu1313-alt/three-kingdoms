@@ -52,6 +52,28 @@ export function applyRunConfig(b, run) {
   return out;
 }
 
+/**
+ * v0.6（balance_v0.6.json 定稿 → data/v06.json）叠加到 v0.5 balance 上：抽卡价、名册上限、玩家出生点；
+ * 全部 v0.6 规则挂在 out.v06（gacha / leader / roster / city），程序侧【假设】在 out.v06.prog（data/assumptions.json → v06）。
+ */
+export function applyV06(b, v06, prog = {}) {
+  const out = structuredClone(b);
+  out.v06 = { ...structuredClone(v06), prog: structuredClone(prog) };
+  const c = v06.gacha.cost;
+  out.gacha = { ...out.gacha, cost_base: c.base, cost_step: c.step, cost_cap: c.cap };
+  out.team_rules = { ...out.team_rules, max_generals: v06.roster.max_generals };
+  // 【假设】洛阳开局是黄巾守军的城：玩家出生点挪到洛阳外 start_offset_px（不然一出生就在敌城里）
+  const off = prog.start_offset_px;
+  if (off) {
+    const p = out.player_faction.start, S = out.map.width_px, T = out.map.tile_px;
+    const start = { x: p.x + off.x, y: Math.min(S - T, Math.max(T, p.y + off.y)) };
+    out.player_faction = { ...out.player_faction, start };
+    out.initial_teams = out.initial_teams.map(t => (t.faction === out.player_faction.id ? { ...t, position: { ...start } } : t));
+  }
+  out._meta = { ...out._meta, version: `${out._meta.version}+v${v06._source.version}` };
+  return out;
+}
+
 /** 局内时间 tS（秒）→ 章节下标 0..3 */
 export function chapterIndexAt(tS, run) {
   let i = 0;

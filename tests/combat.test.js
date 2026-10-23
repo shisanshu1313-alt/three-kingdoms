@@ -11,9 +11,9 @@ const idx = indexBalance(balance);
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const team = (over = {}) => ({ id: 't', faction: 'wei', is_player: false, soldiers: 100, generals: [], items: [], position: { x: 0, y: 0 }, ...over });
 
-const DESIGN = new URL('../../design/balance_v0.4.json', import.meta.url); // 与 npm run sync:balance 同一路径
-test('balance.json 与 design/balance_v0.4.json 一致（忘记 npm run sync:balance 会失败）',
-  { skip: !existsSync(DESIGN) && '找不到 ../design/balance_v0.4.json（CI / 独立仓库中跳过）' }, () => {
+// 单测不读工作区 design/（CI 里没有）：比对仓库里的副本 tests/fixtures/balance_v0.4.json（策划改版时同步复制）
+const DESIGN = new URL('./fixtures/balance_v0.4.json', import.meta.url);
+test('balance.json 与 tests/fixtures/balance_v0.4.json（策划配置副本）一致（忘记 npm run sync:balance 会失败）', () => {
   const src = JSON.parse(readFileSync(DESIGN));
   assert.deepEqual(balance, src);
   assert.equal(balance._meta.version, '0.4');
