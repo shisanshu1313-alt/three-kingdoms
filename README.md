@@ -19,7 +19,7 @@
   - T3 黄巾 `flee_ratio` = 0.4（≤ 0.4 就逃，等于也逃；其他势力仍按性格 0.6 / 0.8 / 1.0）。只管「看见就逃」，交战中的撤退不变（士气 < 30 溃逃），有单测锁定。名将军逃跑留到下一轮，没动。
   - T4 洛阳守军战力 = max(`garrison_power_floor` 70, 0.5 × 玩家战力)，**在玩家开始和守军交战时重算**（`city_v06.garrison.power_recalc`，策划 2026-10-23 定稿；规则见下面「玩法」）；城名下方「守军战力 N」标签，标签战力严格大于玩家战力（按显示的整数，相等不提示）→ 红字「强于你」（`city.cityLabel`，`power_recalc.stronger_hint`）。
   - T5（野外收拢）/ T6（逃脱给点数）：用户否决（rejected），没做、不进配置。
-- **调参 tuning_r2**（`balance_v0.6.json` 的 `tuning_r2` → `v06.tuning`）：N2 / N3 第 3 / 4 章黄巾刷新战力 [0.6,1.0] / [0.7,1.1]（`chapter_spawn_power`）；N1 是模拟脚本追击（`tools/sim-v06.cjs`，不进游戏）；**U1 = B（用户 2026-10-23 定）：开局第一次来袭 20 s → 50 s**（`first_battle_at_s`，从 `decisions.U1.rule` 读，`firstBattleAtS()` 覆盖 `run_v05.first_battle.at_s`）。U2 = A 不改；U3 的抽卡武将权重待策划定值，`general_A` 仍是 12。
+- **调参 tuning_r2**（`balance_v0.6.json` 的 `tuning_r2` → `v06.tuning`）：N2 / N3 第 3 / 4 章黄巾刷新战力 [0.6,1.0] / [0.7,1.1]（`chapter_spawn_power`）；N1 是模拟脚本追击（`tools/sim-v06.cjs`，不进游戏）；**U1 = B（用户 2026-10-23 定）：开局第一次来袭 20 s → 50 s**（`first_battle_at_s`，从 `decisions.U1.rule` 读，`firstBattleAtS()` 覆盖 `run_v05.first_battle.at_s`）。U2 = A 不改；**U3 = C（策划定 22）：抽卡 `gacha_v06.pools.rare.general_A` 12 → 22**，其他权重不变（同步时按 `decisions.U3.value` 覆盖进 `v06.gacha.pools`，`v06.tuning.gacha_pool_weights` 记 from → to；`TUNING=off` 不还原这一项）。
 - **主城被攻 / 趁虚攻打不派黄巾**：`city_v06.raid_exclude` = ["黄巾"]（按势力名或 id），20 s 派兵和第 3 章趁虚攻打都用它。
 - 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
 

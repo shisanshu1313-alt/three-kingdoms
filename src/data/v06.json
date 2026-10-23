@@ -75,7 +75,7 @@
       "rare": {
         "attr_b": 40,
         "troops_b": 35,
-        "general_A": 12
+        "general_A": 22
       },
       "epic": {
         "ep_attr": 25,
@@ -356,7 +356,16 @@
       "choice": "B",
       "from": 20,
       "to": 50
-    }
+    },
+    "gacha_pool_weights": [
+      {
+        "id": "U3",
+        "choice": "C",
+        "path": "gacha_v06.pools.rare.general_A",
+        "from": 12,
+        "to": 22
+      }
+    ]
   },
   "_defaults": []
 }

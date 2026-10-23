@@ -16,11 +16,21 @@ export function buildV06(d) {
   const troops = k => { const [min, pct] = num(card(k).effect, /max\((\d+),\s*round\((\d+)%/, `cards.${k}`); return { min, pct: pct / 100 }; };
   const OR = G.offer_rules;
   const pseudo = G.flow.pseudocode.join('\n');
+  // tuning_r2.decisions.U3 = C（用户定范围、策划定值）：value = { 'gacha_v06.pools.<稀有度>.<卡种>': 新权重 } 覆盖 gacha_v06.pools；
+  // 定稿的 gacha_v06.pools 原值当 from 记下（核对用）。没有 value（只写了范围）→ 不改。
+  const u3 = d.tuning_r2?.decisions?.U3;
+  const poolOverrides = u3?.choice === 'C' && u3.value ? Object.entries(u3.value).map(([path, to]) => {
+    const m = /^gacha_v06\.pools\.(\w+)\.(\w+)$/.exec(path);
+    if (!m || typeof to !== 'number' || typeof G.pools?.[m[1]]?.[m[2]] !== 'number') throw new Error(`tuning_r2.decisions.U3.value 不认识：${path} = ${to}`);
+    return { path, rarity: m[1], kind: m[2], from: G.pools[m[1]][m[2]], to };
+  }) : [];
+  const pools = structuredClone(G.pools);
+  for (const o of poolOverrides) pools[o.rarity][o.kind] = o.to;
   const gacha = {
     cost: { base: cb, step: cs, cap: cc },
     rarities: ['common', 'rare', 'epic'],
     rarity_by_chapter: G.rarity.per_slot_by_chapter,
-    pools: G.pools,
+    pools, // = gacha_v06.pools，按 tuning_r2 U3-C 覆盖（见 tuning.gacha_pool_weights）
     offer_size: one(pseudo, /for slot in 0\.\.(\d+)/, 'pseudocode slot') + 1,
     max_tries: one(pseudo, /repeat up to (\d+)/, 'pseudocode tries'),
     downgrade_every: one(OR.fallback, /连续\s*(\d+)\s*次/, 'offer_rules.fallback'),
@@ -166,7 +176,7 @@ export function buildV06(d) {
       return [i, { id: a.id, from: a.from, to: a.to }];
     })),
     // tuning_r2.decisions.U1 = B（用户 2026-10-23 定）：开局第一次来袭 first_battle.at_s 从 X s 改到 Y s（数值从 rule 文字里取，from 用来核对 run_v05.json 原值）
-    // U2 = A（不改，无配置）；U3 = C 的具体权重「待策划验证后定值」→ 不进配置
+    // U2 = A（不改，无配置）；U3 = C：gacha_v06.pools 的权重覆盖（已写进上面的 gacha.pools，这里记 from → to 便于核对）
     first_battle_at_s: (() => {
       const u1 = d.tuning_r2?.decisions?.U1;
       if (!u1 || u1.choice !== 'B') return null;
@@ -174,6 +184,7 @@ export function buildV06(d) {
       if (!m) throw new Error(`tuning_r2.decisions.U1.rule 读不出「从 X s 改到 Y s」：${u1.rule}`);
       return { id: 'U1', choice: 'B', from: Number(m[1]), to: Number(m[2]) };
     })(),
+    gacha_pool_weights: poolOverrides.map(o => ({ id: 'U3', choice: 'C', path: o.path, from: o.from, to: o.to })),
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },
