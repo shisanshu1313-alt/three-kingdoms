@@ -28,11 +28,12 @@
  */
 
 import runCfg from '../data/run_v05.json' with { type: 'json' };
+import { createCities, PLAYER } from './city.js';
 /**
  * v4（v0.5 roguelike，save_v05）：单槽 run 存档（键 sanguo-run-v1），多了 run（runId / runSeed / 章节 / 主角 HP …）
  * 和 combat（战斗快照）。v3 及更早（v0.4 键 sanguo-save）不迁移：首次启动改名为 sanguo-save-legacy 归档，不读取。
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = runCfg.save.keys.run;
 export const META_KEY = runCfg.save.keys.meta;
 export const LEGACY_KEY = runCfg.save.keys.legacy_from;
@@ -76,6 +77,26 @@ export const MIGRATIONS = {
     const out = { ...s, saveVersion: 3 };
     const conv = g => (g && typeof g === 'object' ? encodeGeneral(g, balance, { clampNegative: true }) : g);
     walkGenerals(out, conv);
+    return out;
+  },
+  /**
+   * v4（v0.5）→ v5（v0.6：抽 4 选 1、主城、主角成长）【假设 city_old_saves】
+   *   城池：洛阳设为无主空城（没有守军），各大本营照常，城防按当前章节；没有主城、存放为空
+   *   抽卡：抽卡次数沿用 gachaDraws；旧的抽卡待选（gachaPending）丢弃并退还该次点数
+   *   主角成长：从当前章节算起（heroGrownCh = run.chapter，不补发已过章节）
+   */
+  4: (s, { balance }) => {
+    const out = structuredClone(s);
+    out.saveVersion = 5;
+    const st = out.state ?? (out.state = {});
+    const gp = st.gachaPending;
+    if (gp) { st.points = (st.points ?? 0) + (isInt(gp.cost) ? gp.cost : 0); st.gachaPending = null; }
+    st.gacha = { n: st.gachaDraws ?? 0, offer: null, freeRefreshUsed: [0, 0, 0, 0], sinceEpic: 0 };
+    st.cityStore = st.cityStore ?? [];
+    st.homeCity = null;
+    const ch = out.run?.chapter ?? 0;
+    if (balance?.v06?.city) st.cities = createCities(balance, { chapter: ch, garrison: false });
+    if (out.run) { out.run.heroGrownCh = ch; out.run.city = {}; }
     return out;
   }
 };
@@ -253,6 +274,17 @@ export function validateSave(s, balance) {
   if (s.saveVersion >= 4) {
     const r = s.run;
     need(r && typeof r === 'object' && typeof r.runId === 'string' && isNum(r.heroHp) && isInt(r.chapter) && Array.isArray(r.namedDefeated), '缺 run（一局的状态）');
+  }
+  // v5（v0.6）：抽卡状态、城池、主城
+  if (s.saveVersion >= 5 && st) {
+    const g = st.gacha;
+    need(g && isInt(g.n) && g.n >= 0 && Array.isArray(g.freeRefreshUsed), '抽卡状态非法');
+    const o = g?.offer;
+    need(!o || (Array.isArray(o.cards) && o.cards.length >= 1 && o.cards.length <= (balance.v06.gacha.offer_size) && o.cards.every(c => c && isStr(c.kind))), '抽卡 4 选 1 非法');
+    const cs = st.cities, cityIds = new Set(balance.cities.map(c => c.id));
+    need(cs == null || (typeof cs === 'object' && Object.keys(cs).every(id => cityIds.has(id)) &&
+      Object.values(cs).every(c => c && isNum(c.x) && isNum(c.y) && isNum(c.def) && c.def >= 0)), '城池非法'); // null = 读档后按开局生成
+    need(st.homeCity == null || (cs?.[st.homeCity]?.owner === PLAYER), '主城非法');
   }
   const gp = s.state?.gachaPending;
   need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)) || gp.next === 'choose_unit', '抽卡待选择非法');

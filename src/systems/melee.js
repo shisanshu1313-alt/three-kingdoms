@@ -16,7 +16,7 @@
  *
  * state = { t, chapter, rng, bodies: {id: Body}, pairs: {key: Pair}, pairCd: {key: until}, events: [] }
  * inputs = { [id]: { h, v, target? } }：期望朝向（弧度）、期望速度（px/s，会被截到最大速度）、弓兵目标
- * env（可选，由大地图提供，纯函数）：fits(body, x, y)、speedMult(x, y)、hostile(a, b)
+ * env（可选，由大地图提供，纯函数）：fits(body, x, y)、speedMult(x, y)、hostile(a, b)、noEngage(a, b)（v0.6 城内保护）
  */
 import { computePower, lossReduction, itemEffect, roundHalfUp } from './combat.js';
 import { speedLead } from './leader.js';
@@ -151,7 +151,8 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
     if (!E.hostile(a, b)) continue;
     const d = Math.hypot(b.x - a.x, b.y - a.y), rr = radiusOf(soldiersOf(a), cfg) + radiusOf(soldiersOf(b), cfg);
     const key = pairKey(a.id, b.id);
-    geo[key] = { d, gap: d - rr, contact: d <= rr };
+    // v0.6：城防 > 0 的城里受保护（env.noEngage）→ 当作离得很远：不开新战，已有的战斗按脱离处理
+    geo[key] = E.noEngage?.(a, b) ? { d, gap: Infinity, contact: false } : { d, gap: d - rr, contact: d <= rr };
   }
   const closing = (X, Y, d) => { const dx = (Y.x - X.x) / Math.max(d, 1e-6), dy = (Y.y - X.y) / Math.max(d, 1e-6); return Math.cos(X.h) * X.v * dx + Math.sin(X.h) * X.v * dy; };
   const startPair = (a, b, why) => {
@@ -345,7 +346,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   const retreating = (X, Y) => X.routed || (Math.abs(angDiff(Math.atan2(Y.y - X.y, Y.x - X.x), X.h)) > AS.escaping_heading_deg * Math.PI / 180 && X.v > AS.escaping_min_speed_frac * vmax[X.id]);
   for (const [key, p] of Object.entries({ ...s.pairs })) {
     const a = B[p.a], b = B[p.b];
-    const g = { gap: Math.hypot(b.x - a.x, b.y - a.y) - radiusOf(soldiersOf(a), cfg) - radiusOf(soldiersOf(b), cfg) };
+    const g = { gap: E.noEngage?.(a, b) ? Infinity : Math.hypot(b.x - a.x, b.y - a.y) - radiusOf(soldiersOf(a), cfg) - radiusOf(soldiersOf(b), cfg) };
     if (g.gap <= MP.escape_gap_px && p.apartT > 0) {
       // 撤退失败（failure.hero_hp_esc_fail）：拉开过 150 px 又被追上，记给在撤的一方
       for (const [X, Y] of [[a, b], [b, a]]) if (retreating(X, Y)) X.escFails = (X.escFails ?? 0) + 1;
@@ -412,6 +413,7 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
   const live = Object.keys(B).sort();
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const a = B[live[i]], b = B[live[j]];
+    if (E.hostile(a, b) && E.noEngage?.(a, b)) continue; // v0.6：城内受保护的一对不互相推挤（不然会被挤出城外）
     const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), want = radiusOf(soldiersOf(a), cfg) + radiusOf(soldiersOf(b), cfg) - OV;
     if (d >= want) continue;
     const ux = d > 1e-6 ? dx / d : 1, uy = d > 1e-6 ? dy / d : 0, push = (want - d) / 2;

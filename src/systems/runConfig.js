@@ -62,6 +62,8 @@ export function applyV06(b, v06, prog = {}) {
   const c = v06.gacha.cost;
   out.gacha = { ...out.gacha, cost_base: c.base, cost_step: c.step, cost_cap: c.cap };
   out.team_rules = { ...out.team_rules, max_generals: v06.roster.max_generals };
+  // 程序侧城池参数（assumptions.v06.values.city，定稿没写的）补进 v06.city；不覆盖定稿已有的键
+  if (prog.city) for (const [k, v] of Object.entries(prog.city)) if (!(k in out.v06.city)) out.v06.city[k] = structuredClone(v);
   // 【假设】洛阳开局是黄巾守军的城：玩家出生点挪到洛阳外 start_offset_px（不然一出生就在敌城里）
   const off = prog.start_offset_px;
   if (off) {

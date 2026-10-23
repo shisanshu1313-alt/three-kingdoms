@@ -44,7 +44,15 @@
         "x": 0,
         "y": 220
       },
-      "exile_replaced_points": true
+      "exile_replaced_points": true,
+      "city": {
+        "hold_engage_px": 160,
+        "hold_slack_px": 20,
+        "arrow_min_soldiers": 1,
+        "garrison_hold": true,
+        "siege_spawn_tries": 40,
+        "empty_siege_roll_s": 60
+      }
     },
     "notes": {
       "start_offset_px": "洛阳开局有黄巾守军（city_v06.cities），玩家原出生点就在洛阳城心 → 出生点下移 220 px 到城外",
@@ -57,7 +65,21 @@
       "gacha_general_card": "武将卡选中即生效（移出自由池）；队伍满时直接进名册弹窗（替换 / 送回主城 / 流放），不能返回改选别的卡；物品栏满 / 兵种令可以返回改选",
       "gacha_offer_no_close": "4 张出来后不能关闭窗口，必须选 1 张（刷新页面回到同一组）",
       "gacha_unit_order_same": "兵种令选当前兵种 = 不换，不返还点数（定稿：选了就算用掉）",
-      "gacha_counter_preview": "兵种令 / 操练 / 克制物品卡面只写效果和战力（不变），没有做对视野内敌人的胜算预览"
+      "gacha_counter_preview": "兵种令 / 操练 / 克制物品卡面只写效果和战力（不变），没有做对视野内敌人的胜算预览",
+      "city_no_block": "城不挡路：城圆只用来判定攻城接触 / 城内，队伍可以走进城（不做碰撞，避免 AI 卡在城墙边）；城防 > 0 时 AI 攻城队停在城墙边（城圆边上）",
+      "city_protect_existing": "城内保护（城防 > 0、自己一方的城、≤ inside_px）：不开新战；已在打的一对按『离得很远』处理，escape_s 后脱离（谁在撤谁算逃脱）",
+      "city_siege_who": "只有玩家和被派去攻城的 AI（攻玩家主城）会扣城防；路过的 AI 不攻城；无主空城只有玩家会攻（为了占）",
+      "city_arrows": "城上弓箭：城防 > 0、城有归属方（含洛阳黄巾守军）时，射所有接触城圆的敌队（不只攻城方）；损兵按当前兵数 × 每秒比例，弓箭不会把队伍打到 arrow_min_soldiers（1）以下",
+      "city_capture_garrison": "洛阳占城要先消灭守军队伍（洛阳守军，开局战力 0.5 × 玩家）；守军城防 > 0 时坐镇城心，城破后按普通 AI 决策（打不过会逃出城），只追城边 hold_engage_px（160）内的敌人",
+      "city_named_hold": "第 1–2 章（named_in_city_chapters）名将军坐镇大本营：城防 > 0 时待在城心；城破后同守军，只追城边 160 px 内的敌人",
+      "city_relocate": "已有主城时占新城弹窗问是否迁都：Y 迁（旧主城变无主城，城防不变，存放的武将跟着走）；N 不迁，离开城心 60 px 再回来才再问",
+      "city_capital_free": "势力被讨伐（名将军阵亡且没有该势力队伍）后大本营变无主城（城防不变），才能攻占",
+      "city_siege_dispatch": "派兵攻主城：离主城最近（按大本营距离）、没被讨伐的势力；选该势力战力 ≥ 0.8 倍玩家的最近野外队（不含名将军），没有就在主城 400–800 px 处刷 0.8–1.2 倍讨伐军",
+      "city_empty_siege": "空城被攻：第 3 章起玩家离主城 > 500 px，每满 60 s 游戏时间掷一次 20%；派离主城最近的非名将军敌队（含黄巾）",
+      "city_services": "回血 / 征兵 / 整编：自己主城 + 没有守军的无主城（200 px 内）；敌方大本营、洛阳守军还在时都不行",
+      "city_storage_ui": "主城存放：在主城 swap_radius_px（200）内、不在战斗中按 H 打开；1/2 选副将、3/4/5 选存放的武将，Enter 执行（存入 / 取出 / 对调）",
+      "city_old_saves": "v0.5 存档读入：洛阳设为无主空城（没有守军）、各大本营照常；主角成长从当前章节算起；旧的抽卡待选（gachaPending）丢弃并退还该次点数",
+      "city_ai_no_chase_protected": "AI 不追在城防 > 0 的自己一方城里的目标；城内受保护的一对敌我不互相推挤（避免被挤出城外失去保护）"
     }
   }
 }

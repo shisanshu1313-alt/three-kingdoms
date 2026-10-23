@@ -6,6 +6,7 @@ import UIScene from './scenes/UIScene.js';
 import TitleScene from './scenes/TitleScene.js';
 import GachaScene from './scenes/GachaScene.js';
 import RosterScene from './scenes/RosterScene.js';
+import CityScene from './scenes/CityScene.js';
 import RunEndScene from './scenes/RunEndScene.js';
 import { scaleConfig } from './platform/screen.js';
 import { DEBUG_HOOKS, installDebugHooks } from './debug.js';
@@ -18,7 +19,7 @@ const game = new Phaser.Game({
   backgroundColor: '#111111',
   pixelArt: true,
   scale: { mode: Phaser.Scale[sc.mode], width: sc.width, height: sc.height },
-  scene: [BootScene, TitleScene, WorldScene, UIScene, GachaScene, RosterScene, RunEndScene]
+  scene: [BootScene, TitleScene, WorldScene, UIScene, GachaScene, RosterScene, CityScene, RunEndScene]
 });
 
 // 调试 / 自动化测试钩子：只在开发模式和冒烟测试构建里有（正式构建整段移除）

@@ -74,15 +74,16 @@ export function factionUnit(faction, balance, run, namedArmyUnits) {
 }
 
 /** 校尉军（纯数据 team）；home = 大本营像素坐标 */
-export function buildRefillTeam({ id, faction, home, playerPower, balance, run, rng, unit }) {
+export function buildRefillTeam({ id, faction, home, playerPower, balance, run, rng, unit, powerRange = null, label = '校尉军' }) {
   const R = run.faction_refill, fac = balance.ai.factions.find(f => f.id === faction);
   const g = { id: `${id}_gen`, name: `${fac?.name ?? faction}校尉`, generic: true,
     lead: randInt(rng, R.lead_str[0], R.lead_str[1]), str: randInt(rng, R.lead_str[0], R.lead_str[1]),
     int: randInt(rng, R.int_cha[0], R.int_cha[1]), cha: randInt(rng, R.int_cha[0], R.int_cha[1]) };
   const team = { id, faction, is_player: false, soldiers: 1, generals: [g], items: [], position: { ...home }, state: 'wander',
-    name: `${fac?.name ?? faction}·校尉军`, fixedName: true, home: { ...home }, unit, refill: true };
-  const [lo, hi] = R.power_rand;
-  const target = Math.max(R.power_floor, playerPower) * (lo + rng() * (hi - lo));
+    name: `${fac?.name ?? faction}·${label}`, fixedName: true, home: { ...home }, unit, refill: true };
+  // v0.6 讨伐军（city_v06.ai_siege_player.spawn_ratio）：powerRange 给定时 = 玩家战力 × U(lo, hi)，不套校尉军的战力下限
+  const [lo, hi] = powerRange ?? R.power_rand;
+  const target = (powerRange ? playerPower : Math.max(R.power_floor, playerPower)) * (lo + rng() * (hi - lo));
   const p = balance.power, M = 1 + p.k_lead * leaderLead(team, balance) + p.k_str * g.str;
   recalcLeader(team, balance);
   const cap = balance.team_rules.soldier_cap_base + balance.team_rules.soldier_cap_per_lead * g.lead;

@@ -9,7 +9,7 @@ import PartyView from '../entities/PartyView.js';
 import { WorldModel, snapshotWorld } from '../systems/world.js';
 import AISystem from '../systems/ai.js';
 import FieldBattle from '../systems/fieldBattle.js';
-import { inCombat, soldiersOf, shownSoldiers, moraleOf, radiusOf, vmaxOf } from '../systems/melee.js';
+import { inCombat, soldiersOf, shownSoldiers, moraleOf, radiusOf, vmaxOf, addSoldiers } from '../systems/melee.js';
 import { assignUnit } from '../systems/units.js';
 import combatJson from '../data/combat_v05.json' with { type: 'json' };
 import { createGameState, pushLog } from '../systems/gameState.js';
@@ -27,6 +27,9 @@ import { changeUnit } from '../systems/gacha.js';
 import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
+import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, PLAYER } from '../systems/city.js';
+import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
@@ -123,6 +126,12 @@ export default class WorldScene extends Phaser.Scene {
       this.player = this.addParty(assignUnit(teams.player, combatJson, unitRng, { playerUnit: this.run.startUnit }));
       teams.ai.forEach(t => this.addParty(assignUnit(t, combatJson, unitRng)));
     }
+    // ---- v0.6 城池（systems/city.js）：存在 state.cities 里随存档；旧存档由 save 迁移补上 ----
+    if (!this.state.cities) this.state.cities = createCities(balance, { chapter: this.run.chapter, garrison: !save });
+    this.run.city ??= {};
+    this.aiSystem.cities = this.state.cities;
+    if (!save) this.spawnGarrison();
+    this.buildCityViews();
 
 
     // 补充刷新（balance.spawn）：每 respawn_interval_s（游戏时间）检查一次，AI 队伍（含初始）不足 max_ai_teams 就刷一支
@@ -208,7 +217,7 @@ export default class WorldScene extends Phaser.Scene {
 
   /** 读档（F9）：已校验的存档 → 重启大地图场景 */
   loadFrom(save, warnings = []) {
-    this.scene.stop('Gacha'); this.scene.stop('Roster');
+    this.scene.stop('Gacha'); this.scene.stop('Roster'); this.scene.stop('City');
     this.scene.restart({ save, warnings });
   }
 
@@ -315,11 +324,177 @@ export default class WorldScene extends Phaser.Scene {
     this.field.state.chapter = r.chapter;
     this.field.cfg.counterAdd = counterAddOf(runCfg, r.hard);
     this.aiSystem.rules = { graceUntilS: runCfg.grace_s, namedIds: new Set(runCfg.run_goal.named), namedLeashPx: ch.named_chase_home_px };
+    // v0.6：名将军第 named_in_city_chapters 章坐镇大本营；城防上限换章（当前城防按比例）
+    this.aiSystem.holdNamed = balance.v06.city.named_in_city_chapters.includes(r.chapter + 1);
+    if (this.state.cities) cityApplyChapter(this.state.cities, r.chapter, balance);
   }
 
+  /** 回血 / 征兵 / 整编的城（city_v06.service_cities = own_or_neutral）：自己主城、没有守军的无主城，failure.city_radius_px 内 */
   inCity(p) {
-    const T = TILE_SIZE, R = runCfg.failure.city_radius_px;
-    return this.mapData.cities.some(c => Math.hypot((c.x + 0.5) * T - p.x, (c.y + 0.5) * T - p.y) <= R);
+    const R = runCfg.failure.city_radius_px;
+    return Object.values(this.state.cities ?? {}).some(c => serviceCity(c) && Math.hypot(c.x - p.x, c.y - p.y) <= R);
+  }
+
+  // ================= v0.6 城池 =================
+  /** 洛阳守军（city_v06.garrison）：玩家战力 × power_vs_player，坐镇城心 */
+  spawnGarrison() {
+    const G = balance.v06.city.garrison, c = this.state.cities[G.city];
+    if (!c?.garrison) return null;
+    const team = assignUnit(buildRespawnTeam({ id: `garrison_${G.city}`, position: { x: c.x, y: c.y }, playerPower: this.player.power,
+      powerRange: [G.power_vs_player, G.power_vs_player], balance, rng: this.rngs.spawn, idx: index, nextName: nextBanditName }),
+    combatJson, this.rngs.spawn, { mix: runCfg.chapters[0].bandit_units });
+    Object.assign(team, { name: `${c.name}守军`, fixedName: true, cityHold: G.city, home: { x: c.x, y: c.y } });
+    const p = this.addParty(team);
+    console.log(`[city] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)}`);
+    return p;
+  }
+
+  cityRadiusOf(p) { const b = this.field.body(p.id); return b ? radiusOf(soldiersOf(b), this.field.cfg) : 12; }
+
+  /** 每 tick：大本营解放、守军覆灭、攻城 / 弓箭 / 回复 / 占城 / 失守、AI 派兵攻城 */
+  cityStep(dt) {
+    const cs = this.state.cities, r = this.run, pl = this.player, tS = this.clock.now / 1000, C = balance.v06.city;
+    if (!cs || r.over) return;
+    for (const c of freeConqueredCapitals(cs, conqueredFactions(r, balance, runCfg))) this.cityLog(`${c.name} 成为无主城，可以攻占`);
+    for (const c of Object.values(cs)) if (c.garrison && !this.aiParties.some(p => p.team.cityHold === c.id)) { c.garrison = null; this.cityLog(`${c.name}守军覆灭`); }
+    const parties = this.parties.map(p => {
+      const b = this.field.body(p.id);
+      return { id: p.id, x: p.x, y: p.y, r: this.cityRadiusOf(p), faction: p.faction, unit: p.team.unit, power: p.power,
+        soldiers: b && inCombat(b) ? soldiersOf(b) : p.team.soldiers, isPlayer: p.isPlayer, siegeTarget: p.team.siegeTarget ?? null, takenFrom: b?.stats?.takenFrom };
+    });
+    const { events, losses } = cityTick(cs, parties, { tS, dt, chapter: r.chapter, balance, move: combatJson.move, homeCity: this.state.homeCity });
+    for (const [id, n] of Object.entries(losses)) this.arrowLoss(this.parties.find(p => p.id === id), n);
+    for (const e of events) {
+      const c = e.city;
+      if (e.type === 'breached') this.cityLog(`${c.name} 城防被攻破！`, c.owner === PLAYER ? '#ff7777' : '#ffdd55');
+      else if (e.type === 'capture_ready') this.onCaptureReady(c);
+      else if (e.type === 'lost') this.onCityLost(c);
+    }
+    // AI 攻城
+    const home = this.state.homeCity && cs[this.state.homeCity];
+    if (!home) return;
+    const d = Math.hypot(pl.x - home.x, pl.y - home.y);
+    if (siegePlayerDue(r.city, { inside: d <= C.inside_px, tS, dt, chapter: r.chapter }, balance)) this.dispatchSiege(home);
+    if (siegeEmptyDue(r.city, { away: d > C.ai_siege_empty.away_px, dt, chapter: r.chapter }, balance, this.rngs.spawn)) {
+      const t = pickNearbyTeam(home, this.aiTeamInfo());
+      if (t) this.startSiege(this.aiParties.find(p => p.id === t.id), home, '趁主城空虚');
+    }
+  }
+
+  aiTeamInfo() {
+    const named = new Set(runCfg.run_goal.named);
+    return this.aiParties.map(p => ({ id: p.id, faction: p.faction, power: p.power, x: p.x, y: p.y, named: named.has(p.id), garrison: !!p.team.cityHold,
+      inBattle: !!p.inBattle, siegeTarget: p.team.siegeTarget ?? null }));
+  }
+
+  startSiege(p, city, why) {
+    if (!p) return;
+    p.team.siegeTarget = city.id; p.team.raid = false;
+    this.cityLog(`${p.name} ${why}，前来攻打${city.name}！`, '#ff7744');
+    this.game.events.emit('run-event', { type: 'siege', name: p.name, city: city.name });
+  }
+
+  /** 玩家在主城待太久（ai_siege_player）：最近的未讨伐势力派一支野外队，没有就刷讨伐军 */
+  dispatchSiege(city) {
+    const A = balance.v06.city.ai_siege_player, P = this.player.power;
+    const pick = pickSiegeTeam(city, this.aiTeamInfo(), P, conqueredFactions(this.run, balance, runCfg), balance);
+    if (!pick) return null;
+    if (pick.team) return this.startSiege(this.aiParties.find(p => p.id === pick.team.id), city, '受命');
+    const rng = this.rngs.spawn, [lo, hi] = A.spawn_dist_px;
+    let pos = null;
+    for (let i = 0; i < balance.v06.city.siege_spawn_tries && !pos; i++) {
+      const ang = rng() * Math.PI * 2, dd = lo + rng() * (hi - lo), x = city.x + Math.cos(ang) * dd, y = city.y + Math.sin(ang) * dd;
+      if (x > 20 && y > 20 && x < this.worldW - 20 && y < this.worldH - 20 && this.model.isPassable(x, y) && this.model.pathTo({ x: city.x, y: city.y, _fits: () => true, size: 16 }, x, y)) pos = { x, y };
+    }
+    if (!pos) { console.log('[city] 讨伐军找不到落点'); return null; }
+    const n = ++this.spawnCounter;
+    const team = buildRefillTeam({ id: `siege_${n}`, faction: pick.spawn, home: pos, playerPower: P, balance, run: runCfg, rng,
+      unit: factionUnit(pick.spawn, balance, runCfg, combatJson.named_army_units), powerRange: A.spawn_ratio, label: '讨伐军' });
+    team.refill = false;
+    const p = this.addParty(team);
+    console.log(`[city] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)} 距主城 ${Math.round(Math.hypot(pos.x - city.x, pos.y - city.y))}px`);
+    this.startSiege(p, city, '出兵');
+    return p;
+  }
+
+  /** 城上弓箭损兵（小数累计，满 1 扣 1；不会打到 arrow_min_soldiers 以下） */
+  arrowLoss(p, n) {
+    if (!p || !(n > 0)) return;
+    const t = p.team, b = this.field.body(p.id), min = balance.v06.city.arrow_min_soldiers;
+    t.arrowAcc = (t.arrowAcc ?? 0) + n;
+    const cur = b && inCombat(b) ? soldiersOf(b) : t.soldiers;
+    const k = Math.min(Math.floor(t.arrowAcc), Math.max(0, Math.floor(cur - min)));
+    if (k <= 0) { if (cur <= min) t.arrowAcc = 0; return; }
+    t.arrowAcc -= k;
+    if (b && inCombat(b)) addSoldiers(b, -k);
+    else { t.soldiers -= k; p.refresh(); this.field.refresh(p); }
+  }
+
+  cityLog(text, color = '#ffdd55') {
+    pushLog(this.state, text, this.gameTime());
+    this.game.events.emit('run-event', { type: 'city', text, color });
+  }
+
+  /** 占城：没有主城 → 直接立为主城；有 → 弹窗问迁都（UIScene） */
+  onCaptureReady(c) {
+    if (!this.state.homeCity) return this.captureCity(c.id);
+    this.game.events.emit('city-prompt', { cityId: c.id, name: c.name, from: this.state.cities[this.state.homeCity].name });
+  }
+  captureCity(id) {
+    const { city, old } = capture(this.state, id);
+    for (const p of this.aiParties) if (old && p.team.siegeTarget === old.id) p.team.siegeTarget = null;
+    this.run.city.insideS = 0;
+    this.cityLog(old ? `迁都：${old.name} → ${city.name}（${old.name} 成为无主城）` : `攻占 ${city.name}，立为主城！`, '#aaffaa');
+    this.requestSave('city');
+    return city;
+  }
+  answerRelocate(id, yes) {
+    if (yes) this.captureCity(id); else decline(this.state, id);
+  }
+  onCityLost(c) {
+    const { lostGenerals } = loseCity(this.state, c.id, balance, this.run.chapter);
+    for (const p of this.aiParties) if (p.team.siegeTarget === c.id) p.team.siegeTarget = null;
+    this.cityLog(`主城 ${c.name} 失守！${lostGenerals.length ? `存放的 ${lostGenerals.map(g => g.name).join('、')} 流散` : ''}`, '#ff5555');
+    this.requestSave('city');
+  }
+
+  /** 主城存放（city_v06 / roster.store）：主城 swap_radius_px 内、不在战斗中 */
+  canUseStore() {
+    const id = this.state.homeCity, c = id && this.state.cities[id], pl = this.player;
+    if (!c) return { ok: false, text: '还没有主城（攻下一座城就能存放武将）' };
+    if (pl.inBattle) return { ok: false, text: '战斗中不能调动武将' };
+    const R = balance.v06.roster.swap_radius_px;
+    if (Math.hypot(c.x - pl.x, c.y - pl.y) > R) return { ok: false, text: `需在主城 ${c.name} ${R} px 内` };
+    return { ok: true, city: c };
+  }
+
+  buildCityViews() {
+    this.cityGfx = this.add.graphics().setDepth(4);
+    this.cityTexts = {};
+    for (const c of Object.values(this.state.cities)) {
+      this.cityTexts[c.id] = this.add.text(c.x, c.y + balance.v06.city.radius_px + 4, '', {
+        fontFamily: 'sans-serif', fontSize: '12px', color: '#ffffff', stroke: '#000', strokeThickness: 3
+      }).setOrigin(0.5, 0).setDepth(5);
+    }
+    this.minimap.ignore(Object.values(this.cityTexts));
+  }
+
+  drawCities() {
+    const g = this.cityGfx.clear(), C = balance.v06.city, ch = this.run.chapter, max = defMax(balance, ch);
+    for (const c of Object.values(this.state.cities)) {
+      const side = citySide(c), col = side === PLAYER ? 0x2ecc71 : side ? factionColor(side) : 0xbbbbbb;
+      g.fillStyle(col, 0.18).fillCircle(c.x, c.y, C.radius_px);
+      g.lineStyle(c.owner === PLAYER ? 4 : 3, col, 0.9).strokeCircle(c.x, c.y, C.radius_px);
+      g.lineStyle(1, 0xffffff, 0.25).strokeCircle(c.x, c.y, C.inside_px);
+      const w = 80, k = Math.max(0, Math.min(1, c.def / max)), y = c.y - C.radius_px - 10;
+      g.fillStyle(0x000000, 0.7).fillRect(c.x - w / 2 - 1, y - 1, w + 2, 8);
+      g.fillStyle(c.def <= 0 ? 0xff3333 : k < 0.35 ? 0xff9933 : 0x66ddff, 1).fillRect(c.x - w / 2, y, w * k, 6);
+      if (c.hold > 0) g.fillStyle(0xaaffaa, 1).fillRect(c.x - w / 2, y + 8, w * c.hold / C.capture_hold_s, 3);
+      if (c.lostHold > 0) g.fillStyle(0xff5555, 1).fillRect(c.x - w / 2, y + 8, w * c.lostHold / C.lost_hold_s, 3);
+      const owner = c.owner === PLAYER ? '我的主城' : c.owner ? `${balance.ai.factions.find(f => f.id === c.owner)?.name ?? c.owner}大本营` : c.garrison ? '黄巾守军' : '无主城';
+      const store = c.owner === PLAYER ? `  存放 ${(this.state.cityStore ?? []).length}/${balance.v06.roster.storage_max}` : '';
+      this.cityTexts[c.id].setText(`${owner}  城防 ${Math.ceil(c.def)}/${max}${c.def <= 0 ? '（已破）' : ''}${store}`).setColor(side === PLAYER ? '#aaffaa' : '#ffffff');
+    }
   }
 
   runStep(dt) {
@@ -600,6 +775,7 @@ export default class WorldScene extends Phaser.Scene {
     this.aiSystem.update(this.aiParties, this.parties, dt, time, this.model);
     this.field.tick(dt, this.combatEnv(), time);
     if (this.pendingEnd) return;
+    this.cityStep(dt);
     this.runStep(dt);
     if (this.pendingEnd) return;
     // save_v05.in_battle：玩家交战中每 1 s 写一次战斗快照
@@ -613,7 +789,8 @@ export default class WorldScene extends Phaser.Scene {
       this._env = {
         fits: (b, x, y) => pl._fits(x, y, m),
         speedMult: (x, y) => m.speedAt(x, y),
-        hostile: (a, b) => a.faction !== b.faction
+        hostile: (a, b) => a.faction !== b.faction,
+        noEngage: (a, b) => noEngage(a, b, this.state.cities, balance) // v0.6 城内保护
       };
     }
     return this._env;
@@ -650,7 +827,7 @@ export default class WorldScene extends Phaser.Scene {
     }
     if (this.pendingEnd) { // 结算（存档已删、局外数据已写）→ 结算画面
       const d = this.pendingEnd; this.pendingEnd = null;
-      for (const k of ['Gacha', 'Roster', 'UI']) this.scene.stop(k);
+      for (const k of ['Gacha', 'Roster', 'City', 'UI']) this.scene.stop(k);
       this.scene.start('RunEnd', d);
       return;
     }
@@ -662,6 +839,7 @@ export default class WorldScene extends Phaser.Scene {
     const alpha = this.fixedAcc / TICK, now = this.clock.now;
     for (const v of this.views.values()) v.sync(alpha, this.field.body(v.model.id), now); // 逻辑 → 画面（插值）
     this.drawCombatFx();
+    this.drawCities();
     this.layoutLabels();
     if (this.debugVision) this.drawDebug();
   }

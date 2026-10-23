@@ -25,7 +25,7 @@ export default class UIScene extends Phaser.Scene {
     this.stats = null; // 场景重启（再来一局 / 读档）时，上一局的 StatsHud 已随场景销毁
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · B 城中整编 · C 属性详情 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · H 主城存放武将 · B 城中整编 · C 属性详情 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试加点' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -49,7 +49,16 @@ export default class UIScene extends Phaser.Scene {
     if (DEBUG_HOOKS) { act.on(ACTIONS.SAVE, () => this.manualSave()); act.on(ACTIONS.LOAD, () => this.manualLoad()); }
     // 暂停菜单：P 打开 / 关闭；菜单里 Y = 放弃本局（按失败结算）
     act.on(ACTIONS.PAUSE, () => this.togglePause());
-    act.on(ACTIONS.YES, () => { if (this.pauseUi) { this.closePause(false); this.world.abandonRun(); return true; } });
+    act.on(ACTIONS.YES, () => {
+      if (this.cityPrompt) { this.answerCity(true); return true; }
+      if (this.pauseUi) { this.closePause(false); this.world.abandonRun(); return true; }
+    });
+    act.on(ACTIONS.NO, () => { if (this.cityPrompt) { this.answerCity(false); return true; } });
+    // v0.6 主城存放：H（主城 swap_radius_px 内、不在战斗中）
+    act.on(ACTIONS.CITY, () => { if (!this.pauseUi && !this.cityPrompt) this.openCity(); });
+    const onCityPrompt = d => this.showCityPrompt(d);
+    this.game.events.on('city-prompt', onCityPrompt);
+    this.events.once('shutdown', () => this.game.events.off('city-prompt', onCityPrompt));
     act.on(ACTIONS.CANCEL, () => { if (this.pauseUi) { this.closePause(); return true; } if (this.reorgUi) { this.closeReorg(); return true; } });
     // 城池整编：B 打开面板，数字键 1~4 选兵种，0 / Esc 取消
     act.on(ACTIONS.REORGANIZE, () => this.toggleReorg());
@@ -108,6 +117,39 @@ export default class UIScene extends Phaser.Scene {
     else if (e.type === 'raid') this.toast(`⚠ ${e.name} 来袭！`, '#ff7744', 18);
     else if (e.type === 'hero-hit') this.toast(`主角负伤 −${Math.round(e.dmg)} HP（剩 ${Math.round(e.hp)}）`, e.hp < 30 ? '#ff5555' : '#ffaa88', 16);
     else if (e.type === 'named') this.banner(`讨平 ${e.name}`, `还剩 ${e.left} 路名将`, '#aaffaa');
+    else if (e.type === 'city') this.toast(e.text, e.color ?? '#ffdd55', 16);
+    else if (e.type === 'siege') this.banner(`${e.name} 来攻${e.city}！`, '回城守住城防，或趁城防在时躲进城里', '#ff7744');
+  }
+
+  // ================= v0.6 城池 =================
+  /** 已有主城时占新城：问是否迁都（暂停大地图；Y 迁 / N 不迁） */
+  showCityPrompt({ cityId, name, from }) {
+    if (this.cityPrompt) return;
+    this.scene.pause('World');
+    const { width: w, height: h } = this.scale;
+    const c = this.add.container(0, 0).setDepth(60);
+    c.add(this.add.rectangle(0, 0, w, h, 0x000000, 0.55).setOrigin(0).setInteractive());
+    c.add(this.add.rectangle(w / 2, h * 0.42, 560, 170, 0x1b2a1f, 0.98).setStrokeStyle(2, 0x2ecc71));
+    c.add(this.add.text(w / 2, h * 0.42 - 52, `攻占 ${name}`, { fontFamily: 'sans-serif', fontSize: '26px', color: '#aaffaa', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5));
+    c.add(this.add.text(w / 2, h * 0.42 - 12, `迁都到 ${name}？${from} 会变成无主城，存放的武将跟着走。`, { fontFamily: 'sans-serif', fontSize: '15px', color: '#ffffff' }).setOrigin(0.5));
+    c.add(button(this, w / 2 - 230, h * 0.42 + 24, 210, 40, '[Y] 迁都', () => this.answerCity(true), { color: 0x1e6b3a }));
+    c.add(button(this, w / 2 + 20, h * 0.42 + 24, 210, 40, '[N] 不迁', () => this.answerCity(false)));
+    this.cityPrompt = { cityId, c };
+  }
+  answerCity(yes) {
+    const p = this.cityPrompt; if (!p) return;
+    this.cityPrompt = null; p.c.destroy();
+    this.world.answerRelocate(p.cityId, yes);
+    if (!this.modalOpen() && !this.pauseUi) this.scene.resume('World');
+  }
+  openCity() {
+    if (this.modalOpen() || this.time.now - (this.modalClosedAt ?? -1e9) < 250) return;
+    const chk = this.world.canUseStore();
+    if (!chk.ok) return this.toast(chk.text, '#ff8888', 15);
+    this.world.trySaveNow('modal');
+    this.scene.pause('World');
+    this.scene.launch('City');
+    this.scene.bringToTop('City');
   }
 
   /** 屏幕中央大字横幅（换章 / 讨平名将） */
@@ -184,7 +226,7 @@ export default class UIScene extends Phaser.Scene {
     this.world.loadFrom(r.save, r.warnings);
   }
 
-  modalOpen() { return this.scene.isActive('Gacha') || this.scene.isPaused('Gacha') || this.scene.isActive('Roster'); }
+  modalOpen() { return this.scene.isActive('Gacha') || this.scene.isPaused('Gacha') || this.scene.isActive('Roster') || this.scene.isActive('City') || !!this.cityPrompt; }
 
   /** 存档决定 1：读档后若有没做完的选择（抽卡选武将 / 物品栏满 / 满编安排），重新弹出对应窗口 */
   reopenPendingChoice() {
@@ -214,6 +256,7 @@ export default class UIScene extends Phaser.Scene {
   }
 
   onModalClosed() {
+    this.modalClosedAt = this.time.now; // 同一次按键（如名册里的 H）不要接着打开别的窗口
     this.time.delayedCall(0, () => {
       if (this.world.state.pendingGenerals.length && !this.modalOpen()) return this.openRoster();
       if (!this.modalOpen() && this.scene.isPaused('World')) this.scene.resume('World');
@@ -250,6 +293,18 @@ export default class UIScene extends Phaser.Scene {
     });
   }
 
+  /** HUD 主城行：主城 / 城防 / 存放；附近城池的城防与占城进度 */
+  cityLine(p) {
+    const st = this.world.state, cs = st.cities;
+    if (!cs) return '';
+    const max = c => balance.v06.city.def_by_chapter[Math.min(3, this.world.run.chapter)];
+    const home = st.homeCity && cs[st.homeCity];
+    const near = Object.values(cs).map(c => ({ c, d: Math.hypot(c.x - p.x, c.y - p.y) })).sort((a, b) => a.d - b.d)[0];
+    const homeTxt = home ? `主城: ${home.name} 城防 ${Math.ceil(home.def)}/${max(home)}  存放 ${(st.cityStore ?? []).length}/${balance.v06.roster.storage_max}` : '主城: 无（攻下洛阳 / 被讨伐势力的大本营即可立为主城）';
+    const nearTxt = near && near.d <= 300 && near.c !== home ? `  附近 ${near.c.name} 城防 ${Math.ceil(near.c.def)}/${max(near.c)}${near.c.hold > 0 ? ` 占城 ${near.c.hold.toFixed(1)}/${balance.v06.city.capture_hold_s}s` : ''}` : '';
+    return homeTxt + nearTxt;
+  }
+
   update() {
     const p = this.world.player;
     if (!p) return;
@@ -284,6 +339,7 @@ export default class UIScene extends Phaser.Scene {
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
       `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
       `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
+      this.cityLine(p),
       `FPS: ${Math.round(this.game.loop.actualFps)}`,
       ...(battle ? [battle] : [])
     ]);
