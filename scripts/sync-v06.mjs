@@ -84,11 +84,21 @@ export function buildV06(d) {
     regen_idle_s: one(S.regen, /(\d+)\s*秒没被攻击/, 'regen idle'),
     regen_pct_per_s: one(S.regen, /每秒回\s*(\d+)%/, 'regen pct') / 100,
     break_window_s: one(S.regen, /(\d+)\s*秒内保持\s*0/, 'break window'),
+    // 策划 2026-10-23 city_v06.siege.chapter_change：攻城中换章 → 每秒伤害上限立即按新章（cityTick 每 tick 用当前章上限）；
+    // 'keep' = 当前城防值不变（不按新章上限补满）/ 'scale' = 旧版「按比例放大」
+    chapter_change: /当前城防值不变|不按新章上限补满/.test(S.chapter_change ?? '') ? 'keep' : /按比例/.test(S.chapter_change ?? '') ? 'scale'
+      : (() => { throw new Error(`balance_v0.6.json 解析失败（siege.chapter_change）："${S.chapter_change}"`); })(),
+    // 策划 2026-10-23 city_v06.siege.regen_rule：城防归零后，玩家贴着城或正在和守军交战 → 回复倒计时暂停；玩家离开（不贴城且不和守军交战）
+    // 满 break_window_s 秒才开始回复。'away' = 按玩家离开的连续时间计；'since_zero'（没有该字段）= 旧规则，从归零那一刻起算
+    regen_rule: S.regen_rule ? (one(S.regen_rule, /满\s*(\d+)\s*秒/, 'regen_rule s') === one(S.regen, /(\d+)\s*秒内保持\s*0/, 'break window') ? 'away'
+      : (() => { throw new Error('siege.regen_rule 的秒数和 siege.regen 的城破窗口不一致'); })()) : 'since_zero',
     capture_hold_s: one(C.main_city.capture, /停\s*(\d+)\s*秒/, 'capture hold'),
     capture_inside_px: one(C.main_city.capture, /(\d+)\s*px/, 'capture px'),
     lost_hold_s: one(PC.lost, /停\s*(\d+)\s*秒/, 'lost hold'),
     lost_def_ratio: one(PC.lost, /城防\s*(\d+)%/, 'lost def') / 100,
-    garrison: { city: 'luoyang', faction: 'bandit', power_vs_player: one(C.pace_and_victory.unsimulated_risk, /守军推荐\s*(\d\.\d+)\s*倍/, 'garrison ratio') },
+    garrison: { city: 'luoyang', faction: 'bandit', power_vs_player: one(C.pace_and_victory.unsimulated_risk, /守军推荐\s*(\d\.\d+)\s*倍/, 'garrison ratio'),
+      // 策划 2026-10-23 city_v06.garrison.power_recalc.stronger_hint：标签战力 > 玩家战力（严格大于）才提示「强于你」，相等不提示 → 'gt'
+      stronger_hint: /严格大于|相等不提示/.test(C.garrison?.power_recalc?.stronger_hint ?? '') || !C.garrison?.power_recalc?.stronger_hint ? 'gt' : 'gte' },
     capitals: { xuchang: 'wei', chengdu: 'shu', jianye: 'wu', changan: 'qun' },
     named_in_city_chapters: num(AI.named_in_city, /第\s*(\d+)–(\d+)\s*章待在/, 'named_in_city'),
     named_leash_px: one(AI.named_in_city, /(\d+)\s*px/, 'named leash'),

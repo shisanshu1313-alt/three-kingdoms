@@ -257,6 +257,8 @@
     "regen_idle_s": 8,
     "regen_pct_per_s": 0.03,
     "break_window_s": 20,
+    "chapter_change": "keep",
+    "regen_rule": "away",
     "capture_hold_s": 5,
     "capture_inside_px": 60,
     "lost_hold_s": 10,
@@ -264,7 +266,8 @@
     "garrison": {
       "city": "luoyang",
       "faction": "bandit",
-      "power_vs_player": 0.5
+      "power_vs_player": 0.5,
+      "stronger_hint": "gt"
     },
     "capitals": {
       "xuchang": "wei",
