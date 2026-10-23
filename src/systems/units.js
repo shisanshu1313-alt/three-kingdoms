@@ -1,3 +1,4 @@
+import { mulberry32 } from './rng.js'; // 默认随机数也是种子流（游戏里都显式传入；不用 Math.random，保证可复现）
 /**
  * v0.5 兵种（balance_v0.5.json → units）：一支队伍一个兵种（team.unit = inf | cav | arc | spr）。
  *   主角开局步兵（局外解锁可选别的）；名将军按 named_army_units；
@@ -17,7 +18,7 @@ export function pickBanditUnit(mix, rng, targetUnit = null) {
 }
 
 /** 队伍没有兵种时补上（新局、刷新、旧存档）；opts.mix / opts.targetUnit 给刷新的黄巾用 */
-export function assignUnit(team, combatJson, rng = Math.random, opts = {}) {
+export function assignUnit(team, combatJson, rng = mulberry32(0x5eed), opts = {}) {
   if (team.unit && UNIT_TYPES.includes(team.unit)) return team;
   if (team.is_player) { team.unit = opts.playerUnit ?? combatJson.confirmed.player_start_unit; return team; }
   const named = combatJson.named_army_units?.[team.id];

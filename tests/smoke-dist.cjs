@@ -28,7 +28,7 @@ const URL = process.argv[2] || 'http://localhost:4174/';
   const s2 = await hideSave();
   const p1 = s1?.player?.team?.position, p2 = s2?.player?.team?.position;
   result.saveAndMove = { v: s2?.saveVersion, runId: s2?.run?.runId, p1, p2, t1: s1?.gameTimeMs, t2: s2?.gameTimeMs,
-    ok: !!(p1 && p2) && s2.saveVersion === 5 && !!s2.run?.runId && s2.run.runId === s1.run.runId && p2.x > p1.x && s2.gameTimeMs > s1.gameTimeMs };
+    ok: !!(p1 && p2) && s2.saveVersion === 6 && Number.isInteger(s2.rng?.ai) && !!s2.run?.runId && s2.run.runId === s1.run.runId && p2.x > p1.x && s2.gameTimeMs > s1.gameTimeMs };
   // 4) F2 在正式构建里没有效果（点数不变）；F9 不读档（位置不回退）
   await page.keyboard.press('F2'); await page.waitForTimeout(200);
   await page.keyboard.press('F9'); await page.waitForTimeout(300);

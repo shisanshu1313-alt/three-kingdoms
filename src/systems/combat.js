@@ -18,6 +18,7 @@ export function itemEffect(team, balance, key) {
 }
 
 import { getLeader, leaderLead, affinityBonus } from './leader.js';
+import { mulberry32 } from './rng.js'; // 默认随机数也是种子流（游戏里都显式传入；不用 Math.random，保证可复现）
 export { affinityBonus };
 
 /** 兼容旧名：mainGeneral = v0.6 统帅（systems/leader.js getLeader；无 v0.6 配置时 = 旧规则统率最高） */
@@ -73,7 +74,7 @@ export function isCapturable(general, balance) {
  * @param rng   () => [0,1)，每方独立掷 U(random_min, random_max)（先 a 后 b）
  * @param opts.rolls  [rollA, rollB] 直接指定随机系数（worked_examples / 测试用）
  */
-export function resolveCombat(a, b, balance, rng = Math.random, opts = {}) {
+export function resolveCombat(a, b, balance, rng = mulberry32(0x5eed), opts = {}) {
   const bt = balance.battle, rw = balance.rewards;
   const roll = () => bt.random_min + rng() * (bt.random_max - bt.random_min);
   const [rollA, rollB] = opts.rolls ?? [roll(), roll()];

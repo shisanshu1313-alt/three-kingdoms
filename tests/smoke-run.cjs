@@ -54,7 +54,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.screenshot({ path: SHOT });
   console.log('screenshot', SHOT);
   const saved = await W(() => { const t = localStorage.getItem('sanguo-run-v1'); const s = t && JSON.parse(t); return s && { v: s.saveVersion, runId: s.run?.runId, reason: s.reason, combat: !!s.combat }; });
-  await ok(saved && saved.v === 5 && saved.runId === run0.runId && saved.combat, `交战中 run 存档（sanguo-run-v1，含战斗快照）存在（${JSON.stringify(saved)}）`);
+  await ok(saved && saved.v === 6 && saved.runId === run0.runId && saved.combat, `交战中 run 存档（sanguo-run-v1，含战斗快照）存在（${JSON.stringify(saved)}）`);
 
   // 名将军补兵（每满 1 分钟 +3，战斗中不补）+ 势力补队（名将军不在场 → 下一次刷新在大本营出校尉军）
   const fac = await W(() => {

@@ -169,8 +169,8 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.reload(); await p.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 }); await sleep(p, 300);
   await p.keyboard.press('Enter');
   await p.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
-  const after = await W(() => { const w = __game.scene.getScene('World'); return { v: JSON.parse(localStorage.getItem('sanguo-run-v1')).saveVersion, cities: JSON.stringify(Object.values(w.state.cities).map(c => [c.id, c.owner ?? null, Math.round(c.def)])) }; });
-  await ok(after.v === 5 && after.cities === before, `存档 v5，读档后城池（归属 / 城防）一致（${after.cities}）`);
+  const after = await W(() => { const w = __game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-run-v1')); return { v: sv.saveVersion, ai: Number.isInteger(sv.rng?.ai) && w.aiSystem.rng === w.rngs.ai, cities: JSON.stringify(Object.values(w.state.cities).map(c => [c.id, c.owner ?? null, Math.round(c.def)])) }; });
+  await ok(after.v === 6 && after.ai && after.cities === before, `存档 v6（含 AI 随机数流，读档后 AI 用种子流），读档后城池（归属 / 城防）一致（${after.cities}）`);
 
   const bad = errs.filter(e => !/favicon|DevTools/.test(e));
   await ok(bad.length === 0, `无页面错误${bad.length ? '：' + bad.join(' | ') : ''}`);

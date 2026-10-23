@@ -16,7 +16,7 @@ import { createGameState, pushLog } from '../systems/gameState.js';
 import { buildRespawnTeam } from '../systems/teams.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { balance, index, loadInitialTeams, factionColor, nextBanditName, teamRng, resetWorldRandom, run as runCfg } from '../data/index.js';
-import { mulberry32 } from '../systems/rng.js';
+import { mulberry32, streamSeed } from '../systems/rng.js';
 import { makeSave, writeSave, clearSave, memFromSave, restoreGameState, META_KEY } from '../systems/save.js';
 import { createRun, runTick, checkFail, onPlayerBattleEnd, onNamedDefeated, runSummary, recordUnit, targetUnitFor } from '../systems/run.js';
 import { spawnPowerRange, counterAddOf } from '../systems/runConfig.js';
@@ -42,6 +42,10 @@ export default class WorldScene extends Phaser.Scene {
   create(data = {}) {
     this.loadWarnings = data.warnings ?? [];
     this.newRunOpts = data.newRun ?? {};
+    // 开发 / 无界面模拟（DEBUG_HOOKS）：window.__SANGUO_SIM = { seed, manualTick } → 固定 runSeed；manualTick = 实时循环不推进逻辑，只由 debugAdvance 按固定 tick 推进
+    const sim = DEBUG_HOOKS ? globalThis.__SANGUO_SIM : null;
+    this.manualTick = !!sim?.manualTick;
+    if (sim && Number.isInteger(sim.seed) && !data.save) this.newRunOpts = { ...this.newRunOpts, seed: sim.seed >>> 0 };
     this.pendingEnd = null; this.ended = false;
     try {
       this.build(data.save ?? null);
@@ -88,15 +92,17 @@ export default class WorldScene extends Phaser.Scene {
     const opts = this.newRunOpts;
     if (save?.run) this.run = structuredClone(save.run);
     else {
-      const runSeed = cryptoSeed();
-      this.run = createRun({ runId: `run-${Date.now().toString(36)}-${runSeed.toString(36)}`, runSeed, hard: !!opts.hard, startUnit: opts.unit ?? combatJson.confirmed.player_start_unit, cfg: runCfg });
+      const runSeed = DEBUG_HOOKS && Number.isInteger(opts.seed) ? opts.seed >>> 0 : cryptoSeed();
+      this.run = createRun({ runId: `run-${this.manualTick ? 'sim' : Date.now().toString(36)}-${runSeed.toString(36)}`, runSeed, hard: !!opts.hard, startUnit: opts.unit ?? combatJson.confirmed.player_start_unit, cfg: runCfg });
       this.run.opts = { ...opts };
     }
     const seedRng = mulberry32(this.run.runSeed >>> 0);
     const newSeed = () => (seedRng() * 4294967296) >>> 0;
     // 存档决定 3：抽卡与战斗结算用各自的种子随机数流，状态随存档保存（读档不能重掷）
-    this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()), spawn: mulberry32(newSeed()) };
-    for (const k of ['gacha', 'combat', 'spawn']) if (save?.rng?.[k] !== undefined) this.rngs[k].setState(save.rng[k]);
+    this.rngs = { gacha: mulberry32(newSeed()), combat: mulberry32(newSeed()), spawn: mulberry32(newSeed()),
+      ai: mulberry32(streamSeed(this.run.runSeed, 'ai')) }; // v0.6：AI 游荡 / 发呆也用种子流（存档 v6 起保存）
+    for (const k of ['gacha', 'combat', 'spawn', 'ai']) if (save?.rng?.[k] !== undefined) this.rngs[k].setState(save.rng[k]);
+    this.aiSystem.rng = this.rngs.ai;
     const initField = () => {
       // v0.5 实时战斗（systems/fieldBattle.js + melee.step）；读档时恢复战斗快照
       this.field = new FieldBattle({ combatJson, balance, gameState: this.state, rng: this.rngs.combat, seed: newSeed(),
@@ -825,7 +831,7 @@ export default class WorldScene extends Phaser.Scene {
     // 固定 tick（battle_move.tick_s = 0.1 s）：游戏时钟、玩家输入、AI、战斗 step 都按 tick 推进；画面每帧在两次 tick 之间插值。
     // 本场景暂停时 update 不执行 → 全部冻结（v0.4 pause_scope）
     const TICK = this.field.cfg.tick_s * 1000;
-    this.fixedAcc += Math.min(delta, 250);
+    this.fixedAcc = this.manualTick ? 0 : this.fixedAcc + Math.min(delta, 250); // manualTick（模拟）：只由 debugAdvance 推进
     while (this.fixedAcc >= TICK && !this.pendingEnd) {
       this.fixedAcc -= TICK;
       for (const v of this.views.values()) v.beforeTick();

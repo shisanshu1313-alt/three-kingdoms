@@ -2,13 +2,14 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { decide } from './aiBrain.js';
 import { protectingCity } from './city.js';
 import { CHASE_REPLAN_MS, FLEE_REPLAN_MS, FLEE_PROBE_ANGLES_DEG } from '../config.js';
+import { mulberry32 } from './rng.js'; // 默认随机数也是种子流（游戏里都显式传入；不用 Math.random，保证可复现）
 
 /**
  * AI 执行层：每 tick_s 调用 aiBrain.decide 做决策，每帧按状态移动（A* 寻路）。
  * 玩法参数来自 balance.ai；寻路重算间隔等工程参数在 config.js。
  */
 export default class AISystem {
-  constructor(balance, rng = Math.random) {
+  constructor(balance, rng = mulberry32(0x5eed)) {
     this.cfg = balance.ai;
     this.rng = rng;
     this.factions = Object.fromEntries(this.cfg.factions.map(f => [f.id, f]));

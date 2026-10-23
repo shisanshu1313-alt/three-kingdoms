@@ -2,7 +2,7 @@
  * 存档（纯逻辑，无 Phaser / 浏览器依赖；单测见 tests/save.test.js）。
  * 读写通过存储接口 storage = { get, set, remove }（src/platform/storage.js），由调用方传入。
  *
- * 存档结构（saveVersion 3；所有计时都用游戏时钟 core/GameClock.js）：
+ * 存档结构（saveVersion 6；所有计时都用游戏时钟 core/GameClock.js）：
  * {
  *   saveVersion, balanceVersion, mapSeed, savedAt(ISO 真实时间，仅显示用), reason,
  *   gameTimeMs,                       // 游戏时钟 now；下面所有时间都是这个时钟上的绝对时刻
@@ -14,7 +14,7 @@
  *   spawn:  { counter },              // 补充刷新已刷支数（决定 id）
  *   timers: { respawn, autosave },    // 各定时器下一次触发的游戏时间
  *   names:  { pool, n },              // 黄巾头目名字池剩余 + 「黄巾头目N」序号
- *   rng:    { team, gacha, combat },  // 种子随机数流状态：读档后抽卡/战斗结果不会重掷（AI 游荡、补充刷新仍用 Math.random）
+ *   rng:    { team, gacha, combat, spawn, ai },  // 种子随机数流状态：读档后抽卡 / 战斗 / 刷新 / AI 游荡都不会重掷（v6 起含 ai）
  *   pairCooldowns: [[pairKey, 截止ms]],          // v0.4（v0.5 原型不再写，留空数组）
  *   combat: { state: melee 战斗状态, mem: {aiId: 战术记忆} } | null,  // v0.5 原型：实时战斗快照，读档原样继续
  *   camera: { zoom }
@@ -29,11 +29,12 @@
 
 import runCfg from '../data/run_v05.json' with { type: 'json' };
 import { createCities, PLAYER } from './city.js';
+import { streamSeed } from './rng.js';
 /**
  * v4（v0.5 roguelike，save_v05）：单槽 run 存档（键 sanguo-run-v1），多了 run（runId / runSeed / 章节 / 主角 HP …）
  * 和 combat（战斗快照）。v3 及更早（v0.4 键 sanguo-save）不迁移：首次启动改名为 sanguo-save-legacy 归档，不读取。
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_KEY = runCfg.save.keys.run;
 export const META_KEY = runCfg.save.keys.meta;
 export const LEGACY_KEY = runCfg.save.keys.legacy_from;
@@ -97,6 +98,14 @@ export const MIGRATIONS = {
     const ch = out.run?.chapter ?? 0;
     if (balance?.v06?.city) st.cities = createCities(balance, { chapter: ch, garrison: false });
     if (out.run) { out.run.heroGrownCh = ch; out.run.city = {}; }
+    return out;
+  },
+  /** v5 → v6（v0.6 可复现）：AI 游荡 / 发呆改用种子流 rng.ai；老存档没有 → 按 runSeed 给初始种子（和新开一局的 ai 流同一规则） */
+  5: s => {
+    const out = structuredClone(s);
+    out.saveVersion = 6;
+    out.rng = { ...(out.rng ?? {}) };
+    if (!isInt(out.rng.ai)) out.rng.ai = streamSeed(out.run?.runSeed ?? 0, 'ai');
     return out;
   }
 };
@@ -286,6 +295,9 @@ export function validateSave(s, balance) {
       Object.values(cs).every(c => c && isNum(c.x) && isNum(c.y) && isNum(c.def) && c.def >= 0)), '城池非法'); // null = 读档后按开局生成
     need(st.homeCity == null || (cs?.[st.homeCity]?.owner === PLAYER), '主城非法');
   }
+  // v6：所有随机数流的状态（含 ai）
+  // （游戏写的存档总带 rng.ai —— snapshotWorld；缺了读档时按 runSeed 新开 ai 流，同迁移规则）
+  if (s.saveVersion >= 6) need(s.rng == null || Object.values(s.rng).every(v => isInt(v) && v >= 0), '随机数流状态非法');
   const gp = s.state?.gachaPending;
   need(!gp || (gp.next === 'choose_general' && isNum(gp.amount)) || (gp.next === 'item_full' && items.has(gp.itemId)) || gp.next === 'choose_unit', '抽卡待选择非法');
   return errs;

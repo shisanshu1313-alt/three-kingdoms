@@ -1,6 +1,7 @@
 import Pathfinder from '../world/Pathfinder.js';
 import { getLeader } from './leader.js';
 import { memToSave } from './save.js';
+import { streamSeed } from './rng.js';
 
 /**
  * 大地图逻辑模型（纯 JS，不依赖 Phaser / DOM）：地形查询、寻路（点击寻路 / AI 用的 pathTo）、
@@ -103,9 +104,9 @@ export class WorldModel {
   // ---------- 补充刷新落点（spawn.position_rule） ----------
   /**
    * 距玩家 dist_from_player_px、可通行、不在玩家视野内；失败重试 10 次后返回 null。
-   * rng：落点随机数（不存档，可用 Math.random）
+   * rng：落点随机数（必须传入种子流，WorldScene 用 rngs.spawn）
    */
-  respawnPosition(player, balance, rng = Math.random) {
+  respawnPosition(player, balance, rng) {
     const T = this.tileSize, [dmin, dmax] = balance.spawn.dist_from_player_px;
     for (let tries = 0; tries < 10; tries++) {
       const ang = rng() * Math.PI * 2, d = dmin + rng() * (dmax - dmin);
@@ -154,7 +155,7 @@ export function snapshotWorld(s) {
     spawn: { counter: s.spawnCounter },
     timers: s.clock.getState().timers,
     names: s.names,
-    rng: { team: s.rngs.team.getState(), gacha: s.rngs.gacha.getState(), combat: s.rngs.combat.getState(), ...(s.rngs.spawn ? { spawn: s.rngs.spawn.getState() } : {}) },
+    rng: { team: s.rngs.team.getState(), gacha: s.rngs.gacha.getState(), combat: s.rngs.combat.getState(), ...(s.rngs.spawn ? { spawn: s.rngs.spawn.getState() } : {}), ai: s.rngs.ai ? s.rngs.ai.getState() : streamSeed(s.run?.runSeed ?? 0, 'ai') }, // v6：没有 ai 流（测试 / 旧调用方）→ 新流的初始种子
     battles: s.battleSystem ? s.battleSystem.serialize() : [],
     pairCooldowns: s.battleSystem ? [...s.battleSystem.pairCooldown].filter(([, until]) => until > now) : [],
     combat: s.combat ?? null, // v0.5 实时战斗快照（melee state + AI 战术记忆），读档原样继续

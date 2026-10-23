@@ -4,6 +4,7 @@
  * - BattleSystem：碰撞筛选（skip_if / multi_hit）、战斗冻结 T 秒、结束时一次性结算、平局冷却、战后保护
  */
 import { resolveCombat } from './combat.js';
+import { mulberry32 } from './rng.js'; // 默认随机数也是种子流（游戏里都显式传入；不用 Math.random，保证可复现）
 
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
@@ -25,7 +26,7 @@ function applyZeroSoldierRule(team, out, balance) {
  * @returns { outcome, winnerId, loserId, removeIds, captured:[{general, to}], toFreePool:[id], pendingGenerals:[{general,source,from}],
  *            recruited, points, playerDefeat, pushback_px, pair_cooldown_s, text }
  */
-export function applyBattleResult(a, b, r, balance, rng = Math.random) {
+export function applyBattleResult(a, b, r, balance, rng = mulberry32(0x5eed)) {
   const out = { outcome: r.outcome, removeIds: [], captured: [], toFreePool: [], pendingGenerals: [], recruited: 0, points: 0, ratio: r.ratio };
   const nameOf = t => t.name || t.id;
 
@@ -83,7 +84,7 @@ export function applyBattleResult(a, b, r, balance, rng = Math.random) {
 
 export default class BattleSystem {
   /** world = 回调对象（WorldScene 实现）：beforeBattleStart()、onBattleStart(battle)、onBattleEnd(battle, outcome)。队伍是 PartyModel（纯数据） */
-  constructor(world, balance, state, rng = Math.random) {
+  constructor(world, balance, state, rng = mulberry32(0x5eed)) {
     this.world = world; this.balance = balance; this.state = state; this.rng = rng;
     this.battles = [];
     this.pairCooldown = new Map(); // pairKey -> until(ms)

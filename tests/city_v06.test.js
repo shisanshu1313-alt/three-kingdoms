@@ -157,10 +157,10 @@ function v4Save({ chapter = 1 } = {}) {
 }
 
 test('存档 v4 → v5：洛阳无主空城、没有主城；旧抽卡待选丢弃并退点；抽卡次数沿用；主角成长从当前章节算起', () => {
-  assert.equal(SAVE_VERSION, 5);
+  assert.equal(SAVE_VERSION, 6);
   const { save } = parseSave(JSON.stringify(v4Save({ chapter: 2 })), { balance, mapSeed: 184 });
   const st = save.state;
-  assert.equal(save.saveVersion, 5);
+  assert.equal(save.saveVersion, 6);
   assert.equal(st.points, 185); assert.equal(st.gachaPending, null);
   assert.deepEqual(st.gacha, { n: 5, offer: null, freeRefreshUsed: [0, 0, 0, 0], sinceEpic: 0 });
   assert.equal(st.homeCity, null); assert.deepEqual(st.cityStore, []);
