@@ -20,6 +20,13 @@ const OUT = ART + '/screenshot.png';
   });
   page.on("pageerror", e => errors.push(String(e) + " @ " + (e.stack||"").split("\n").slice(0,16).join(" | ")));
   await page.goto(URL);
+  // QA-10：第一次打开（没存档、没解锁）先出标题页：「开始」按钮 + 一行操作说明；Enter 开始
+  await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
+  await page.waitForTimeout(200);
+  const first = await page.evaluate(() => { const t = window.__game.scene.getScene('Title'); return { mode: t.mode, btn: t.btnNew?.label.text, cont: !!t.btnContinue, ctl: t.controlsText?.text, world: window.__game.scene.isActive('World') }; });
+  console.log('firstTitle', JSON.stringify(first));
+  if (first.mode !== 'first' || !/^开始/.test(first.btn) || first.cont || !/^操作：/.test(first.ctl ?? '') || first.world) { console.log('SMOKE FAIL: 第一次打开没出「开始」标题页'); await browser.close(); process.exit(1); }
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__game?.scene.getScene('World')?.player, null, { timeout: 15000 });
   await page.waitForTimeout(500);
   const W = 'window.__game.scene.getScene("World")';

@@ -19,7 +19,16 @@ let n = 0;
     const W = (fn, a) => p.evaluate(fn, a);
     await p.goto(URL); await W(() => localStorage.clear()); await p.reload();
     await p.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 20000 });
-    await p.keyboard.press('Enter');
+    // QA-10：第一次打开 → 标题页「开始」+ 一行操作说明，竖屏放得下；触屏点「开始」进对局
+    await p.waitForTimeout(300);
+    const tt = await W(() => { const t = __game.scene.getScene('Title'), b = t.btnNew, c = t.controlsText, r = __game.canvas.getBoundingClientRect(), k = r.width / __game.scale.width;
+      return { mode: t.mode, label: b?.label.text, cont: !!t.btnContinue, sw: __game.scale.width, sh: __game.scale.height,
+        btn: b && { l: b.x, r: b.x + b.bg.width, t: b.y, b: b.y + b.bg.height }, txt: c && { l: c.x - c.width / 2, r: c.x + c.width / 2, b: c.y + c.height, s: c.text },
+        tap: b && { x: r.left + (b.x + b.bg.width / 2) * k, y: r.top + (b.y + b.bg.height / 2) * k } }; });
+    await ok(tt.mode === 'first' && /^开始/.test(tt.label) && !tt.cont && tt.btn.l >= 0 && tt.btn.r <= tt.sw && tt.btn.b <= tt.sh
+      && tt.txt.l >= 0 && tt.txt.r <= tt.sw && tt.txt.b <= tt.sh && /^操作：/.test(tt.txt.s), `${vw}×${vh}：第一次打开出标题页（开始按钮 + 操作说明都在屏内）${JSON.stringify({ ...tt, tap: undefined })}`);
+    await p.screenshot({ path: path.join(SHOTS, `portrait-title-${vw}.png`) });
+    await p.touchscreen.tap(tt.tap.x, tt.tap.y);
     await p.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.getScene('UI')?.gachaBtn, null, { timeout: 20000 });
     await W(() => { const w = __game.scene.getScene('World'); w.run.raidDone = true; w.player.invincibleUntil = w.clock.now + 600000; w.state.points = 500; });
     await p.waitForTimeout(300);

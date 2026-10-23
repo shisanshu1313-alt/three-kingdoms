@@ -14,8 +14,8 @@ export default class BootScene extends Phaser.Scene {
     const st = getStorage();
     // save_v05.keys.legacy：v0.4 存档（sanguo-save）改名归档、不读取，标题页提示一次
     const legacy = archiveLegacySave(st);
-    // 有进行中的一局 → 标题（继续）；有局外解锁 / 刚归档旧档 → 标题（新一局选项 / 提示）；都没有 → 直接开新一局
-    if (hasSave(st) || legacy || loadMeta(st, META_KEY).unlocked.length) this.scene.start('Title', { legacy });
-    else this.scene.start('World', {});
+    // 总是先到标题页（QA-10 / 策划）：有进行中的一局 → 继续 / 放弃；有局外解锁 / 刚归档旧档 → 新一局选项 / 提示；
+    // 都没有（第一次打开）→ 只有「开始」按钮 + 一行操作说明（TitleScene / ui/titleMode.js）
+    this.scene.start('Title', { legacy });
   }
 }

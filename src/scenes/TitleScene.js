@@ -8,6 +8,7 @@ import { runSummary } from '../systems/run.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import { getStorage } from '../platform/storage.js';
 import { button, text } from '../ui/widgets.js';
+import { titleMode, firstRunLayout, FIRST_RUN_CONTROLS } from '../ui/titleMode.js';
 
 const fmtS = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -89,11 +90,23 @@ export default class TitleScene extends Phaser.Scene {
     this.scene.start('World', { newRun: this.newRunOptions() });
   }
 
+  /** 第一次打开：标题 + 「开始」按钮 + 一行操作说明（Enter / 点按按钮都开始；竖屏 ~380 宽放得下） */
+  renderFirst(add, w, h, cx) {
+    const L = firstRunLayout(w, h);
+    this.btnContinue = null;
+    add(text(this, cx, h * 0.22, '三国 · 群雄逐鹿', L.titleSize, '#f1c40f').setOrigin(0.5));
+    add(text(this, cx, h * 0.22 + 44, `20 分钟一局 · 讨平四路名将 · 数值 v${balance._meta?.version ?? '?'}`, 14, '#999999', { wordWrap: { width: L.wrap, useAdvancedWrap: true }, align: 'center', padding: { x: 8, y: 2 } }).setOrigin(0.5, 0));
+    this.btnNew = add(button(this, cx - L.btnW / 2, L.by - L.btnH / 2, L.btnW, L.btnH, '开始 [Enter]', () => this.newGame(), { color: 0x8e5a00, size: 20 }));
+    this.controlsText = add(text(this, cx, L.by + L.btnH / 2 + 24, FIRST_RUN_CONTROLS, 14, '#cfd8e3', { wordWrap: { width: L.wrap, useAdvancedWrap: true }, align: 'center', padding: { x: 8, y: 2 } }).setOrigin(0.5, 0));
+  }
+
   render() {
     this.root.removeAll(true);
     const add = o => { this.root.add(o); return o; };
     const { width: w, height: h } = this.scale, cx = w / 2;
     add(this.add.rectangle(0, 0, w, h, 0x10131a).setOrigin(0));
+    this.mode = this.confirming ? 'confirm' : titleMode({ result: this.result, legacy: this.legacy, unlocked: this.meta.unlocked });
+    if (this.mode === 'first') return this.renderFirst(add, w, h, cx);
     add(text(this, cx, h * 0.16, '三国 · 群雄逐鹿', 40, '#f1c40f').setOrigin(0.5));
     add(text(this, cx, h * 0.16 + 44, `20 分钟一局 · 讨平四路名将 · 数值 v${balance._meta?.version ?? '?'}`, 14, '#999999').setOrigin(0.5));
     const m = this.meta;
