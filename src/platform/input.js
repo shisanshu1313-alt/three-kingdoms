@@ -6,6 +6,7 @@
  *   事件：  moveTo {x,y,pointer}（屏幕坐标，点地面寻路）、pointerMove {x,y}、zoom {dy}、tap {x,y}
  *           confirm、cancel、primary（抽卡/主按钮）、choose {n}（数字 0~9）、release（释放/放弃）、yes、no、
  *           openGacha、save、load、debugVision、debugPoints、any（任意键，用于跳过动画）、pause（P）、reorganize（B，城池整编）、toggleStats（C，属性详情）
+ *           v0.6：refresh（F，抽卡刷新 4 张）、city（H，送回主城 / 主城存放 / 迁都）、replace（E，替换副将）
  *
  * 输入源（source）：KeyboardSource、PointerSource（现在）；以后加 TouchJoystickSource / 小游戏触摸，只要实现
  *   { moveVector?(): {x,y}, attach(emit), detach() } 并 actions.addSource(src) 即可，场景代码不用改。
@@ -17,7 +18,9 @@ export const ACTIONS = Object.freeze({
   MOVE: 'move', MOVE_TO: 'moveTo', POINTER_MOVE: 'pointerMove', ZOOM: 'zoom', TAP: 'tap',
   CONFIRM: 'confirm', CANCEL: 'cancel', PRIMARY: 'primary', CHOOSE: 'choose', RELEASE: 'release', YES: 'yes', NO: 'no',
   OPEN_GACHA: 'openGacha', SAVE: 'save', LOAD: 'load', DEBUG_VISION: 'debugVision', DEBUG_POINTS: 'debugPoints', ANY: 'any',
-  PAUSE: 'pause', REORGANIZE: 'reorganize', TOGGLE_STATS: 'toggleStats'
+  PAUSE: 'pause', REORGANIZE: 'reorganize', TOGGLE_STATS: 'toggleStats',
+  // v0.6：抽卡四选一刷新、主城（送回主城 / 主城存放界面 / 迁都确认）、替换副将
+  REFRESH: 'refresh', CITY: 'city', REPLACE: 'replace'
 });
 
 /** 键码（与 KeyboardEvent.keyCode 相同） */
@@ -33,7 +36,8 @@ export const DEFAULT_BINDINGS = Object.freeze({
     confirm: ['Enter'], cancel: ['Escape'], primary: [' '], release: ['r', 'R'], yes: ['y', 'Y'], no: ['n', 'N'],
     openGacha: [KEY_CODES.G], save: [KEY_CODES.F5], load: [KEY_CODES.F9], debugVision: [KEY_CODES.F1], debugPoints: [KEY_CODES.F2],
     pause: ['p', 'P'], reorganize: ['b', 'B'], // v0.5：暂停菜单（放弃本局）、城池整编
-    toggleStats: ['c', 'C'] // HUD 属性详情（展开 / 收起）
+    toggleStats: ['c', 'C'], // HUD 属性详情（展开 / 收起）
+    refresh: ['f', 'F'], city: ['h', 'H'], replace: ['e', 'E'] // v0.6：F 刷新 4 张 / H 主城 / E 替换副将
   },
   move: { up: ['W', 'UP'], down: ['S', 'DOWN'], left: ['A', 'LEFT'], right: ['D', 'RIGHT'] }
 });

@@ -8,7 +8,12 @@ export function createGameState(balance) {
     battleLog: [],       // 最新在前 [{time, text}]
     battles: 0,
     gachaDraws: 0,
-    gachaPending: null   // 抽卡后未完成的选择 {next:'choose_general'|'item_full', ...}；见 gacha.js
+    gachaPending: null,  // 抽卡后未完成的选择 {next:'choose_general'|'item_full', ...}；见 gacha.js
+    // v0.6
+    cityStore: [],       // 主城存放的武将（roster_v06.storage，≤ storage_max）
+    homeCity: null,      // 玩家主城 id（city_v06：同时只有 1 座）
+    cities: null,        // 各城状态 { id: { owner, def, ... } }（systems/city.js createCities）
+    gacha: { n: 0, offer: null, freeRefreshUsed: [0, 0, 0, 0], sinceEpic: 0 } // gacha_v06.save_fields
   };
 }
 

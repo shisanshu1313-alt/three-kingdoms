@@ -129,6 +129,7 @@ function walkGenerals(s, fn) {
   if (s.state) {
     if (Array.isArray(s.state.pendingGenerals)) s.state.pendingGenerals = s.state.pendingGenerals.map(p => (p && p.general ? { ...p, general: fn(p.general) } : p));
     if (Array.isArray(s.state.captured)) s.state.captured = s.state.captured.map(fn);
+    if (Array.isArray(s.state.cityStore)) s.state.cityStore = s.state.cityStore.map(fn); // v0.6 主城存放
   }
   return s;
 }
@@ -226,6 +227,8 @@ export function validateSave(s, balance) {
     need(Array.isArray(st.battleLog), '战报非法');
     need(Array.isArray(st.captured ?? []), '俘获记录非法');
     (st.captured || []).forEach((g, i) => general(g, `captured[${i}]`));
+    need(st.cityStore === undefined || (Array.isArray(st.cityStore) && st.cityStore.length <= (balance.v06?.roster?.storage_max ?? 0)), '主城存放非法');
+    (st.cityStore || []).forEach((g, i) => general(g, `cityStore[${i}]`));
   }
   need(s.player && typeof s.player === 'object', '缺 player');
   if (s.player) {

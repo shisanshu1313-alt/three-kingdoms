@@ -24,8 +24,8 @@ test('键位与改造前相同', () => {
 });
 
 test('withKeys 改键不影响默认键位', () => {
-  const b = withKeys(DEFAULT_BINDINGS, ACTIONS.OPEN_GACHA, [72]);
-  assert.deepEqual(names(actionsForKey('h', b, 72)), ['any', 'openGacha']);
+  const b = withKeys(DEFAULT_BINDINGS, ACTIONS.OPEN_GACHA, [74]); // J（H 在 v0.6 是主城键）
+  assert.deepEqual(names(actionsForKey('j', b, 74)), ['any', 'openGacha']);
   assert.deepEqual(names(actionsForKey('g', b, 71)), ['any']);
   assert.deepEqual(DEFAULT_BINDINGS.keys.openGacha, [KEY_CODES.G]);
 });
@@ -68,4 +68,10 @@ test('C / c → toggleStats（HUD 属性详情），不和其它动作冲突', (
     const acts = actionsForKey(k, DEFAULT_BINDINGS, 67).map(a => a[0]);
     assert.deepEqual(acts, [ACTIONS.ANY, ACTIONS.TOGGLE_STATS]);
   }
+});
+
+test('v0.6 新动作：F 刷新、H 主城、E 替换副将（键位都在 DEFAULT_BINDINGS 里）', () => {
+  assert.deepEqual(names(actionsForKey('f')), ['any', 'refresh']);
+  assert.deepEqual(names(actionsForKey('H')), ['any', 'city']);
+  assert.deepEqual(names(actionsForKey('e')), ['any', 'replace']);
 });
