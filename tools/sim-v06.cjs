@@ -1,19 +1,20 @@
 // v0.6 无界面 20 分钟确定性模拟（开发工具，不是 npm test 的一部分）。
 // 在 headless Chrome 里跑真实游戏逻辑（WorldScene.debugAdvance 固定 tick），用一个简单的脚本玩家：
 //   抽卡（选战力最高的卡；队伍满的武将直接流放）→ 走向洛阳攻城占城 → 之后守主城、出城打比自己弱的队、残血回城。
-// Math.random / crypto 按种子替换 → 同一种子结果可复现。
+// 可复现：同一种子每次结果完全相同（window.__SANGUO_SIM 固定 runSeed + manualTick，见下）。REPEAT=2 每个种子跑两遍并逐字节比较结果 JSON（不同 → 退出码 1）。
 // 用法：PW_PATH=... node tools/sim-v06.cjs [url] ；SEEDS=1,2,3 MINUTES=20 OUT=/workspace/v06-sim.json ；STALL_S=6（脚本玩家无接触多少秒后自己走开）
 const { chromium } = require(process.env.PW_PATH || '/workspace/.tools/node_modules/playwright-core');
 const URL = process.argv[2] || 'http://localhost:5182/';
 const SEEDS = (process.env.SEEDS || '1,2,3').split(',').map(Number);
 const MIN = Number(process.env.MINUTES || 20);
 const OUT = process.env.OUT || null;
+const REPEAT = Math.max(1, Number(process.env.REPEAT || 1));
 
+// 可复现：固定 runSeed（所有游戏随机数流都从它派生）+ manualTick（实时循环不推进逻辑，只由 debugAdvance 按固定 0.1 s tick 推进）。
+// Math.random 也按种子替换（游戏逻辑已不用它，这里只是保险：Phaser 内部等的调用不影响结果）。
 const seedScript = seed => `(() => {
-  let a = ${seed} >>> 0; const r = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  Math.random = r;
-  const g = crypto.getRandomValues.bind(crypto);
-  crypto.getRandomValues = arr => { if (arr instanceof Uint32Array) { for (let i = 0; i < arr.length; i++) arr[i] = (r() * 4294967296) >>> 0; return arr; } return g(arr); };
+  window.__SANGUO_SIM = { seed: ${seed}, manualTick: true };
+  let a = ${seed} >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 })();`;
 
 async function botInit(p) {
@@ -133,17 +134,22 @@ async function botInit(p) {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
-  const all = [];
+  const reps = [];
+  for (let rep = 0; rep < REPEAT; rep++) {
+  const all = []; reps.push(all);
   for (const seed of SEEDS) {
     const ctxB = await browser.newContext({ viewport: { width: 960, height: 600 } });
     await ctxB.addInitScript(seedScript(seed));
     const p = await ctxB.newPage();
     const errs = []; p.on('pageerror', e => errs.push(String(e)));
     const logs = []; p.on('console', m => { const s = m.text(); if (/^\[(city|run)\]/.test(s)) logs.push(s); });
-    await p.goto(URL); await p.evaluate(() => localStorage.clear()); await p.reload(); await p.waitForTimeout(2000);
-    if (await p.evaluate(() => window.__game?.scene.isActive('Title'))) await p.keyboard.press('Enter');
+    await p.goto(URL); await p.evaluate(() => localStorage.clear()); await p.reload();
+    // 标题 → Enter 开新一局；manualTick 下 World 创建后实时循环不推进逻辑，等多久都一样
+    await p.waitForFunction(() => window.__game?.scene.isActive('Title') || window.__game?.scene.getScene('World')?.player, null, { timeout: 15000 });
+    if (await p.evaluate(() => window.__game.scene.isActive('Title'))) await p.keyboard.press('Enter');
     await p.waitForFunction(() => window.__game?.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
-    await p.evaluate(() => { __game.loop.sleep(); }); // 停掉实时循环：只由 debugAdvance 推进，结果与帧率无关
+    const t0 = await p.evaluate(() => { __game.loop.sleep(); return __game.scene.getScene('World').clock.now; }); // 停掉渲染循环（省时间）
+    if (t0 !== 0) throw new Error(`manualTick 没生效：开局时钟 ${t0}`);
     await botInit(p);
     let over = null;
     for (let s = 0; s < MIN * 60 && !over; s += 10) {
@@ -163,6 +169,17 @@ async function botInit(p) {
     for (const x of s) console.log('  ', JSON.stringify(x));
     await ctxB.close();
   }
+  }
+  const all = reps[0];
   if (OUT) require('fs').writeFileSync(OUT, JSON.stringify(all, null, 1));
   await browser.close();
+  if (REPEAT > 1) {
+    let bad = 0;
+    for (let i = 0; i < SEEDS.length; i++) {
+      const a = JSON.stringify(reps[0][i]);
+      for (let r = 1; r < REPEAT; r++) if (JSON.stringify(reps[r][i]) !== a) { bad++; console.log(`DETERMINISM FAIL seed ${SEEDS[i]}: 第 ${r + 1} 遍与第 1 遍不同`); }
+    }
+    console.log(bad ? `DETERMINISM FAIL (${bad})` : `DETERMINISM OK：${SEEDS.length} 个种子 × ${REPEAT} 遍结果逐字节相同`);
+    if (bad) process.exit(1);
+  }
 })().catch(e => { console.error(e); process.exit(1); });

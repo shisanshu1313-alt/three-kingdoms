@@ -16,7 +16,8 @@
     "preview:smoke": "vite preview --outDir dist-smoke --port 4175",
     "sync:v05": "node scripts/sync-v05.mjs",
     "sync:v06": "node scripts/sync-v06.mjs",
-    "sim:v06": "node tools/sim-v06.cjs"
+    "sim:v06": "node tools/sim-v06.cjs",
+    "sim:v06:check": "REPEAT=2 node tools/sim-v06.cjs"
   },
   "dependencies": {
     "phaser": "^3.80.1"
