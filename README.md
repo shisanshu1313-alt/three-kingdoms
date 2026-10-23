@@ -8,16 +8,25 @@
 
 **怎么玩**：`npm install && npm run dev -- --port 5182`（worktree `/workspace/sanguo-game-v06`）→ http://localhost:5182/ 。开局出生在洛阳城外（洛阳有黄巾守军）。
 - 移动 / 战斗同 v0.5：WASD/方向键、左键寻路、滚轮缩放；没有撤退键，把队伍开走就是脱离。C 属性详情、P 暂停、F1 调试视野。
-- **无接触结束**（`battle.no_contact_end_s` = 4，策划 2026-10-23）：交战双方连续 4 s 没接触、谁也没在追、谁也没在放箭 → 这一场以「脱离接触，各自收兵」（separated）结束；之后同 apart：这一对 10 s 内不再开打，没有保护。计时在纯函数 `melee.step` 的 pairs 里，随存档保存。定稿 JSON 还没有该字段 → 读 `battle_v06.no_contact_end_s`，缺省 4（`v06._defaults` 里记着）。
+- **无接触结束**（`battle.no_contact_end_s` = 4，策划 2026-10-23）：交战双方连续 4 s 没接触、谁也没在追、谁也没在放箭 → 这一场以「脱离接触，各自收兵」（separated）结束；之后同 apart：这一对 10 s 内不再开打，没有保护。计时在纯函数 `melee.step` 的 pairs 里，随存档保存。读定稿 `battle_v06.no_contact_end_s` / `no_contact_chase_frac`（4 / 0.5，已写入定稿）。
 - **抽卡 G**：空格 付费（50 + 5n 点，封顶 150）→ 出 4 张（普通 / 稀有 / 史诗）→ 按 1–4 或点卡片选一张（必须选，Esc 关不掉，刷新页面回到同一组）；F 换一批（每章第 1 次免费，之后收点数；每抽最多换 1 次）。卡面写效果和战力变化。物品栏满 → 选丢哪件；兵种令 → 选兵种。
 - **名册**（队伍满 3 人时得到新武将）：E 替换 → 按数字选换下谁 → R 流放（+20 点）/ H 送回主城存放；也可直接流放 / 存放新武将。
 - **主城**：攻洛阳（扣城防 → 消灭守军 → 在城心待 5 s）后立为主城。主城 200 px 内按 H：1/2 选副将、3–5 选存放的武将（最多 3 个）、Enter 存入 / 取出 / 对调。主城 / 无守军的无主城里回血、征兵、B 整编。占第二座城时问是否迁都（Y / N）；迁都后旧主城变无主城，同样可以回血 / 征兵 / 整编。
 - **攻城**：城防按章 230 / 420 / 700 / 870；攻城方接触城圆扣城防，城上弓箭射所有接触城圆、且与城主敌对的队伍（友军 / 同盟路过不射）；守军和坐镇大本营的名将永不撤退，第 3 章名将出城后按普通 AI 撤退；城防归零后 20 s 内（且 8 s 没挨打）不回复，之后每秒回 3%。第 2 章起在主城里连续待 20 s（第 1 章的时间不算，进第 2 章从 0 开始；出城清零）→ 最近的未讨伐势力派兵（黄巾不派；或刷 0.8–1.2 倍讨伐军）来攻；第 3 章起离开主城 > 500 px 每分钟 20% 被趁虚攻打；城破后敌人在城心待 10 s → 主城失守（变回无主城，城防 30%，存放的武将流散）。
+- **调参 tuning_r1**（策划 2026-10-23 已定，`balance_v0.6.json` 的 `tuning_r1.proposals`，tag = decided 才生效 → `v06.tuning`）：
+  - T1 攻城：每秒城防伤害 ≤ 该章城防上限 / `siege_min_s`（15）→ 任何攻城满城防打到 0 至少 15 s（第 1–4 章每秒最多 15.3 / 28 / 46.7 / 58）。多队一起攻共用上限。
+  - T2 刷新：场上已满 10 队时，每次刷新检查（12 s）撤下 1 支战力 < 0.6 × 玩家、不在交战、距玩家 > 400 px 的普通黄巾队（不含来袭 / 守军 / 攻城队 / 名将军 / 校尉军；多支取最弱、同战力按 id），腾位按当前章节重刷（`teams.pickStaleTeam`）。
+  - T3 黄巾 `flee_ratio` = 0.4（其他势力仍按性格 0.6 / 0.8 / 1.0）。名将军逃跑留到下一轮，没动。
+  - T4 洛阳守军战力 = max(`garrison_power_floor` 70, 0.5 × 玩家战力)（开局约 64 → 70）；城名下方标签显示「守军战力 N」，玩家战力低于守军 → 标签变红并写「强于你」（`city.cityLabel`）。
+  - T5（野外收拢）/ T6（逃脱给点数）：用户否决（rejected），没做、不进配置。
+- **主城被攻 / 趁虚攻打不派黄巾**：`city_v06.raid_exclude` = ["黄巾"]（按势力名或 id），20 s 派兵和第 3 章趁虚攻打都用它。
 - 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
 
-**测试**：`npm test` 291 个（含 `gacha_v06` / `roster` / `city_v06` / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（24 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v5 读档；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
+**测试**：`npm test` 291 个（含 `gacha_v06` / `roster` / `city_v06` / `leader_v06` / `battle_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（24 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v6 读档 / 洛阳标签显示守军战力；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
 
-**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；`SEEDS=1,2,3 STRAT=rush|farm STALL_S=6 OUT=结果.json`）。在 headless Chrome 里跑真实逻辑（固定 tick 快进），Math.random 按种子替换，可复现；脚本玩家：抽战力最高的卡 → 攻洛阳（rush 直接攻 / farm 先打弱队、兵 ≥ 35 再攻）→ 守主城、打弱队、残血回城。它不是平衡结论（脚本玩家不躲名将军、不换兵种），只用来看攻城时间和死因。脚本玩家无接触 STALL_S（默认 6）秒还没被 separated 规则解开才自己走开，记为「僵持」并在 stallInfo 里记原因；separated 次数单独统计。注意：同一种子两次跑偶尔不一致（farm 种子 5 出现过），结论看多个种子。
+**可复现（确定性）**：同一 runSeed → 同一结果。所有游戏随机数都走 runSeed 派生的种子流（team / gacha / combat / spawn / ai，`rng.streamSeed`）；v0.6 起 AI 游荡 / 发呆也用 `rngs.ai`（以前是 `Math.random`），存档 v6 保存 `rng.ai`（v5 → v6 迁移按 `streamSeed(runSeed, 'ai')` 补）。逻辑只由固定 0.1 s tick 推进。纯逻辑模块里没有 `Math.random` / `Date.now` 默认值了（`tests/determinism_v06.test.js` 在模拟时把 `Math.random` 换成抛错）。开发构建下 `window.__SANGUO_SIM = { seed, manualTick: true }` 固定 runSeed 并停掉实时推进（只由 `debugAdvance` 推进）；正式构建忽略它。
+
+**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；`SEEDS=1,2,3 STRAT=rush|farm|active STALL_S=6 OUT=结果.json`；`REPEAT=2` 或 `npm run sim:v06:check` 每个种子跑两遍逐字节比较，不同 → 打印差异字段、退出码 1；`TUNING=off` 关掉 tuning_r1 T1–T4 跑基线）。在 headless Chrome 里跑真实逻辑（manualTick + 固定 tick 快进）。脚本玩家：rush 直接攻洛阳 / farm 先打弱队、兵 ≥ 35 再攻 / active（移植自策划 `tuning_r1/sg06/tools/sim-r1.cjs`：只打估算比 ≥ 1.1 的、躲 ≥ 1.0 的、残血回城、会用兵种令、绕开打不过的名将军）。脚本玩家无接触 STALL_S 秒还没被 separated 规则解开才自己走开，记为「僵持」（stallInfo 记原因）。结果另记 separated 次数、撤下过弱队次数、本局 tuning。
 
 **已知问题 / 待策划确认**：见 `assumptions.json` 的 `v06.notes`；没做卡面「对视野内敌人的胜算预览」。
 

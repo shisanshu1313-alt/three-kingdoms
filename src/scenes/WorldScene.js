@@ -28,7 +28,7 @@ import { growHero } from '../systems/leader.js';
 import { scoutRange, scoutInfo } from '../systems/scouting.js';
 import { counterMult } from '../systems/melee.js';
 import { createCities, cityTick, noEngage, applyChapter as cityApplyChapter, freeConqueredCapitals, capture, decline, loseCity, serviceCity,
-  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, cityLabel } from '../systems/city.js';
+  siegePlayerDue, siegeEmptyDue, pickSiegeTeam, pickNearbyTeam, defMax, citySide, factionsHostile, PLAYER, garrisonBasePower, garrisonEnsureFloor, cityLabel } from '../systems/city.js';
 import { conqueredFactions } from '../systems/factions.js';
 import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
@@ -353,10 +353,11 @@ export default class WorldScene extends Phaser.Scene {
   spawnGarrison() {
     const G = balance.v06.city.garrison, c = this.state.cities[G.city];
     if (!c?.garrison) return null;
-    const gPlayer = garrisonBasePower(this.player.power, balance); // tuning_r1 T4（needs_user，默认关）
+    const gPlayer = garrisonBasePower(this.player.power, balance); // tuning_r1 T4（已定）
     const team = assignUnit(buildRespawnTeam({ id: `garrison_${G.city}`, position: { x: c.x, y: c.y }, playerPower: gPlayer,
       powerRange: [G.power_vs_player, G.power_vs_player], balance, rng: this.rngs.spawn, idx: index, nextName: nextBanditName }),
     combatJson, this.rngs.spawn, { mix: runCfg.chapters[0].bandit_units });
+    garrisonEnsureFloor(team, this.player.power, balance); // T4：取整后不低于 max(70, 0.5 × 玩家)
     Object.assign(team, { name: `${c.name}守军`, fixedName: true, cityHold: G.city, home: { x: c.x, y: c.y } });
     const p = this.addParty(team);
     console.log(`[city] ${p.name} ${team.unit} 兵${team.soldiers} 战${Math.round(p.power)}`);

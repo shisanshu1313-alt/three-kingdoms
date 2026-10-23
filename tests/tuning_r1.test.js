@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { balance } from '../src/data/index.js';
 import combatJson from '../src/data/combat_v05.json' with { type: 'json' };
-import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, cityLabel, defMax, PLAYER } from '../src/systems/city.js';
-import { pickStaleTeam } from '../src/systems/teams.js';
+import { createCities, cityTick, siegeDps, siegeDpsCapped, garrisonBasePower, garrisonEnsureFloor, cityLabel, defMax, PLAYER } from '../src/systems/city.js';
+import { pickStaleTeam, buildRespawnTeam } from '../src/systems/teams.js';
+import { computePower } from '../src/systems/combat.js';
+import { mulberry32 } from '../src/systems/rng.js';
 import AISystem from '../src/systems/ai.js';
 import { attitude } from '../src/systems/aiBrain.js';
 import { buildV06 } from '../scripts/sync-v06.mjs';
@@ -102,6 +104,23 @@ test('T4：洛阳守军战力 = max(70, 0.5 × 玩家战力)（garrisonBasePower
   assert.ok(Math.abs(g(140) - 70) < 1e-9);
   assert.equal(g(400), 200);
   assert.equal(garrisonBasePower(64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } })), 64, '关掉 = 原 0.5 倍');
+});
+
+test('T4：守军按目标战力建队后兵数取整可能偏低 → garrisonEnsureFloor 补兵到 ≥ max(70, 0.5 × 玩家)，只多 1 个兵以内', () => {
+  const k = balance.v06.city.garrison.power_vs_player;
+  let raised = 0;
+  for (let seed = 1; seed <= 200; seed++) for (const pp of [40, 64, 113.52, 300]) {
+    const team = buildRespawnTeam({ id: 'garrison_luoyang', position: { x: 0, y: 0 }, playerPower: garrisonBasePower(pp, balance), powerRange: [k, k], balance, rng: mulberry32(seed) });
+    const before = team.soldiers, want = Math.max(70, k * pp);
+    garrisonEnsureFloor(team, pp, balance);
+    assert.ok(computePower(team, balance) >= want - 1e-9, `seed ${seed} pp ${pp}`);
+    assert.ok(team.soldiers - before <= 1);
+    if (team.soldiers > before) raised++;
+  }
+  assert.ok(raised > 0, '确实有取整偏低的情况（如 smoke 里出现过 69）');
+  const t = buildRespawnTeam({ id: 'g', position: { x: 0, y: 0 }, playerPower: 64, powerRange: [k, k], balance, rng: mulberry32(1) }), n = t.soldiers;
+  garrisonEnsureFloor(t, 64, withTuning({ garrison_power_floor: { enabled: false, value: 70 } }));
+  assert.equal(t.soldiers, n, '关掉 T4 不补');
 });
 
 test('T4 标签：有守军的城显示守军战力；玩家战力低于守军 → 红色 +「强于你」；没守军 / 别的城不显示', () => {

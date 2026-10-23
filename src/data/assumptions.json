@@ -90,8 +90,11 @@
       "city_old_saves": "v0.5 存档读入：洛阳设为无主空城（没有守军）、各大本营照常；主角成长从当前章节算起；旧的抽卡待选（gachaPending）丢弃并退还该次点数",
       "city_ai_no_chase_protected": "AI 不追在城防 > 0 的自己一方城里的目标；城内受保护的一对敌我不互相推挤（避免被挤出城外失去保护）",
       "city_siege_player_timer": "【策划 2026-10-23 #8 改】主城攻城计时：第 1 章的时间不算（from_chapter 之前计时恒为 0，进入第 2 章从 0 开始）；之后连续在城 hold_s（20）秒派兵，出城清零；cooldown_s（60）",
-      "battle_no_contact_end": "【策划 2026-10-23 新规则，数值已确认】battle.no_contact_end_s = 4：双方连续 4 s 没接触、谁也没在追、谁也没在对这一对放箭 → 以 separated 结束；之后同 apart（pair_cd_s 10 s 内这一对不再开打，没有保护）。计时 pairs[*].noContactT 在纯函数 melee.step 里，随战斗快照存档。定稿 JSON 还没有这个字段 → sync-v06 读 battle_v06.no_contact_end_s，缺省 4（记在 v06._defaults）",
-      "battle_no_contact_chasing": "【已确认】「在追」= 朝对方的接近速度 ≥ no_contact_chase_frac（缺省 0.5，配置 battle_v06.no_contact_chase_frac）× 自己最大速度；「放箭」= 任一方 shooting 的目标是对方"
+      "battle_no_contact_end": "【策划 2026-10-23 新规则，数值已确认】battle.no_contact_end_s = 4：双方连续 4 s 没接触、谁也没在追、谁也没在对这一对放箭 → 以 separated 结束；之后同 apart（pair_cd_s 10 s 内这一对不再开打，没有保护）。计时 pairs[*].noContactT 在纯函数 melee.step 里，随战斗快照存档。定稿 JSON 已有 battle_v06.no_contact_end_s / no_contact_chase_frac，sync-v06 直接读",
+      "battle_no_contact_chasing": "【已确认】「在追」= 朝对方的接近速度 ≥ no_contact_chase_frac（缺省 0.5，配置 battle_v06.no_contact_chase_frac）× 自己最大速度；「放箭」= 任一方 shooting 的目标是对方",
+      "determinism": "【v0.6 已做】同一 runSeed 同一结果：游戏随机数全走 runSeed 派生的种子流 team / gacha / combat / spawn / ai（rng.streamSeed）；AI 游荡 / 发呆原用 Math.random，改用 rngs.ai；纯逻辑模块不再有 Math.random 默认参数（缺省用固定种子 mulberry32）；respawnPosition 必须传 rng；攻城 / 来袭选目标同距离按 id 定序。存档 v6 保存 rng.ai，v5 → v6 迁移按 streamSeed(runSeed,'ai') 补。开发构建 window.__SANGUO_SIM = { seed, manualTick } 固定种子并只由 debugAdvance 推进（正式构建忽略）。UI 的 delayedCall / tween / 读档倒计时只影响显示或暂停，不影响逻辑",
+      "tuning_r1": "【策划 + 用户 2026-10-23 已定】tuning_r1 只认 tag = decided（或 apply_now）的提案：T1 siege_min_s 15（每秒城防伤害 ≤ 章节城防上限 / 15，多队共用）；T2 满 10 队时撤下 1 支战力 < 0.6 × 玩家、不在交战、距玩家 > 400 px 的普通黄巾队再按章重刷（不含来袭 / 守军 / 攻城 / 名将军 / 校尉军，最弱优先、同战力按 id）；T3 黄巾 flee_ratio 0.4；T4 洛阳守军战力 = max(garrison_power_floor 70, 0.5 × 玩家战力)，城名标签显示守军战力，玩家更弱时红字「强于你」。T5（野外收拢）/ T6（逃脱给点）rejected：没做、不进配置。名将军逃跑留到下一轮",
+      "tuning_r1_t2_check": "T2 在每次刷新检查（12 s）时最多撤 1 支；『普通黄巾队』= 势力 id 或名为 stale_refresh.faction 的野外队"
     },
     "confirmed": {
       "_comment": "策划 2026-10-23 确认按现有实现（不再是假设）",

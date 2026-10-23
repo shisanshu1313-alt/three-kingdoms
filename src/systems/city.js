@@ -13,6 +13,7 @@
  *   capture / loseCity / relocate           占城（立为主城 / 迁都）、失守（无主城 30%，存放的武将回自由池）
  */
 import { loseStore } from './roster.js';
+import { computePower, soldierCap } from './combat.js';
 
 const C6 = balance => {
   const c = balance.v06?.city;
@@ -71,6 +72,18 @@ export function siegeDpsCapped(dps, defMaxNow, balance) {
 export function garrisonBasePower(playerPower, balance) {
   const F = balance.v06?.tuning?.garrison_power_floor, k = C6(balance).garrison.power_vs_player;
   return F?.enabled ? Math.max(playerPower, F.value / k) : playerPower;
+}
+
+/**
+ * T4：兵数取整（四舍五入）可能让守军战力比 max(garrison_power_floor, k × 玩家) 低一点（如 69.6 → 69）。
+ * 开了 T4 时逐个补兵直到不低于该值（不超过兵力上限）。改 team.soldiers，返回 team。纯函数（无随机）。
+ */
+export function garrisonEnsureFloor(team, playerPower, balance) {
+  const F = balance.v06?.tuning?.garrison_power_floor, k = C6(balance).garrison.power_vs_player;
+  if (!F?.enabled) return team;
+  const want = Math.max(F.value, k * playerPower), cap = soldierCap(team, balance);
+  while (computePower(team, balance) < want && team.soldiers < cap) team.soldiers++;
+  return team;
 }
 
 /**
