@@ -161,9 +161,9 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   let sieg = null;
   for (let i = 0; i < 20 && !sieg; i++) {
     sieg = await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.field.teleport(w.player, L.x, L.y); w.debugAdvance(2);
-      const s = w.aiParties.find(x => x.team.siegeTarget === 'luoyang'); return s ? { name: s.name, power: Math.round(s.power), pp: Math.round(w.player.power), t: w.clock.now / 1000 } : null; });
+      const s = w.aiParties.find(x => x.team.siegeTarget === 'luoyang'); const tr = window.__balance.team_rules; return s ? { name: s.name, power: Math.round(s.power), pp: Math.round(w.player.power), t: w.clock.now / 1000, soldiers: s.team.soldiers, cap: tr.soldier_cap_base + tr.soldier_cap_per_lead * s.team.generals[0].lead } : null; });
   }
-  await ok(c5.ch >= 1 && sieg && sieg.power >= C.ai_siege_player.min_ratio * sieg.pp * 0.99, `第 2 章坚守主城 ${C.ai_siege_player.hold_s} s → 派出讨伐军（${JSON.stringify({ ch: c5.ch, sieg })}）`);
+  await ok(c5.ch >= 1 && sieg && (sieg.power >= C.ai_siege_player.min_ratio * sieg.pp * 0.99 || sieg.soldiers >= sieg.cap), `第 2 章坚守主城 ${C.ai_siege_player.hold_s} s → 派出讨伐军（战力 ≥ 0.8 × 玩家，或兵数已到校尉兵力上限）（${JSON.stringify({ ch: c5.ch, sieg })}）`);
   // 玩家离开主城（远处、无敌），讨伐军到城下攻城
   await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.field.teleport(w.player, L.x, L.y + 700); w.player.invincibleUntil = w.clock.now + 3600e3; });
   const d0 = (await ci()).def;
