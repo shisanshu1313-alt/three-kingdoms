@@ -25,7 +25,7 @@ export default class UIScene extends Phaser.Scene {
     this.stats = null; // 场景重启（再来一局 / 读档）时，上一局的 StatsHud 已随场景销毁
     const style = { fontFamily: 'monospace', fontSize: '14px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 8, y: 6 } };
     this.info = this.add.text(10, 10, '', style).setScrollFactor(0);
-    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · H 主城存放武将 · B 城中整编 · C 属性详情 · P 暂停 / 放弃本局 · F1 调试（视野/路径）' + (DEBUG_HOOKS ? ' · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试菜单（开发）' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
+    this.help = this.add.text(10, 0, 'WASD/方向键 移动 · 左键点击 寻路移动 · 滚轮 缩放 · 悬停队伍看详情 · G 抽卡 · H 主城存放武将 · B 城中整编 · C 属性详情 · P 暂停 / 放弃本局' + (DEBUG_HOOKS ? ' · F1 调试（视野/路径） · F5 存档 · F9 读档（开发）' : '') + (import.meta.env.DEV ? ' · F2 调试菜单（开发）' : ''), { ...style, fontSize: '12px' }).setScrollFactor(0);
 
     this.minimapFrame = this.add.graphics();
     this.toasts = [];
@@ -338,7 +338,7 @@ export default class UIScene extends Phaser.Scene {
       `点数: ${st.points}（下一抽 ${drawCost(gachaState(st).n, balance)}）   兵力: ${shownN}/${p.cap}  兵种: ${UNIT_NAMES[p.team.unit] ?? '-'}   战力: ${Math.round(p.power)}`,
       `武将: ${p.team.generals.map(g => g.name).join('、')}   待安排: ${st.pendingGenerals.length ? st.pendingGenerals.map(e => e.general.name).join('、') : '无'}   自由池: ${st.freePool.length}`,
       `状态: ${status}${inv}  速度: ${Math.round(spd)}px/s  AI队伍: ${this.world.aiParties.length}/${balance.spawn.max_ai_teams}`,
-      `缩放: ${this.world.cameras.main.zoom.toFixed(1)}  调试(F1): ${this.world.debugVision ? '开' : '关'}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
+      `缩放: ${this.world.cameras.main.zoom.toFixed(1)}${DEBUG_HOOKS ? `  调试(F1): ${this.world.debugVision ? '开' : '关'}` : ''}  存档: ${this.world.lastSaveAt === null ? '本局未存' : `${Math.round((now - this.world.lastSaveAt) / 1000)}s 前`}${this.world.saveDirty ? '（等待中）' : ''}`,
       this.cityLine(p),
       `FPS: ${Math.round(this.game.loop.actualFps)}`,
       ...(battle ? [battle] : [])
