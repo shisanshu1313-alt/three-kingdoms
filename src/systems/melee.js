@@ -12,6 +12,7 @@
  *   - 冲击：从不接触变为接触的那一 tick，接近速度 ≥ impact_min_closing × 自己最大速度 且冲锋冷却好 → 一次性伤害 + shock + 冲散；冷却 charge_cd_s
  *   - 士气 = 100 − morale_loss_span × raw/brk − shock；< morale_rout 溃逃（AI 判负；玩家失控 rout_control_loss_s 秒自动以 rout_speed_mult 逃）
  *   - 脱离：一对参战方间隙 > escape_gap_px 持续 escape_s → 这一对结束；正在撤的一方 = 逃脱（保护 protect_s），这一对 pair_cd_s 内不再开打
+ *   - v0.6 无接触结束：双方连续 no_contact_end_s 没接触、没人在追、没人放箭 → 'separated'（同 apart：pair_cd_s，无保护）
  *   - 第三方：任何敌对队伍接触到参战方就加入；成员变化时重算 brk（不低于已有 raw + 0.05）
  *
  * state = { t, chapter, rng, bodies: {id: Body}, pairs: {key: Pair}, pairCd: {key: until}, events: [] }
@@ -357,6 +358,17 @@ export function step(prev, inputs = {}, dt, cfg, env = {}) {
       const escs = [[a, b], [b, a]].filter(([X, Y]) => retreating(X, Y));
       endPair(key, escs.length ? 'escape' : 'apart', escs.length ? { escapers: escs.map(([X]) => X.id) } : {});
       for (const [X, Y] of escs) { X.protectUntil = s.t + CD.protect_s; ev({ type: 'escape', id: X.id, from: Y.id }); }
+      continue;
+    }
+    // v0.6 battle.no_contact_end_s：双方连续 N 秒没接触、谁也没在追（接近速度 ≥ chase_frac × vmax）、谁也没在对这一对放箭 → 'separated'
+    // （之后同 apart：pair_cd_s 内不再开打，没有保护）；计时 p.noContactT 存在 pairs 里，随战斗快照存档
+    const NC = cfg.noContact;
+    if (NC && s.pairs[key]) {
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const chasing = [[a, b], [b, a]].some(([X, Y]) => closing(X, Y, d) >= NC.chase_frac * vmax[X.id]);
+      const shooting = a.shooting === b.id || b.shooting === a.id;
+      p.noContactT = !p.wasContact && !chasing && !shooting ? +((p.noContactT ?? 0) + dt).toFixed(6) : 0;
+      if (p.noContactT + 1e-9 >= NC.end_s) endPair(key, 'separated');
     }
   }
 
@@ -432,6 +444,8 @@ export function makeCombatConfig(combatJson, balance) {
     ...combatJson,
     rollMin: bt.random_min, rollMax: bt.random_max, drawRatio: bt.draw_ratio,
     counterAdd: 0, drillAdd: balance.v05?.units?.drill?.add ?? 0.05,
-    loserBase: bt.loser_loss_base, loserPer: bt.loser_loss_per_ratio, loserMax: bt.loser_loss_max
+    loserBase: bt.loser_loss_base, loserPer: bt.loser_loss_per_ratio, loserMax: bt.loser_loss_max,
+    // v0.6 无接触结束（balance.v06.battle；没有 v0.6 配置时不启用）
+    noContact: balance.v06?.battle ? { end_s: balance.v06.battle.no_contact_end_s, chase_frac: balance.v06.battle.no_contact_chase_frac } : null
   };
 }

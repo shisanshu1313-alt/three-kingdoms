@@ -628,6 +628,12 @@ export default class WorldScene extends Phaser.Scene {
         pushLog(this.state, text, this.gameTime());
         EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
       },
+      onSeparated: (a, b) => { // v0.6 battle.no_contact_end_s
+        const text = `${a?.name} 与 ${b?.name} 脱离接触，各自收兵`;
+        pushLog(this.state, text, this.gameTime());
+        EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
+        if ([a, b].some(x => x?.isPlayer)) this.requestSave('battle');
+      },
       onCombatEnd: (p, e) => {
         if (!p.isPlayer || this.run.over) return;
         // 失败规则 B：每场结束扣主角 HP

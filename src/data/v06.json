@@ -297,5 +297,13 @@
       "chance_per_min": 0.2
     },
     "service_cities": "own_or_neutral"
-  }
+  },
+  "battle": {
+    "no_contact_end_s": 4,
+    "no_contact_chase_frac": 0.5
+  },
+  "_defaults": [
+    "battle_v06.no_contact_end_s",
+    "battle_v06.no_contact_chase_frac"
+  ]
 }

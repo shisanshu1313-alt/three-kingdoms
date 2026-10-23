@@ -146,10 +146,11 @@ export default class FieldBattle {
         H.onEscape?.(esc, from, e); break;
       }
       case 'separate': {
-        if (e.kind === 'draw' || e.kind === 'apart') {
+        if (e.kind === 'draw' || e.kind === 'apart' || e.kind === 'separated') { // separated = v0.6 无接触结束（同 apart）
           const a = P(e.a), b = P(e.b);
           for (const [x, y] of [[a, b], [b, a]]) if (x?.ai && y) { x.ai.ignore = { ...x.ai.ignore, [y.id]: nowS + this.cfg.confirmed.draw_ignore_s }; x.ai.state = 'return'; x.ai.targetId = null; x.clearPath(); }
           if (e.kind === 'draw') H.onDraw?.(a, b, e);
+          if (e.kind === 'separated') H.onSeparated?.(a, b, e);
         }
         break;
       }

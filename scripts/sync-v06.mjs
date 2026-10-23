@@ -108,11 +108,25 @@ export function buildV06(d) {
     // C4：回血 / 补兵 / 整编 = 自己主城 + 无主城（距离沿用 v0.5 city_radius_px）
     service_cities: 'own_or_neutral'
   };
+  // 策划 2026-10-23 答复（定稿 JSON 里还没有这些字段）：先读配置，没有就用答复里的默认值，并记在 _defaults 里
+  const defaults = [];
+  const opt = (path, def) => {
+    const v = path.split('.').reduce((o, k) => o?.[k], d);
+    if (typeof v === 'number') return v;
+    defaults.push(path); return def;
+  };
+  const battle = {
+    // 双方连续 no_contact_end_s 秒没接触、谁也没在追、谁也没在放箭 → 这一场以 'separated' 结束（之后同 apart：pair_cd_s 内不再开打，没有保护）
+    no_contact_end_s: opt('battle_v06.no_contact_end_s', 4),
+    // 【解读】「在追」= 朝对方的接近速度 ≥ 该比例 × 自己最大速度
+    no_contact_chase_frac: opt('battle_v06.no_contact_chase_frac', 0.5)
+  };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },
     decisions: Object.fromEntries(Object.entries(ca.answers).map(([k, v]) => [k, v.decided])),
     untested: ca.untested,
-    gacha, leader: lead, roster, city
+    gacha, leader: lead, roster, city, battle,
+    _defaults: defaults
   };
 }
 
