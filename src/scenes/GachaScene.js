@@ -141,7 +141,7 @@ export default class GachaScene extends Phaser.Scene {
   }
 
   render() {
-    this.dyn.removeAll(true); this.epicFrames = [];
+    this.dyn.removeAll(true); this.epicFrames = []; this.openBtn = null;
     const add = o => { this.dyn.add(o); return o; };
     const st = this.st, team = this.team, gs = gachaState(st), x0 = this.ox + 20, P = Math.round;
     const cost = drawCost(gs.n, balance);
@@ -164,7 +164,7 @@ export default class GachaScene extends Phaser.Scene {
         const pr = balance.v06.gacha.rarity_by_chapter[Math.min(this.chapter, 3)];
         add(text(this, x0, this.oy + 128, `每张：普通 ${P(pr[0] * 100)}% / 稀有 ${P(pr[1] * 100)}% / 高阶 ${P(pr[2] * 100)}%；每章第 1 次换一批免费，之后 ${balance.v06.gacha.refresh.cost} 点`, 14, '#aaaaaa'));
       }
-      add(button(this, x0, by, 260, 44, `抽卡（${cost} 点）[空格]`, () => this.doOpen(), { enabled: chk.ok, color: 0x8e5a00, size: 16 }));
+      this.openBtn = add(button(this, x0, by, 260, 44, `抽卡（${cost} 点）[空格]`, () => this.doOpen(), { enabled: chk.ok, color: 0x8e5a00, size: 16 }));
       add(button(this, this.ox + W - 180, by, 160, 44, '关闭 [Esc]', () => this.close()));
       const msg = this.message || (!chk.ok ? chk.text : '');
       if (msg) add(text(this, x0 + 280, by + 12, msg, 14, '#ff8888'));

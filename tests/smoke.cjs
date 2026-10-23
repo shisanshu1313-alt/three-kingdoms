@@ -1,5 +1,5 @@
 // 冒烟测试（M2+M3+存档）：node tests/smoke.cjs [url]   需要 playwright-core 与本机 Chrome
-// 覆盖：无报错、键盘移动、HUD 属性（C）、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标抽一次 / 满编替换）、截图
+// 覆盖：无报错、键盘移动、HUD 属性（C）、点击寻路绕障、AI 追击玩家、战斗改变兵力、抽卡（点数不足禁用 / 鼠标付费出 4 张选 1 / 武将卡满编替换 / 未选的卡读档保留）、截图
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const URL = process.argv[2] || 'http://localhost:5173/';
 const ART = require('path').join(__dirname, '..', 'artifacts'); // 截图输出目录（.gitignore，不进仓库）
@@ -176,8 +176,9 @@ const OUT = ART + '/screenshot.png';
   await ev(() => { const w = window.__game.scene.getScene('World'); w.player.invincibleUntil = w.clock.now + 600000; w.state.points = 10; });
   const gs = () => ev(() => { const g = window.__game; const ga = g.scene.getScene('Gacha'); const w = g.scene.getScene('World');
     return { gacha: g.scene.isActive('Gacha'), gachaPaused: g.scene.isPaused('Gacha'), roster: g.scene.isActive('Roster'), worldPaused: g.scene.isPaused('World'), ui: ga?.uiState,
-      btn: ga?.pullBtn ? { x: ga.pullBtn.x, y: ga.pullBtn.y, enabled: ga.pullBtn.enabled } : null, points: w.state.points, draws: w.state.gachaDraws,
-      result: ga?.result ? { type: ga.result.type, text: ga.result.text, next: ga.result.next } : null, gens: w.player.team.generals.map(x => x.id), items: w.player.team.items.slice(),
+      btn: ga?.openBtn ? { x: ga.openBtn.x, y: ga.openBtn.y, enabled: ga.openBtn.enabled } : null, points: w.state.points, draws: w.state.gachaDraws,
+      offer: w.state.gacha?.offer ? w.state.gacha.offer.cards.map(c => c.kind) : null,
+      result: ga?.result ? { kind: ga.result.card?.kind, text: ga.result.text, next: ga.result.next } : null, gens: w.player.team.generals.map(x => x.id), items: w.player.team.items.slice(),
       freePool: w.state.freePool.slice(), pending: w.state.pendingGenerals.length }; });
   await page.keyboard.press('g'); await page.waitForTimeout(300);
   const poor = await gs();
@@ -186,7 +187,7 @@ const OUT = ART + '/screenshot.png';
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   const closed = await gs();
   result.gachaInsufficient = { opened: poor.gacha, worldPaused: poor.worldPaused, buttonEnabled: poor.btn?.enabled, pointsAfterTry: poor2.points, closedResumes: !closed.gacha && !closed.worldPaused,
-    ok: poor.gacha && poor.worldPaused && poor.btn && !poor.btn.enabled && poor2.points === 10 && poor2.draws === 0 && !closed.gacha && !closed.worldPaused };
+    ok: poor.gacha && poor.worldPaused && poor.btn && !poor.btn.enabled && poor2.points === 10 && poor2.draws === 0 && !poor2.offer && !closed.gacha && !closed.worldPaused };
   // 加点：开发模式用调试钩子 / F2；生产构建（preview）里 F2 必须无效，改为直接改 state
   const isDev = await ev(() => window.__game.scene.getScene('World').debugGrantPoints(0) !== null);
   await page.keyboard.press('F2'); await page.waitForTimeout(200);
@@ -196,46 +197,44 @@ const OUT = ART + '/screenshot.png';
   const hud = await ev(() => { const b = window.__game.scene.getScene('UI').gachaBtn; return { x: b.x + 60, y: b.y + 17 }; });
   await page.mouse.click(hud.x, hud.y); await page.waitForTimeout(300);
   const open = await gs();
-  await page.mouse.click(open.btn.x + 120, open.btn.y + 22); await page.waitForTimeout(150);
-  const rolling = await gs();
-  await page.waitForTimeout(1200);
+  await page.mouse.click(open.btn.x + 120, open.btn.y + 22); await page.waitForTimeout(300); // v0.6：付费 → 出 4 张卡
+  const offered = await gs();
+  const cost1 = await ev(() => window.__balance.v06.gacha.cost.base);
+  // 选一张不需要二级选择的卡（避开物品 / 兵种令；都没有就按 1 再处理二级选择）
+  const pickIdx = Math.max(0, (offered.offer ?? []).findIndex(k => !k.startsWith('item') && k !== 'unit_order' && !k.startsWith('general_'))) + 1;
+  await page.keyboard.press(String(pickIdx)); await page.waitForTimeout(300);
   let afterPull = await gs();
-  const shownFirst = afterPull.ui; // v0.4：滚动结束先进入 RESULT 展示
-  if (afterPull.ui === 'RESULT' && afterPull.result?.next) { await page.keyboard.press('Enter'); await page.waitForTimeout(300); afterPull = await gs(); }
-  if (afterPull.ui === 'CHOOSE_GENERAL') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
-  if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('0'); await page.waitForTimeout(200); }
-  if (afterPull.ui === 'CHOOSE_UNIT') { await page.keyboard.press('0'); await page.waitForTimeout(200); } // v0.5 兵种令：不改
-  if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); }
+  if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
+  if (afterPull.ui === 'CHOOSE_UNIT') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
+  if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); } // 随从名额满：R 放弃新武将
   afterPull = await gs();
   await page.screenshot({ path: ART + '/screenshot-gacha.png' });
-  const costBase = await ev(() => window.__balance.gacha.cost_base), refundPts = await ev(() => window.__balance.gacha.duplicate_item_refund_points); // 抽到已有物品：立即返还
-  result.gachaPull = { openedByMouse: open.gacha, rollingState: rolling.ui, pointsBefore: open.points, pointsAfter: afterPull.points, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
-    shownFirst, ok: shownFirst === 'RESULT' && open.gacha && rolling.ui === 'ROLLING' && (rolling.points === 1000 - costBase || rolling.points === 1000 - costBase + refundPts) && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text };
-  // 满编替换：队伍补到 3 将，强制下一抽 = S 级武将（诸葛亮），弹出名册窗口，按 1 替换第一名随从
+  result.gachaPull = { openedByMouse: open.gacha, offerUi: offered.ui, offer: offered.offer, pointsBefore: open.points, pointsAfterOpen: offered.points, cost1, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
+    ok: open.gacha && offered.ui === 'OFFER' && offered.offer?.length >= 1 && offered.offer.length <= 4 && open.points - offered.points === (cost1 ?? open.points - offered.points) && offered.points < open.points
+      && afterPull.draws === 1 && afterPull.ui === 'RESULT' && !!afterPull.result?.text && !afterPull.offer };
+  // 满编替换：队伍补到 3 将，下一抽第 1 张换成 S 级武将卡（诸葛亮），选它 → 弹出名册窗口，按 1 替换第一名随从
   await ev(() => { const w = window.__game.scene.getScene('World'); const t = w.player.team; const lib = (id) => { const g = window.__balance.generals.find(x => x.id === id); return { id: g.id, name: g.name, tier: g.tier, lead: g.lead, str: g.str, int: g.int, cha: g.cha }; };
     t.generals = t.generals.filter(g => g.id === 'hero');
     t.generals.push(lib('liaohua'), { id: 'smoke_gen', name: '波才', generic: true, lead: 30, str: 40, int: 20, cha: 20 });
     w.state.freePool = w.state.freePool.filter(id => id !== 'liaohua'); w.state.freePool.includes('zhugeliang') || w.state.freePool.push('zhugeliang');
-    w.player.refresh();
-    // 抽卡用存档里的 gacha 随机数流：临时换成固定序列（S 级 → 诸葛亮），之后换回
-    window.__realGachaRng = w.rngs.gacha; const seq = [0.995, 0];
-    w.rngs.gacha = Object.assign(() => (seq.length ? seq.shift() : window.__realGachaRng()), { getState: () => window.__realGachaRng.getState(), setState: v => window.__realGachaRng.setState(v) }); });
-  await page.keyboard.press('Space'); await page.waitForTimeout(1300);
-  const rfResult = await gs(); // RESULT，next = roster_full
-  await page.keyboard.press('Escape'); await page.waitForTimeout(400); // esc_rule.RESULT = 确认 → 进入 ROSTER_FULL
+    w.player.refresh(); });
+  await page.keyboard.press('Space'); await page.waitForTimeout(300);
+  await ev(() => { const ga = window.__game.scene.getScene('Gacha'), w = window.__game.scene.getScene('World');
+    w.state.gacha.offer.cards[0] = { id: 'smoke-zgl', kind: 'general_S', rarity: window.__balance.v06.gacha.cards.general_S.rarity, target: { generalId: 'zhugeliang' } }; ga.render(); });
+  const offer2 = await gs();
+  await page.keyboard.press('1'); await page.waitForTimeout(400);
   const rf = await gs();
   await page.screenshot({ path: ART + '/screenshot-roster.png' });
-  await page.keyboard.press('1'); await page.waitForTimeout(400);
+  // v0.6 名册流程：E 替换 → 1 选第一名随从 → R 流放（没有主城，不能存城）
+  await page.keyboard.press('e'); await page.waitForTimeout(200);
+  await page.keyboard.press('1'); await page.waitForTimeout(200);
+  await page.keyboard.press('r'); await page.waitForTimeout(400);
   const rep = await gs();
-  await ev(() => { window.__game.scene.getScene('World').rngs.gacha = window.__realGachaRng; });
-  await page.keyboard.press('Escape'); await page.waitForTimeout(300); // RESULT → IDLE
-  const idle = await gs();
-  await page.keyboard.press('Escape'); await page.waitForTimeout(300); // IDLE → 关闭
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300); // RESULT → 关闭
   const fin = await gs();
-  result.gachaReplace = { rosterOpened: rf.roster, gachaPausedUnderRoster: rf.gachaPaused, uiWhileRoster: rf.ui, gensAfter: rep.gens, liaohuaInFreePool: rep.freePool.includes('liaohua'),
+  result.gachaReplace = { offerUi: offer2.ui, rosterOpened: rf.roster, gachaPausedUnderRoster: rf.gachaPaused, uiWhileRoster: rf.ui, gensAfter: rep.gens, liaohuaInFreePool: rep.freePool.includes('liaohua'),
     resultText: rep.result?.text, worldResumed: !fin.worldPaused && !fin.gacha,
-    escRule: { resultBeforeConfirm: rfResult.ui, next: rfResult.result?.next, afterEsc: rf.ui, afterSecondEsc: idle.ui, idleStillOpen: idle.gacha },
-    ok: rfResult.ui === 'RESULT' && rfResult.result?.next === 'roster_full' && idle.ui === 'IDLE' && idle.gacha && rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
+    ok: offer2.ui === 'OFFER' && rf.roster && rf.ui === 'ROSTER_FULL' && rep.gens.join() === 'hero,zhugeliang,smoke_gen' && rep.freePool.includes('liaohua') && !rep.roster && rep.ui === 'RESULT' && rep.pending === 0 && !fin.worldPaused && !fin.gacha };
   // 4b) v0.4 pause_scope：打开抽卡时整个世界冻结（游戏时钟、AI 战斗计时、无敌、刷新、自动存档）
   // v0.5 分支：战斗是 field（melee.step）里的持续接触；冻结 = 战斗时间 t / 各方 raw 都不动
   const freeze = () => ev(() => { const w = window.__game.scene.getScene('World'); const now = w.clock.now; const f = w.field;
@@ -261,33 +260,31 @@ const OUT = ART + '/screenshot.png';
     ok: f0.battles >= 1 && JSON.stringify(f0) === JSON.stringify(f1) && f2.now > f1.now && f2.battleT > f1.battleT };
   await page.waitForFunction(() => !Object.keys(window.__game.scene.getScene('World').field.state.pairs).length, null, { timeout: 20000 }).catch(() => {});
 
-  // 4c) 存档决定 1：抽卡结果产生后立即存档；未做的选择读档后重新弹出（不回滚）；读档后随机数流状态一致（不重掷）
-  await ev(() => { const w = window.__game.scene.getScene('World'); w.state.points = 1000;
-    const t = w.player.team; if (t.generals.length < 2) t.generals.push({ id: 'smoke_gen2', name: '张曼成', generic: true, lead: 30, str: 30, int: 30, cha: 30 });
-    w.player.refresh(); });
+  // 4c) 存档：付费出卡后立即存档；不选直接刷新 → 读档回到同一组卡（不重新扣点、不重掷）
+  await ev(() => { const w = window.__game.scene.getScene('World'); w.state.points = 1000; w.player.refresh(); });
   await page.keyboard.press('g'); await page.waitForTimeout(300);
-  await ev(() => { const w = window.__game.scene.getScene('World'); window.__realGachaRng = w.rngs.gacha; const seq = [0.45]; // 0.45 → 属性 +5（gacha_v05 权重 44/13/…：0.44–0.57 = attr_big），多人可选 → 待选择
-    w.rngs.gacha = Object.assign(() => (seq.length ? seq.shift() : window.__realGachaRng()), { getState: () => window.__realGachaRng.getState(), setState: v => window.__realGachaRng.setState(v) }); });
-  await page.keyboard.press('Space'); await page.waitForTimeout(1300);
+  await page.keyboard.press('Space'); await page.waitForTimeout(400);
   const pendBefore = await ev(() => { const w = window.__game.scene.getScene('World'); const sv = JSON.parse(localStorage.getItem('sanguo-run-v1'));
-    return { ui: window.__game.scene.getScene('Gacha').uiState, pending: w.state.gachaPending, points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState(),
-      savedPending: sv.state.gachaPending, savedPoints: sv.state.points, savedRng: sv.rng.gacha, savedReason: sv.reason }; });
+    return { ui: window.__game.scene.getScene('Gacha').uiState, offer: JSON.stringify(w.state.gacha.offer?.cards), points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState(),
+      savedOffer: JSON.stringify(sv.state.gacha?.offer?.cards), savedPoints: sv.state.points, savedRng: sv.rng.gacha, savedReason: sv.reason }; });
   await page.reload(); // 不做选择直接刷新（模拟崩溃 / 关闭）
   await page.waitForFunction(() => window.__game?.scene.isActive('Title'), null, { timeout: 15000 });
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => window.__game.scene.isActive('Gacha'), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => window.__game.scene.getScene('World')?.player && window.__game.scene.isActive('UI'), null, { timeout: 15000 });
   await page.waitForTimeout(500);
+  await page.keyboard.press('g'); await page.waitForTimeout(400);
   const pendAfter = await ev(() => { const w = window.__game.scene.getScene('World'); const g = window.__game.scene.getScene('Gacha');
-    return { gachaOpen: window.__game.scene.isActive('Gacha'), ui: g?.uiState, pending: w.state.gachaPending, points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState() }; });
-  await page.keyboard.press('1'); await page.waitForTimeout(300);
-  const chosen = await ev(() => ({ ui: window.__game.scene.getScene('Gacha').uiState, pending: window.__game.scene.getScene('World').state.gachaPending,
-    savedPending: JSON.parse(localStorage.getItem('sanguo-run-v1')).state.gachaPending }));
-  await page.keyboard.press('Escape'); await page.waitForTimeout(200); await page.keyboard.press('Escape'); await page.waitForTimeout(300);
-  result.pendingChoiceReload = { before: { ui: pendBefore.ui, next: pendBefore.pending?.next, points: pendBefore.points, savedReason: pendBefore.savedReason },
-    after: { gachaOpen: pendAfter.gachaOpen, ui: pendAfter.ui, points: pendAfter.points, draws: pendAfter.draws, rngSame: pendAfter.rng === pendBefore.rng }, chosen,
-    ok: pendBefore.ui === 'RESULT' && pendBefore.pending?.next === 'choose_general' && pendBefore.savedPending?.next === 'choose_general' && pendBefore.savedPoints === pendBefore.points
-      && pendBefore.savedRng === pendBefore.rng && pendAfter.gachaOpen && pendAfter.ui === 'CHOOSE_GENERAL' && pendAfter.points === pendBefore.points && pendAfter.draws === pendBefore.draws
-      && pendAfter.rng === pendBefore.rng && chosen.ui === 'RESULT' && chosen.pending === null && chosen.savedPending === null };
+    return { gachaOpen: window.__game.scene.isActive('Gacha'), ui: g?.uiState, offer: JSON.stringify(w.state.gacha.offer?.cards), points: w.state.points, draws: w.state.gachaDraws, rng: w.rngs.gacha.getState() }; });
+  const k = await ev(() => Math.max(0, window.__game.scene.getScene('World').state.gacha.offer.cards.findIndex(c => !c.kind.startsWith('item') && c.kind !== 'unit_order' && !c.kind.startsWith('general_'))) + 1);
+  await page.keyboard.press(String(k)); await page.waitForTimeout(300);
+  const chosen = await ev(() => ({ ui: window.__game.scene.getScene('Gacha').uiState, offer: window.__game.scene.getScene('World').state.gacha.offer,
+    savedOffer: JSON.parse(localStorage.getItem('sanguo-run-v1')).state.gacha.offer }));
+  for (let i = 0; i < 3 && await ev(() => window.__game.scene.isActive('Gacha')); i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(250); }
+  result.pendingChoiceReload = { before: { ui: pendBefore.ui, points: pendBefore.points, savedReason: pendBefore.savedReason },
+    after: { gachaOpen: pendAfter.gachaOpen, ui: pendAfter.ui, points: pendAfter.points, draws: pendAfter.draws, sameOffer: pendAfter.offer === pendBefore.offer, rngSame: pendAfter.rng === pendBefore.rng }, chosen: { ui: chosen.ui, offer: chosen.offer, savedOffer: chosen.savedOffer },
+    ok: pendBefore.ui === 'OFFER' && pendBefore.savedOffer === pendBefore.offer && pendBefore.savedPoints === pendBefore.points && pendBefore.savedRng === pendBefore.rng
+      && pendAfter.gachaOpen && pendAfter.ui === 'OFFER' && pendAfter.offer === pendBefore.offer && pendAfter.points === pendBefore.points && pendAfter.draws === pendBefore.draws
+      && pendAfter.rng === pendBefore.rng && chosen.ui === 'RESULT' && chosen.offer === null && chosen.savedOffer === null };
   result.saveReasons = [...new Set(logs.saves)];
   result.saveBeforeBattle = { ok: logs.saves.includes('battle-start') && logs.saves.includes('modal') && logs.saves.includes('gacha') };
   await ev(() => { window.__game.scene.getScene('World').player.invincibleUntil = window.__game.scene.getScene('World').clock.now + 600000; });

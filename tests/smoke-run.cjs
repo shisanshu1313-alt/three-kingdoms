@@ -37,7 +37,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
     const r = w.aiParties.find(a => a.id === w.run.raidId), pl = w.player;
     return r && { t: w.clock.now / 1000, id: r.id, name: r.name, dist: Math.hypot(r.x - pl.x, r.y - pl.y), ratio: r.power / pl.power, raid: !!r.team.raid, state: r.ai?.state };
   });
-  await ok(raid && Math.abs(raid.t - 20) < 0.25 && raid.dist >= 340 && raid.dist <= 460 && raid.ratio > 0.5 && raid.ratio < 0.95, `20 s 刷出来袭黄巾（${JSON.stringify(raid)}）`);
+  await ok(raid && Math.abs(raid.t - 20) < 0.25 && raid.dist >= 340 && raid.dist <= 475 && /* 刷在 350–450 px，再加推进一步内双方的移动 */ raid.ratio > 0.5 && raid.ratio < 0.95, `20 s 刷出来袭黄巾（${JSON.stringify(raid)}）`);
   const fight = await W(() => {
     const w = __game.scene.getScene('World'), id = w.run.raidId;
     for (let i = 0; i < 300; i++) {
@@ -54,7 +54,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.screenshot({ path: SHOT });
   console.log('screenshot', SHOT);
   const saved = await W(() => { const t = localStorage.getItem('sanguo-run-v1'); const s = t && JSON.parse(t); return s && { v: s.saveVersion, runId: s.run?.runId, reason: s.reason, combat: !!s.combat }; });
-  await ok(saved && saved.v === 4 && saved.runId === run0.runId && saved.combat, `交战中 run 存档（sanguo-run-v1，含战斗快照）存在（${JSON.stringify(saved)}）`);
+  await ok(saved && saved.v === 5 && saved.runId === run0.runId && saved.combat, `交战中 run 存档（sanguo-run-v1，含战斗快照）存在（${JSON.stringify(saved)}）`);
 
   // 名将军补兵（每满 1 分钟 +3，战斗中不补）+ 势力补队（名将军不在场 → 下一次刷新在大本营出校尉军）
   const fac = await W(() => {
@@ -88,8 +88,12 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.keyboard.press('Enter'); await sleep(p, 2000);
   const run1 = await W(() => { const w = __game.scene.getScene('World'); return { active: __game.scene.isActive('World'), runId: w.run.runId, t: w.clock.now / 1000, hp: w.run.heroHp, over: w.run.over, soldiers: w.player.team.soldiers }; });
   await ok(run1.active && run1.runId !== run0.runId && run1.t < 5 && run1.hp === 100 && !run1.over && run1.soldiers > 0, `再来一局（${JSON.stringify(run1)}）`);
-  // 城池整编：开局在洛阳城内；B → 2（骑兵）：−30 点、兵种改变、5 s 不能移动
-  await W(() => { const w = __game.scene.getScene('World'); w.state.points = 100; });
+  // 城池整编：v0.6 开局洛阳有黄巾守军 → 不能整编；去掉守军占下洛阳（主城）后站在城里，B → 2（骑兵）：−30 点、兵种改变、5 s 不能移动
+  const blocked = await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang; w.state.points = 100; w.field.teleport(w.player, L.x, L.y); return w.inCity(w.player); });
+  await ok(!blocked, '洛阳有守军时不能用城池服务（整编 / 回血 / 补兵）');
+  await W(() => { const w = __game.scene.getScene('World'), L = w.state.cities.luoyang;
+    const g = w.aiParties.find(x => x.team.cityHold); if (g) w.removeParty(g);
+    w.captureCity('luoyang'); w.field.teleport(w.player, L.x, L.y); w.state.points = 100; });
   await p.keyboard.press('b'); await sleep(p, 200); await p.keyboard.press('2'); await sleep(p, 300);
   const reorg = await W(() => { const w = __game.scene.getScene('World'); return { unit: w.player.team.unit, body: w.field.body(w.player.id).unit, points: w.state.points, locked: (w.player.team.lockUntil ?? 0) > w.clock.now }; });
   await ok(reorg.unit === 'cav' && reorg.body === 'cav' && reorg.points === 70 && reorg.locked, `城池整编：B → 骑兵（${JSON.stringify(reorg)}）`);
