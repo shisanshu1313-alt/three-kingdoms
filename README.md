@@ -2,6 +2,24 @@
 
 单人、实时、俯视角三国开放世界原型。引擎 **Phaser 3**（npm 依赖），构建 **Vite**，美术为**色块占位**。
 
+## v0.6：四选一抽卡 + 名册 + 主城 / 攻城（分支 `proto/v0.6`，未合入 main）
+
+数值全部来自策划定稿 `/workspace/design/balance_v0.6.json`（19 项决定全部按推荐）：`npm run sync:v06`（`scripts/sync-v06.mjs`）→ `src/data/v06.json`；测试只读 `tests/fixtures/` 里的副本（不读 /workspace/design/）。程序侧【假设】在 `src/data/assumptions.json` 的 `v06`（values 是游戏读取的开关 / 数值，notes 是说明）。
+
+**怎么玩**：`npm install && npm run dev -- --port 5182`（worktree `/workspace/sanguo-game-v06`）→ http://localhost:5182/ 。开局出生在洛阳城外（洛阳有黄巾守军）。
+- 移动 / 战斗同 v0.5：WASD/方向键、左键寻路、滚轮缩放；没有撤退键，把队伍开走就是脱离。C 属性详情、P 暂停、F1 调试视野。
+- **抽卡 G**：空格 付费（50 + 5n 点，封顶 150）→ 出 4 张（普通 / 稀有 / 史诗）→ 按 1–4 或点卡片选一张（必须选，Esc 关不掉，刷新页面回到同一组）；F 换一批（每章第 1 次免费，之后收点数；每抽最多换 1 次）。卡面写效果和战力变化。物品栏满 → 选丢哪件；兵种令 → 选兵种。
+- **名册**（队伍满 3 人时得到新武将）：E 替换 → 按数字选换下谁 → R 流放（+20 点）/ H 送回主城存放；也可直接流放 / 存放新武将。
+- **主城**：攻洛阳（扣城防 → 消灭守军 → 在城心待 5 s）后立为主城。主城 200 px 内按 H：1/2 选副将、3–5 选存放的武将（最多 3 个）、Enter 存入 / 取出 / 对调。主城 / 无守军的无主城里回血、征兵、B 整编。占第二座城时问是否迁都（Y / N）。
+- **攻城**：城防按章 230 / 420 / 700 / 870；攻城方接触城圆扣城防，城上弓箭射所有接触的敌队；城破后 20 s 内要占，不然回复。第 2 章起在主城里连续待 20 s → 最近的未讨伐势力派兵（或刷 0.8–1.2 倍讨伐军）来攻；第 3 章起离开主城 > 500 px 每分钟 20% 被趁虚攻打；城破后敌人在城心待 10 s → 主城失守（存放的武将流散，城防回到 30%）。
+- 统率（L）：主角统率 + 副将 × 0.3，影响速度（封顶 100）；HUD 显示「统率项 L」。副将擅长当前兵种 +0.05、敌队统帅擅长 +0.10。
+
+**测试**：`npm test` 281 个（含 `gacha_v06` / `roster` / `city_v06` / `leader_v06` / `v06_config`：定稿 ↔ 配置逐项对照）。浏览器冒烟（`PW_PATH=<playwright-core>`，开发服务器 5182）：`node tests/smoke-v06.cjs`（24 项：抽卡 4 选 1 / 换一批 / 必须选 → 名册替换 + 流放 / 存城 → 攻洛阳 → 占城 → 城防回复 / 城内保护 → H 互换 → AI 讨伐军攻城 → 失守 → 存档 v5 读档；`SHOTS=/workspace` 写 `v06-gacha.png` / `v06-city.png` / `v06-run.png`），以及 `smoke.cjs` / `smoke-v05.cjs` / `smoke-run.cjs` / `smoke-hud.cjs` / `smoke-dist.cjs`（正式构建，`vite preview --port 4174`）全部通过。
+
+**20 分钟无界面模拟**：`npm run sim:v06 -- http://localhost:5182/`（`tools/sim-v06.cjs`；`SEEDS=1,2,3 STRAT=rush|farm OUT=结果.json`）。在 headless Chrome 里跑真实逻辑（固定 tick 快进），Math.random 按种子替换，可复现；脚本玩家：抽战力最高的卡 → 攻洛阳（rush 直接攻 / farm 先打弱队、兵 ≥ 35 再攻）→ 守主城、打弱队、残血回城。它不是平衡结论（脚本玩家不躲名将军、不换兵种），只用来看攻城时间和死因。
+
+**已知问题 / 待策划确认**：见 `assumptions.json` 的 `v06.notes`；没做卡面「对视野内敌人的胜算预览」。
+
 ## v0.5 正式版：roguelike 一局 + 移动接触式实时战斗（分支 `proto/v0.5-combat`，未合入 main）
 
 数值全部来自策划定稿 `/workspace/design/balance_v0.5.json`：`npm run sync:v05`（`scripts/sync-v05.mjs`）→ `src/data/combat_v05.json`（实时战斗）+ `src/data/run_v05.json`（一局的规则）。配置里只有文字的规则在 sync 里转成数值，注释标【解读】。
