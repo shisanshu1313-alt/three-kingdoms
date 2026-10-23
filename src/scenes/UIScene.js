@@ -31,7 +31,10 @@ export default class UIScene extends Phaser.Scene {
     this.toasts = [];
 
     this.layout();
-    this.scale.on('resize', () => this.layout());
+    // 场景重开（再来一局 / 读档）时要解绑，否则旧监听器对已销毁的文字 setFontSize → Phaser drawImage null
+    const onResize = () => this.layout();
+    this.scale.on('resize', onResize);
+    this.events.once('shutdown', () => this.scale.off('resize', onResize));
 
     // 抽卡 HUD 按钮（gacha_ui.hud_button）+ 键盘 G；F2 = 调试菜单（仅开发模式）
     this.gachaBtn = button(this, 0, 0, 120, 34, `抽卡 [${UI_CFG.open_key ?? 'G'}]`, () => this.openGacha(), { color: 0x8e5a00, size: 15 });
@@ -271,12 +274,12 @@ export default class UIScene extends Phaser.Scene {
 
   layout() {
     const w = this.scale.width, h = this.scale.height;
-    if (this.gachaBtn) this.gachaBtn.setPosition(w - MINIMAP_SIZE - 10, MINIMAP_SIZE + 20);
+    if (this.gachaBtn?.scene) this.gachaBtn.setPosition(w - MINIMAP_SIZE - 10, MINIMAP_SIZE + 20);
     // 窄屏：底部帮助文字换行（不出屏），战报跟着上移
     this.help.setWordWrapWidth(w < 700 ? w - 36 : null, true);
     this.help.setPosition(10, h - (w < 700 ? this.help.height + 4 : 30));
     this.stats?.layout();
-    if (this.log) this.log.setWordWrapWidth(Math.min(460, w - 36), true).setPosition(10, w < 700 ? h - this.help.height - 10 : h - 36);
+    if (this.log?.scene) this.log.setWordWrapWidth(Math.min(460, w - 36), true).setPosition(10, w < 700 ? h - this.help.height - 10 : h - 36);
     const x = w - MINIMAP_SIZE - 10, y = 10;
     // QA-17：窄屏时左上信息换行到小地图左边、字号缩小，不盖住小地图和「抽卡」按钮
     const narrow = w < 700;

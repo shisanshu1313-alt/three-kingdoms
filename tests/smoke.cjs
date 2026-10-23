@@ -18,7 +18,7 @@ const OUT = ART + '/screenshot.png';
     if (t.startsWith('[ai]')) logs.ai.push(t);
     if (t.startsWith('[save]')) logs.saves.push(t.split(' ')[1]);
   });
-  page.on('pageerror', e => errors.push(String(e)));
+  page.on("pageerror", e => errors.push(String(e) + " @ " + (e.stack||"").split("\n").slice(0,16).join(" | ")));
   await page.goto(URL);
   await page.waitForFunction(() => window.__game?.scene.getScene('World')?.player, null, { timeout: 15000 });
   await page.waitForTimeout(500);

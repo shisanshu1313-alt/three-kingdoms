@@ -26,3 +26,9 @@ test('QA-17：左上坐标 / 像素 / 地形 / 缩放 / FPS / AI 队伍数只在
     assert.ok(line && /DEBUG_HOOKS \?/.test(line), `${key} 那行由 DEBUG_HOOKS 控制`);
   }
 });
+
+test('UIScene 重开（再来一局 / 读档）：layout 不碰上一局已销毁的文字，resize 监听器在 shutdown 时解绑', () => {
+  const src = readFileSync(new URL('../src/scenes/UIScene.js', import.meta.url), 'utf8');
+  assert.match(src, /if \(this\.log\?\.scene\) this\.log\.setWordWrapWidth/);
+  assert.match(src, /this\.events\.once\('shutdown', \(\) => this\.scale\.off\('resize', onResize\)\)/);
+});
