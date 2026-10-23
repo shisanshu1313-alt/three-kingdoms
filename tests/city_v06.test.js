@@ -104,10 +104,10 @@ test('失守：主城城防 0 且敌队在城内停 10 s → lost；变无主城
   assert.equal(serviceCity(L), true); assert.equal(serviceCity(s.cities.xuchang), false);
 });
 
-test('换章：上限换新、当前城防按比例放大', () => {
+test('换章（chapter_change = keep）：被打过的城当前城防不变，满城防的城仍是满城防（新上限）', () => {
   const cs = createCities(balance); cs.luoyang.def = 115;
   applyChapter(cs, 1, balance);
-  assert.equal(cs.luoyang.def, 210); assert.equal(cs.xuchang.def, 420); assert.equal(defMax(balance, 3), 870);
+  assert.equal(cs.luoyang.def, 115); assert.equal(cs.xuchang.def, 420); assert.equal(defMax(balance, 3), 870);
 });
 
 test('AI 攻城：第 2 章起在主城待满 20 s 派兵，60 s 冷却；第 3 章起离城 500 px 外每分钟 20%', () => {

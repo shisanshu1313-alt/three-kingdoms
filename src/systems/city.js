@@ -2,14 +2,14 @@
  * v0.6 城池（city_v06，纯逻辑，无 Phaser；单测 tests/city_v06.test.js）。全部数字读 balance.v06.city。
  *
  * 城 = 固定的圆（radius_px 48）；城内 = 距城心 ≤ inside_px（60）；攻城 = 队伍圆和城圆接触。
- * state.cities = { id: { id, name, x, y, owner, def, defCh, lastHitS, zeroAtS, hold, lostHold, garrison, declined } }
+ * state.cities = { id: { id, name, x, y, owner, def, defCh, lastHitS, zeroAtS, zeroAwayS, hold, lostHold, garrison, declined } }
  *   owner：'player'（玩家主城）| 势力 id（敌方大本营）| null（无主城）；garrison：守军势力（洛阳开局 'bandit'），守军队伍被消灭后清空
  *
  *   createCities(balance, {garrison})       开局（洛阳有黄巾守军；旧存档迁移时 garrison=false）
  *   citySide(city)                          城的归属方（owner ?? 守军势力 ?? null）
  *   protectingCity(p, cities, balance)      p 在自己一方城防 > 0 的城里（≤ inside_px）→ 受保护（不能被攻击，也不能攻击城外）
  *   cityTick(cities, parties, ctx)          攻城伤害 / 城上弓箭 / 回复 / 城破窗口 / 占城计时 / 失守计时 → { events, losses }
- *   applyChapter(cities, ch, balance)       换章：城防上限换新、当前城防按比例放大
+ *   applyChapter(cities, ch, balance)       换章：城防上限换新；chapter_change 'keep' = 当前城防不变（满城防 → 新上限）
  *   capture / loseCity / relocate           占城（立为主城 / 迁都）、失守（无主城 30%，存放的武将回自由池）
  */
 import { loseStore } from './roster.js';
@@ -134,13 +134,14 @@ export function garrisonPreviewPower(team, playerPower, balance) {
 /**
  * 城名下方的标签（WorldScene.drawCities 用；纯函数便于单测）。
  * T4：有守军的城显示「守军战力 N」；守军比玩家强 → 标红并注明「强于你」（策划 T4 mitigation：玩家战力 < 守军时提示）。
- * opts：{ max, factionName, storeText, garrisonPower（守军队伍当前战力，没有 = null）, playerPower }
+ * opts：{ max, factionName, storeText, garrisonPower（守军队伍当前战力，没有 = null）, playerPower, strongerHint（city.garrison.stronger_hint，默认 'gt'）}
  */
-export function cityLabel(c, { max, factionName = null, storeText = '', garrisonPower = null, playerPower = 0 }) {
+export function cityLabel(c, { max, factionName = null, storeText = '', garrisonPower = null, playerPower = 0, strongerHint = 'gt' }) {
   const side = citySide(c);
   const owner = c.owner === PLAYER ? '我的主城' : c.owner ? `${factionName ?? c.owner}大本营` : c.garrison ? '黄巾守军' : '无主城';
   const gp = c.garrison && garrisonPower != null ? Math.round(garrisonPower) : null;
-  const strong = gp != null && gp > playerPower;
+  // 策划 power_recalc.stronger_hint = 'gt'：标签战力 > 玩家战力（严格大于）才提示，相等不提示；按显示出来的整数比（玩家战力 HUD 也显示整数）
+  const pp = Math.round(playerPower), strong = gp != null && (strongerHint === 'gte' ? gp >= pp : gp > pp);
   const gText = gp != null ? `  守军战力 ${gp}${strong ? '（强于你）' : ''}` : '';
   const text = `${owner}  城防 ${Math.ceil(c.def)}/${max}${c.def <= 0 ? '（已破）' : ''}${gText}${storeText}`;
   return { text, color: side === PLAYER ? '#aaffaa' : strong ? '#ff7777' : '#ffffff' };
@@ -156,6 +157,13 @@ export function arrowRate(target, ch, balance, mv) {
   const arc = mv.units.arc, tu = mv.units[target.unit] ?? {};
   const taken = 1 - Math.min(0.9, target.takenFrom?.arc ?? 0);
   return Math.min(mv.rate_cap, mv.lam * Math.pow(ratio, mv.a)) * (arc.shoot_mult ?? 1) * (tu.arrow_taken ?? 1) * taken;
+}
+
+/** 城破窗口是否已过：regen_rule 'away' = 玩家离开（不贴城、不和守军交战）连续满 break_window_s；'since_zero' = 旧规则，从归零起算 */
+export function breakWindowOver(c, tS, held, C) {
+  if (c.def > 0) return true;
+  if (C.regen_rule === 'away') return !held && (c.zeroAwayS ?? 0) >= C.break_window_s;
+  return c.zeroAtS == null || tS - c.zeroAtS >= C.break_window_s;
 }
 
 /** 能占：无主、守军已消灭、不是自己的主城、没有因拒绝迁都而等待离开 */
@@ -176,15 +184,19 @@ export function cityTick(cities, parties, ctx) {
     if (c.def > 0 && citySide(c)) for (const p of hostile) losses[p.id] = (losses[p.id] ?? 0) + arrowRate(p, chapter, balance, move) * p.soldiers * dt;
     // 攻城：玩家打任何敌对的城；AI 只打它的攻城目标（路过的不算）
     const sieging = hostile.filter(p => p.isPlayer || p.siegeTarget === c.id);
+    // 策划 siege.regen_rule（'away'）：城防为 0 时，有攻城方贴着城（玩家贴着敌对 / 无主城就算）或玩家正在和这座城的守军交战 → 回复倒计时暂停并清零；
+    // 都没有 → 累计「离开」时间 zeroAwayS，满 break_window_s 才开始回复（回复后城防 > 0，要重新破城）
+    const held = sieging.length > 0 || !!ctx.playerFightingGarrison?.includes?.(c.id);
+    if (c.def <= 0) c.zeroAwayS = held ? 0 : (c.zeroAwayS ?? 0) + dt;
     if (sieging.length) {
       c.lastHitS = tS;
       if (c.def > 0) {
         c.def -= siegeDpsCapped(sieging.reduce((s, p) => s + siegeDps(p.power, p.unit, balance), 0), max, balance) * dt;
-        if (c.def <= 0) { c.def = 0; c.zeroAtS = tS; events.push({ type: 'breached', city: c }); }
+        if (c.def <= 0) { c.def = 0; c.zeroAtS = tS; c.zeroAwayS = 0; events.push({ type: 'breached', city: c }); }
       }
-    } else if (c.def < max && tS - c.lastHitS >= C.regen_idle_s && (c.zeroAtS == null || tS - c.zeroAtS >= C.break_window_s)) {
+    } else if (c.def < max && tS - c.lastHitS >= C.regen_idle_s && breakWindowOver(c, tS, held, C)) {
       c.def = Math.min(max, c.def + C.regen_pct_per_s * max * dt);
-      if (c.def > 0) c.zeroAtS = null;
+      if (c.def > 0) { c.zeroAtS = null; c.zeroAwayS = 0; }
     }
     // 占城：城防 0 → 守军已灭 → 玩家在城心 capture_inside_px 内停 capture_hold_s
     const pl = parties.find(p => p.isPlayer);
@@ -203,11 +215,16 @@ export function cityTick(cities, parties, ctx) {
   return { events, losses };
 }
 
-/** 换章：上限换新，当前城防按比例放大 */
+/**
+ * 换章：城防上限换成新章的（每秒城防伤害上限在 cityTick 里按当前章上限 ÷ siege_min_s 算，换章那一 tick 立即生效）。
+ * 策划 siege.chapter_change = 'keep'：当前城防值不变、不按新章上限补满（之后照常按新上限的 3%/s 回复）；
+ * 【解读】满城防（没被打过 / 已回满）的城仍算满城防 → 设为新章上限。'scale'（旧版）：按比例放大。
+ */
 export function applyChapter(cities, ch, balance) {
+  const mode = C6(balance).chapter_change ?? 'scale';
   for (const c of Object.values(cities ?? {})) {
     const from = defMax(balance, c.defCh ?? 0), to = defMax(balance, ch);
-    if (from !== to) c.def = c.def * to / from;
+    if (from !== to) c.def = mode === 'keep' ? (c.def >= from - 1e-9 ? to : c.def) : c.def * to / from;
     c.defCh = ch;
   }
 }

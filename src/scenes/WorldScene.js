@@ -337,7 +337,7 @@ export default class WorldScene extends Phaser.Scene {
     this.field.state.chapter = r.chapter;
     this.field.cfg.counterAdd = counterAddOf(runCfg, r.hard);
     this.aiSystem.rules = { graceUntilS: runCfg.grace_s, namedIds: new Set(runCfg.run_goal.named), namedLeashPx: ch.named_chase_home_px };
-    // v0.6：名将军第 named_in_city_chapters 章坐镇大本营；城防上限换章（当前城防按比例）
+    // v0.6：名将军第 named_in_city_chapters 章坐镇大本营；城防上限换章（chapter_change = keep：当前城防不变）
     this.aiSystem.holdNamed = balance.v06.city.named_in_city_chapters.includes(r.chapter + 1);
     if (this.state.cities) cityApplyChapter(this.state.cities, r.chapter, balance);
   }
@@ -390,7 +390,14 @@ export default class WorldScene extends Phaser.Scene {
       return { id: p.id, x: p.x, y: p.y, r: this.cityRadiusOf(p), faction: p.faction, unit: p.team.unit, power: p.power,
         soldiers: b && inCombat(b) ? soldiersOf(b) : p.team.soldiers, isPlayer: p.isPlayer, siegeTarget: p.team.siegeTarget ?? null, takenFrom: b?.stats?.takenFrom };
     });
-    const { events, losses } = cityTick(cs, parties, { tS, dt, chapter: r.chapter, balance, move: combatJson.move, homeCity: this.state.homeCity, hostile: factionsHostile });
+    // regen_rule：玩家正在和哪些城的守军交战（melee pairs 里玩家 ↔ cityHold 队）
+    const playerFightingGarrison = [];
+    for (const pr of Object.values(this.field.state.pairs ?? {})) {
+      const o = pr.a === pl.id ? pr.b : pr.b === pl.id ? pr.a : null;
+      const g = o && this.aiParties.find(p => p.id === o);
+      if (g?.team.cityHold) playerFightingGarrison.push(g.team.cityHold);
+    }
+    const { events, losses } = cityTick(cs, parties, { tS, dt, chapter: r.chapter, balance, move: combatJson.move, homeCity: this.state.homeCity, hostile: factionsHostile, playerFightingGarrison });
     for (const [id, n] of Object.entries(losses)) this.arrowLoss(this.parties.find(p => p.id === id), n);
     for (const e of events) {
       const c = e.city;
@@ -521,7 +528,7 @@ export default class WorldScene extends Phaser.Scene {
       if (c.lostHold > 0) g.fillStyle(0xff5555, 1).fillRect(c.x - w / 2, y + 8, w * c.lostHold / C.lost_hold_s, 3);
       const store = c.owner === PLAYER ? `  存放 ${(this.state.cityStore ?? []).length}/${balance.v06.roster.storage_max}` : '';
       const gar = c.garrison ? this.aiParties.find(p => p.team.cityHold === c.id) : null; // T4：显示守军战力（不在交战 = 按当前玩家战力重算的值；交战中 = 这一仗的守军，不变）
-      const L = cityLabel(c, { max, factionName: balance.ai.factions.find(f => f.id === c.owner)?.name, storeText: store, garrisonPower: gar ? this.garrisonLabelPower(c, gar) : null, playerPower: this.player.power });
+      const L = cityLabel(c, { max, factionName: balance.ai.factions.find(f => f.id === c.owner)?.name, storeText: store, garrisonPower: gar ? this.garrisonLabelPower(c, gar) : null, playerPower: this.player.power, strongerHint: balance.v06.city.garrison.stronger_hint });
       if (this.cityTexts[c.id].text !== L.text) this.cityTexts[c.id].setText(L.text);
       this.cityTexts[c.id].setColor(L.color);
     }
