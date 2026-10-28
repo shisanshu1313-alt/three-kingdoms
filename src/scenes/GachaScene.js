@@ -64,7 +64,8 @@ export default class GachaScene extends Phaser.Scene {
   ctx() {
     const pl = this.world.player, range = scoutRange(pl.team, balance).scout;
     const enemies = (this.world.parties ?? []).filter(p => !p.isPlayer && p.team?.faction !== pl.team.faction).map(p => ({ unit: p.team.unit, dist: Math.hypot(p.x - pl.x, p.y - pl.y) }));
-    return { inBattle: !!pl.inBattle, chapter: this.chapter, threat: threatUnits(pl.team.unit, enemies, range, this.world.field.cfg.move.counters), atS: (this.world.clock?.now ?? 0) / 1000 };
+    return { inBattle: !!pl.inBattle, chapter: this.chapter, threat: threatUnits(pl.team.unit, enemies, range, this.world.field.cfg.move.counters), atS: (this.world.clock?.now ?? 0) / 1000,
+      ...(import.meta.env.DEV && this.world.devNextGeneral ? { forceGeneral: true } : {}) }; // 开发 F2→5：下一抽必出武将卡（正式构建里整段被常量折叠掉）
   }
 
   onCancel() {
@@ -86,6 +87,7 @@ export default class GachaScene extends Phaser.Scene {
     const ctx = this.ctx(), chk = canOpen(this.st, this.team, balance, ctx);
     if (!chk.ok) { this.message = chk.text; return this.render(); }
     const o = openDraw(this.st, this.team, balance, this.world.rngs.gacha, ctx);
+    if (import.meta.env.DEV && ctx.forceGeneral) this.world.devNextGeneral = false; // 只管一次
     this.saved();
     console.log(`[gacha] -${o.cost} offer ${o.cards.map(c => `${c.kind}(${c.rarity})`).join(' ')}`);
     this.message = ''; this.result = null; this.uiState = 'OFFER';

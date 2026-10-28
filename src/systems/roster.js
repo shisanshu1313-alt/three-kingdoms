@@ -30,6 +30,12 @@ export function replaceableIndices(team, balance) {
   return team.generals.map((g, i) => i).filter(i => !isHero(team.generals[i], balance));
 }
 
+/** 大地图上按 E（替换副将）：还没有副将时的提示（PM 2026-10-23）；有副将时返回 null（替换在抽到武将卡的名册弹窗里做） */
+export const NO_GENERALS_TEXT = '还没有武将';
+export function replaceKeyHint(team, balance) {
+  return replaceableIndices(team, balance).length ? null : NO_GENERALS_TEXT;
+}
+
 // ---------------- v0.6 名册（roster_v06）：主角 + 2 副将；主城存放 storage_max 名；替换 / 送回主城 / 流放 ----------------
 const R06 = balance => balance.v06?.roster;
 /** 主城存放上限（没有 v0.6 配置 = 0，即没有存放功能） */

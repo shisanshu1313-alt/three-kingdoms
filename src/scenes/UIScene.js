@@ -12,6 +12,7 @@ import { shownSoldiers, moraleOf, inCombat, vmaxOf } from '../systems/melee.js';
 import { UNIT_NAMES, UNIT_FULL_NAMES } from '../systems/units.js';
 import { UNIT_ORDER_UNITS } from '../systems/gacha.js';
 import StatsHud from '../ui/StatsHud.js';
+import { replaceKeyHint } from '../systems/roster.js';
 
 const UI_CFG = balance.gacha_ui ?? {};
 const DEBUG_POINTS = 200;
@@ -59,6 +60,8 @@ export default class UIScene extends Phaser.Scene {
     act.on(ACTIONS.NO, () => { if (this.cityPrompt) { this.answerCity(false); return true; } });
     // v0.6 主城存放：H（主城 swap_radius_px 内、不在战斗中）
     act.on(ACTIONS.CITY, () => { if (!this.pauseUi && !this.cityPrompt) this.openCity(); });
+    // E（替换副将）在大地图上：还没有副将时提示（PM 2026-10-23，P3）；名册 / 抽卡等弹窗开着时由弹窗自己处理
+    act.on(ACTIONS.REPLACE, () => { if (this.pauseUi || this.modalOpen()) return; const t = replaceKeyHint(this.world.player.team, balance); if (t) this.toast(t, '#ffdd55', 15); });
     const onCityPrompt = d => this.showCityPrompt(d);
     this.game.events.on('city-prompt', onCityPrompt);
     this.events.once('shutdown', () => this.game.events.off('city-prompt', onCityPrompt));

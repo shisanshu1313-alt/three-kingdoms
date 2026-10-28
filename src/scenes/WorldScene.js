@@ -45,6 +45,7 @@ export default class WorldScene extends Phaser.Scene {
   create(data = {}) {
     this.loadWarnings = data.warnings ?? [];
     this.newRunOpts = data.newRun ?? {};
+    if (import.meta.env.DEV) this.devNextGeneral = false; // 开发 F2→5 的开关：场景重开 / 读档时清掉（不进存档）
     // 开发 / 无界面模拟（DEBUG_HOOKS）：window.__SANGUO_SIM = { seed, manualTick } → 固定 runSeed；manualTick = 实时循环不推进逻辑，只由 debugAdvance 按固定 tick 推进
     const sim = DEBUG_HOOKS ? globalThis.__SANGUO_SIM : null;
     this.manualTick = !!sim?.manualTick;

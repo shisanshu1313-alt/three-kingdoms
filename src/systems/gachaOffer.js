@@ -152,6 +152,15 @@ export function genOffer(state, team, balance, rng, ctx = {}) {
       ?? makeCard('troops_s', state, team, balance, rng, ctx); // 【假设】属性全满时改给补兵
     if (fb && i >= 0) cards[i] = fb; else if (fb) cards.push(fb);
   }
+  // 开发 F2→5（PM 2026-10-23）：ctx.forceGeneral → 这一抽保证有 1 张武将卡（没有时换掉最后一张不是唯一成长卡的卡）。
+  // 只有调试菜单会传；不传时不多掷随机数，结果和以前完全一样。
+  if (ctx.forceGeneral && !cards.some(c => c.kind.startsWith('general_'))) {
+    const gen = makeCard('general_A', state, team, balance, rng, ctx) ?? makeCard('general_S', state, team, balance, rng, ctx);
+    const growth = cards.filter(c => g.growth_kinds.includes(c.kind)).length;
+    let i = cards.length - 1;
+    while (i > 0 && g.growth_kinds.includes(cards[i].kind) && growth <= 1) i--;
+    if (gen) { if (cards.length < g.offer_size) cards.push(gen); else cards[i] = gen; }
+  }
   const offerN = gachaState(state).n;
   cards.forEach((c, i) => { c.id = `d${offerN}-${ctx.refreshTag ?? 0}-${i}`; });
   return { cards, hadEpic: cards.some(c => c.rarity === 'epic') };
