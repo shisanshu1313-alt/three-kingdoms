@@ -370,7 +370,7 @@
     "counts_when_named_lost": true
   },
   "named_reinforce": {
-    "per_min": 20,
+    "per_min": 30,
     "ref_duration_min": 20,
     "pause_in_battle": true,
     "catch_up": false

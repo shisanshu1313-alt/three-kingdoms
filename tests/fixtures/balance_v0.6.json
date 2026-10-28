@@ -3323,7 +3323,7 @@
     "S1": "官方 sim:v06 改用种子 1–48（24 种子同版本死亡率可在 35%–54% 间波动）"
   },
   "tuning_r3": {
-    "status": "R3-N 已交程序；R3-E1 小维 2026-10-28 群里「按推荐」已定；E2/E3 不采用",
+    "status": "R3-N/E1 已在 115b6f6；R3-N2（per_min 20→30）策划已定交程序；E2/E3 不采用；勿动 E1/U1-B/U3-C/T1–T4",
     "date": "2026-10-28",
     "source": "/workspace/tuning_r3/summary.md",
     "verdict": {
@@ -3333,7 +3333,7 @@
     },
     "decisions": {
       "R3-N": {
-        "status": "decided_by_策划",
+        "status": "implemented",
         "scope": "未定旋钮（名将补兵速率，非 G/A/B/C/U 已选项）",
         "change": {
           "field": "named_reinforce.per_min",
@@ -3341,7 +3341,8 @@
           "to": 20
         },
         "effect": "active 1–96 约死33%/通关31%；不伤第1章",
-        "hand_to": "程序"
+        "hand_to": "程序",
+        "commit": "115b6f6"
       },
       "R3-E1": {
         "status": "decided",
@@ -3376,7 +3377,28 @@
         "来袭 50→35（U1-B）",
         "抽卡加价压难度",
         "名将按玩家战力保底原型"
-      ]
+      ],
+      "R3-N2": {
+        "status": "decided_by_策划",
+        "scope": "未定旋钮（名将补兵速率，非 G/A/B/C/U 已选项；R3-N 已上 20 后的加码）",
+        "change": {
+          "field": "named_reinforce.per_min",
+          "from": 20,
+          "to": 30
+        },
+        "also_update": "balance_v0.5.json polish_merged.4_named_reinforce.rule 每分钟 +20 → +30（sync:v05 读取）",
+        "why": "死亡拉进 30–40%；通关仍可能略高于 25%，N2 落地后再用 1–96 复核",
+        "hand_to": "程序",
+        "do_not_touch": [
+          "R3-E1",
+          "U1-B",
+          "U3-C",
+          "T1-T4",
+          "general_A",
+          "raid 50s",
+          "gacha price"
+        ]
+      }
     },
     "ui_26ff2a5": {
       "status": "decided_by_策划",

@@ -114,7 +114,8 @@
       "city_chapter_change": "【策划 2026-10-23 07:22 定稿 city_v06.siege.chapter_change → v06.json city.chapter_change = keep】换章：每秒城防伤害上限立即换成新章「城防上限 ÷ 15」（cityTick 每 tick 按当前章）；城防是满的（没被打过 / 已回满）抬到新章上限；不满（正在被攻 / 还没回满）当前值不变（原实现按比例放大，已改）",
       "city_regen_rule": "【策划 2026-10-23 07:22 定稿 city_v06.siege.regen_rule → city.regen_rule = away、city.regen_hold = pause】城防归零后，玩家（或攻城的 AI）贴着城、或玩家正在和该城守军交战 → 回复倒计时暂停（不重置）；离开（不贴城且不交战）累计满 break_window_s（20）s 才开始回复（另需 8 s 没挨打），回复后城防 > 0 要重新破城；再次破城计时从 0 开始（原实现从归零那一刻计 20 s，已改）",
       "prod_console_f1": "【PM 2026-10-23】正式构建（vite build，mode production）用 esbuild pure 去掉 console.log / debug / info，保留 warn / error；F1 调试视野和帮助文字只在 DEBUG_HOOKS（开发 / build:smoke）里有",
-      "named_reinforce_r3n": "【策划 2026-10-28 R3-N】named_reinforce.per_min 3→20（未定旋钮，非 U1/U3）；压后期通关，几乎不动第 1 章；由 sync:v05 从 balance_v0.5 polish_merged.4_named_reinforce 读取"
+      "named_reinforce_r3n": "【策划 2026-10-28 R3-N】named_reinforce.per_min 3→20（未定旋钮，非 U1/U3）；压后期通关，几乎不动第 1 章；由 sync:v05 从 balance_v0.5 polish_merged.4_named_reinforce 读取",
+      "named_reinforce_r3n2": "【策划 2026-10-28 R3-N2】named_reinforce.per_min 20→30（未定旋钮；勿动 R3-E1/U1-B/U3-C/T1–T4）；由 sync:v05 从 balance_v0.5 polish_merged.4_named_reinforce 读取"
     }
   }
 }
