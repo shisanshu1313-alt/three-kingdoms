@@ -681,9 +681,12 @@ export default class WorldScene extends Phaser.Scene {
         this.requestSave('battle');
       },
       onDraw: (a, b, e) => {
-        const text = `${a?.name} 与 ${b?.name} 平局，各自收兵${e?.net ?? ''}`;
+        const pts = e?.points ?? 0;
+        // R3-E1：战报 / 飘字含「平局 +N 点」（点数已在 FieldBattle 入账）
+        const text = `${a?.name} 与 ${b?.name} 平局，各自收兵${e?.net ?? ''}` + (pts ? ` 平局 +${pts} 点` : '');
         pushLog(this.state, text, this.gameTime());
-        EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text } });
+        EventBus.emit(EVENTS.BATTLE_END, { battle: { a, b }, outcome: { text, points: pts } });
+        if (pts || [a, b].some(x => x?.isPlayer)) this.requestSave('battle');
       },
       onSeparated: (a, b, e) => { // v0.6 battle.no_contact_end_s
         const text = `${a?.name} 与 ${b?.name} 脱离接触，各自收兵${e?.net ?? ''}`;

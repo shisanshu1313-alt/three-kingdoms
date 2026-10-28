@@ -89,7 +89,7 @@ import { devGiveGeneral, giveGeneralText, pickDevWallCity, devBreakWall, breakWa
 import { createGameState } from '../src/systems/gameState.js';
 import { mulberry32 } from '../src/systems/rng.js';
 import { genOffer } from '../src/systems/gachaOffer.js';
-import { replaceKeyHint, NO_GENERALS_TEXT, resolvePending } from '../src/systems/roster.js';
+import { replaceKeyHint, NO_GENERALS_TEXT, FIELD_SWAP_HINT, resolvePending } from '../src/systems/roster.js';
 import { cityTick } from '../src/systems/city.js';
 const mkTeam = () => ({ id: 'player', is_player: true, soldiers: 60, unit: 'inf', drill: 0, generals: [{ ...balance.hero }], items: [] });
 
@@ -150,20 +150,37 @@ test('F2-6 城防归零：最近的非我方城 def = 0，记 zeroAtS / zeroAway
   assert.ok(cs.luoyang.def > 0, '窗口过后开始回复');
 });
 
-test('大地图按 E：没有副将 → 「还没有武将」；有副将 → 不提示；UIScene 接了 REPLACE（弹窗开着时不管）', () => {
+test('大地图按 E：没有副将 → 「还没有武将」；有副将 → 「调动副将要在主城里按 H」；UIScene 接了 REPLACE（弹窗开着时不管）', () => {
   const t = mkTeam();
   assert.equal(replaceKeyHint(t, balance), NO_GENERALS_TEXT); assert.equal(NO_GENERALS_TEXT, '还没有武将');
   t.generals.push({ id: 'x', name: 'x' });
-  assert.equal(replaceKeyHint(t, balance), null);
+  assert.equal(replaceKeyHint(t, balance), FIELD_SWAP_HINT); assert.equal(FIELD_SWAP_HINT, '调动副将要在主城里按 H');
   const ui = readFileSync(new URL('../src/scenes/UIScene.js', import.meta.url), 'utf8');
   assert.match(ui, /act\.on\(ACTIONS\.REPLACE, \(\) => \{ if \(this\.pauseUi \|\| this\.modalOpen\(\)\) return; const t = replaceKeyHint/);
 });
 
 test('F2 菜单 4 / 5 / 6 接线；GachaScene 只在开发构建传 forceGeneral，用一次就关', () => {
   const m = readFileSync(new URL('../src/ui/DebugMenu.js', import.meta.url), 'utf8');
-  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡', '6  最近的城城防归零']) assert.ok(m.includes(s), s);
+  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）', '6  最近的城城防归零']) assert.ok(m.includes(s), s);
   assert.match(m, /if \(r && !r\.joined\) this\.ui\.openRoster\(\)/);
   const g = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
   assert.match(g, /\.\.\.\(import\.meta\.env\.DEV && this\.world\.devNextGeneral \? \{ forceGeneral: true \} : \{\}\)/);
+  assert.match(g, /if \(import\.meta\.env\.DEV && ctx\.forceGeneral\) this\.world\.devNextGeneral = false;/);
+});
+
+test('F2-5 用一次自动关：只强制带 forceGeneral 的那一抽；同种子不强制时仍无武将（若原本没有）', () => {
+  let found = false;
+  for (let s = 1; s <= 80; s++) {
+    const plain = genOffer(createGameState(balance), mkTeam(), balance, mulberry32(s), { chapter: 0 });
+    if (plain.cards.some(c => c.kind.startsWith('general_'))) continue;
+    const forced = genOffer(createGameState(balance), mkTeam(), balance, mulberry32(s), { chapter: 0, forceGeneral: true });
+    const again = genOffer(createGameState(balance), mkTeam(), balance, mulberry32(s), { chapter: 0 }); // 模拟 flag 已清
+    assert.ok(forced.cards.some(c => c.kind.startsWith('general_')), `seed ${s} 强制有武将`);
+    assert.ok(!again.cards.some(c => c.kind.startsWith('general_')), `seed ${s} 不清强制则无`);
+    assert.deepEqual(plain, again);
+    found = true; break;
+  }
+  assert.ok(found, '找到原本没有武将卡的种子');
+  const g = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
   assert.match(g, /if \(import\.meta\.env\.DEV && ctx\.forceGeneral\) this\.world\.devNextGeneral = false;/);
 });

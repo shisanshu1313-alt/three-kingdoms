@@ -108,7 +108,7 @@ test('v0.6：主城存放对调 / 取出 / 存入；主角不能存；失守 →
   assert.equal(lost.length, 1); assert.equal(s.cityStore.length, 0);
 });
 
-test('v0.6：弹窗状态机 PENDING_GENERAL → CHOOSE_REPLACE → CHOOSE_DEST → DONE；没主城时送回主城无效', () => {
+test('v0.6：弹窗状态机 PENDING_GENERAL → CHOOSE_REPLACE → CHOOSE_DEST → CONFIRM_EXILE → DONE；流放需确认；没主城时送回主城无效', () => {
   const ctx = { canCity: false, replaceable: [1, 2] };
   let f = newRosterFlow();
   assert.equal(rosterFlowStep(f, { type: 'to_city' }, ctx).ui, 'PENDING_GENERAL');
@@ -117,11 +117,25 @@ test('v0.6：弹窗状态机 PENDING_GENERAL → CHOOSE_REPLACE → CHOOSE_DEST 
   assert.equal(rosterFlowStep(f, { type: 'back' }, ctx).ui, 'PENDING_GENERAL');
   f = rosterFlowStep(f, { type: 'pick', index: 2 }, ctx); assert.equal(f.ui, 'CHOOSE_DEST'); assert.equal(f.replaceIdx, 2);
   assert.equal(rosterFlowStep(f, { type: 'to_city' }, ctx).ui, 'CHOOSE_DEST');
-  const d = rosterFlowStep(f, { type: 'exile' }, ctx);
+  const conf = rosterFlowStep(f, { type: 'exile' }, ctx);
+  assert.equal(conf.ui, 'CONFIRM_EXILE'); assert.equal(conf.confirmKind, 'exile_replaced');
+  assert.equal(rosterFlowStep(conf, { type: 'back' }, ctx).ui, 'CHOOSE_DEST'); // Esc 取消
+  const d = rosterFlowStep(conf, { type: 'confirm' }, ctx);
   assert.equal(d.ui, 'DONE'); assert.deepEqual(d.resolve, ['replace', 2, { dest: 'exile' }]);
+  assert.deepEqual(rosterFlowStep(conf, { type: 'exile' }, ctx).resolve, ['replace', 2, { dest: 'exile' }], '再按 R 也确认');
+  // 满编弹窗直接流放新武将：也要确认
+  let f2 = rosterFlowStep(newRosterFlow(), { type: 'exile' }, ctx);
+  assert.equal(f2.ui, 'CONFIRM_EXILE'); assert.equal(f2.confirmKind, 'exile_new');
+  assert.equal(rosterFlowStep(f2, { type: 'back' }, ctx).ui, 'PENDING_GENERAL');
+  assert.deepEqual(rosterFlowStep(f2, { type: 'confirm' }, ctx).resolve, ['exile', null]);
   const c = rosterFlowStep(rosterFlowStep(newRosterFlow(), { type: 'pick', index: 1 }, { ...ctx, canCity: true }), { type: 'to_city' }, { ...ctx, canCity: true });
   assert.deepEqual(c.resolve, ['replace', 1, { dest: 'city' }]);
   assert.deepEqual(rosterFlowStep(newRosterFlow(), { type: 'to_city' }, { ...ctx, canCity: true }).resolve, ['to_city', null]);
+  // 去向页流放按钮文字用 exilePoints（20），源码不含字面 +26
+  const src = readFileSync(new URL('../src/scenes/RosterScene.js', import.meta.url), 'utf8');
+  assert.match(src, /exilePoints\(balance\)/);
+  assert.doesNotMatch(src, /流放[^\n]{0,40}\+26/); // 流放按钮不得写死错误点数
+  assert.equal(exilePoints(B6), 20);
 });
 
 test('v0.6：战力预览「换下后战力 旧 → 新」/「作为副将：战力 旧 → 新」= computePower', () => {

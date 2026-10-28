@@ -365,7 +365,15 @@
         "from": 12,
         "to": 22
       }
-    ]
+    ],
+    "draw_points": {
+      "id": "R3-E1",
+      "enabled": true,
+      "draw_mult": 0.5,
+      "loss_still_zero": true,
+      "ai_vs_ai_still_zero": true,
+      "escape_unchanged": true
+    }
   },
   "_defaults": []
 }

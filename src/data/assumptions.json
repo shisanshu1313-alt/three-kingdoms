@@ -61,7 +61,8 @@
         "no_contact_end_s": 4,
         "no_contact_chase_frac": 0.5,
         "_note": "缺省值（定稿 JSON 未含）；以 src/data/v06.json battle 为准"
-      }
+      },
+      "draw_points_r3e1": "【策划 2026-10-28 R3-E1】平局给胜利点数的 0.5×：points_draw = roundHalfUp(0.5 × points_win)；points_win 同胜利公式（敌方面板=战前不乘随机，R=乘随机后）；战败/AI 间仍 0；逃脱不变（不加 T6）；战报「平局 +N 点」；由 sync:v06 写入 v06.tuning.draw_points"
     },
     "notes": {
       "start_offset_px": "洛阳开局有黄巾守军（city_v06.cities），玩家原出生点就在洛阳城心 → 出生点下移 220 px 到城外",
@@ -112,7 +113,8 @@
       "garrison_stronger_hint": "【策划 2026-10-23 定稿 power_recalc.stronger_hint → v06.json city.garrison.stronger_hint = gt】标签战力 > 玩家战力（严格大于）才显示「强于你」，相等不提示；比较的是显示出来的整数（标签和 HUD 都四舍五入）",
       "city_chapter_change": "【策划 2026-10-23 07:22 定稿 city_v06.siege.chapter_change → v06.json city.chapter_change = keep】换章：每秒城防伤害上限立即换成新章「城防上限 ÷ 15」（cityTick 每 tick 按当前章）；城防是满的（没被打过 / 已回满）抬到新章上限；不满（正在被攻 / 还没回满）当前值不变（原实现按比例放大，已改）",
       "city_regen_rule": "【策划 2026-10-23 07:22 定稿 city_v06.siege.regen_rule → city.regen_rule = away、city.regen_hold = pause】城防归零后，玩家（或攻城的 AI）贴着城、或玩家正在和该城守军交战 → 回复倒计时暂停（不重置）；离开（不贴城且不交战）累计满 break_window_s（20）s 才开始回复（另需 8 s 没挨打），回复后城防 > 0 要重新破城；再次破城计时从 0 开始（原实现从归零那一刻计 20 s，已改）",
-      "prod_console_f1": "【PM 2026-10-23】正式构建（vite build，mode production）用 esbuild pure 去掉 console.log / debug / info，保留 warn / error；F1 调试视野和帮助文字只在 DEBUG_HOOKS（开发 / build:smoke）里有"
+      "prod_console_f1": "【PM 2026-10-23】正式构建（vite build，mode production）用 esbuild pure 去掉 console.log / debug / info，保留 warn / error；F1 调试视野和帮助文字只在 DEBUG_HOOKS（开发 / build:smoke）里有",
+      "named_reinforce_r3n": "【策划 2026-10-28 R3-N】named_reinforce.per_min 3→20（未定旋钮，非 U1/U3）；压后期通关，几乎不动第 1 章；由 sync:v05 从 balance_v0.5 polish_merged.4_named_reinforce 读取"
     }
   }
 }

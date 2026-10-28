@@ -651,7 +651,7 @@
         {
           "id": "named_reinforce",
           "name": "名将军补兵",
-          "old": "每分钟 +3，上限 = 兵力上限",
+          "old": "每分钟 +3，上限 = 兵力上限（R3-N 前）",
           "player": "—",
           "enemy": "补兵量不变；补兵后调用 recalcLeader（名将军统帅固定为名将，结果不会变）"
         },
@@ -3321,5 +3321,71 @@
       }
     },
     "S1": "官方 sim:v06 改用种子 1–48（24 种子同版本死亡率可在 35%–54% 间波动）"
+  },
+  "tuning_r3": {
+    "status": "R3-N 已交程序；R3-E1 小维 2026-10-28 群里「按推荐」已定；E2/E3 不采用",
+    "date": "2026-10-28",
+    "source": "/workspace/tuning_r3/summary.md",
+    "verdict": {
+      "ship_259ed2b_as_is": false,
+      "reason": "sim active 通关偏高（1–48: 27%/46%；1–144: 29%/37%，目标死30–40%通关15–25%）；真人试玩第1章起不来经济（平局0分、无主城补不了兵、首抽50）",
+      "human_playtests": "qa/notes-26ff2a5-r2.md 两局均第1章死 1:45 / 3:24，未抽卡未打洛阳"
+    },
+    "decisions": {
+      "R3-N": {
+        "status": "decided_by_策划",
+        "scope": "未定旋钮（名将补兵速率，非 G/A/B/C/U 已选项）",
+        "change": {
+          "field": "named_reinforce.per_min",
+          "from": 3,
+          "to": 20
+        },
+        "effect": "active 1–96 约死33%/通关31%；不伤第1章",
+        "hand_to": "程序"
+      },
+      "R3-E1": {
+        "status": "decided",
+        "recommend": true,
+        "change": "平局给胜利点数的 0.5×（公式同胜利，乘 0.5）",
+        "touches": "v0.4 仅胜利得分；与曾否决的 T6 同类但方向相反（给分而非逃脱给点）",
+        "why": "真人常平局、脚本几乎不平；专治前期0分且不抬后期战力",
+        "decided_by": "用户小维群里亲口「按推荐」",
+        "decided_at": "2026-10-28",
+        "value": {
+          "rule": "平局也给点数",
+          "formula": "points_draw = roundHalfUp(0.5 × points_win)；points_win 与胜利同一公式：roundHalfUp((points_base + points_per_enemy_power × 敌方面板战力) × (R≥bully_ratio ? bully_mult : 1))，敌方面板战力=战前不乘随机，R=乘随机后的战力比",
+          "draw_mult": 0.5,
+          "loss_still_zero": true,
+          "ai_vs_ai_still_zero": true,
+          "escape_unchanged": true
+        },
+        "hand_to": "程序"
+      },
+      "R3-E2": {
+        "status": "rejected_with_recommendation",
+        "recommend": false,
+        "note": "次选；小维按推荐只定 E1，不重议 T5"
+      },
+      "R3-E3": {
+        "status": "rejected_with_recommendation",
+        "recommend": false,
+        "note": "再次；小维按推荐只定 E1，不动 G1"
+      },
+      "rejected": [
+        "再抬或砍 general_A 当主药",
+        "来袭 50→35（U1-B）",
+        "抽卡加价压难度",
+        "名将按玩家战力保底原型"
+      ]
+    },
+    "ui_26ff2a5": {
+      "status": "decided_by_策划",
+      "hand_to": "程序",
+      "items": [
+        "野外有武将按 E：提示「调动副将要在主城里按 H」（无常驻名册是设计）",
+        "所有流放加确认（再按 R/Enter，Esc 取消；A/S 名红字）",
+        "换下副将去向页流放按钮文字 +26→+20（设计返还 20）"
+      ]
+    }
   }
 }

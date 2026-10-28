@@ -316,7 +316,7 @@ test('策划定稿清单 ↔ 程序配置：地图 / 密度 / 脱离 / 保护 / 
   const F = cfg.failure;
   assert.deepEqual([F.hero_hp_max, F.hero_hp_per_dead, F.hero_hp_rout, F.regen_out_of_battle_per_min, F.regen_in_city_per_s, F.recruit_floor, F.city_radius_px], [100, 35, 20, 10, 2, 40, 200]);
   assert.deepEqual([balance.v05.units.scouting.vision_px, balance.v05.units.scouting.scout_px], [300, 500]);
-  assert.equal(cfg.named_reinforce.per_min, 3);
+  assert.equal(cfg.named_reinforce.per_min, 20);
   assert.equal(balance.rewards.capture_rules.generic_capturable, false, '黄巾头目不可俘获');
   assert.equal(balance.ai.chase_max_ratio, 3);
   const u = Object.fromEntries(cfg.meta.unlocks.map(x => [x.id, x]));
@@ -332,7 +332,7 @@ test('黄巾头目不可俘获（polish_merged.1）；名将照常可俘', async
   assert.equal(isCapturable({ id: 'hero' }, balance), false);
 });
 
-test('名将军补兵（polish_merged.4）：不在交战中每累计 60 s +3，≤ 上限；交战中计时暂停、战后不补算；计时随存档保留', async () => {
+test('名将军补兵（polish_merged.4）：不在交战中每累计 60 s +20（R3-N），≤ 上限；交战中计时暂停、战后不补算；计时随存档保留', async () => {
   const F = await import('../src/systems/factions.js');
   assert.equal(cfg.named_reinforce.pause_in_battle, true); assert.equal(cfg.named_reinforce.catch_up, false);
   assert.match(design.polish_merged['4_named_reinforce'].in_battle, /暂停/);
@@ -340,23 +340,23 @@ test('名将军补兵（polish_merged.4）：不在交战中每累计 60 s +3，
   const teams = [{ id: 'wei_caocao', soldiers: 100, cap: 200, inBattle: false }, { id: 'spawn_1', soldiers: 20, cap: 200, inBattle: false }];
   const run = (sec, dt = 0.1) => { const out = []; for (let i = 0; i < Math.round(sec / dt); i++) out.push(...F.namedReinforce(r, dt, teams, cfg)); return out; };
   assert.deepEqual(run(59.9), []);
-  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 3 }], '满 60 s，只补名将军');
+  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 20 }], '满 60 s，只补名将军');
   assert.deepEqual(run(30), []);
   teams[0].inBattle = true;
   assert.deepEqual(run(300), [], '交战中不补');
   assert.ok(Math.abs(r.reinforceT.wei_caocao - 30) < 1e-6, '交战中计时暂停在 30 s');
   teams[0].inBattle = false;
   assert.deepEqual(run(29.9), [], '战后不补算错过的 5 分钟');
-  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 3 }], '接着暂停前的 30 s 再计 30 s');
+  assert.deepEqual(run(0.1), [{ id: 'wei_caocao', add: 20 }], '接着暂停前的 30 s 再计 30 s');
   // 存档往返：计时保留
   run(45);
   const loaded = JSON.parse(JSON.stringify(r));
   assert.ok(Math.abs(loaded.reinforceT.wei_caocao - 45) < 1e-6);
-  assert.deepEqual((() => { const o = []; for (let i = 0; i < 150; i++) o.push(...F.namedReinforce(loaded, 0.1, teams, cfg)); return o; })(), [{ id: 'wei_caocao', add: 3 }], '读档后再 15 s 补兵');
+  assert.deepEqual((() => { const o = []; for (let i = 0; i < 150; i++) o.push(...F.namedReinforce(loaded, 0.1, teams, cfg)); return o; })(), [{ id: 'wei_caocao', add: 20 }], '读档后再 15 s 补兵');
   teams[0].soldiers = 199;
   const r2 = createRun({ runId: 'z', runSeed: 1, cfg });
   assert.deepEqual(F.namedReinforce(r2, 60, teams, cfg), [{ id: 'wei_caocao', add: 1 }], '不超过上限');
-  assert.equal(F.reinforcePerMin({ ...cfg, duration_min: 30 }), 2, '按 20/时长 缩放');
+  assert.equal(F.reinforcePerMin({ ...cfg, duration_min: 30 }), 20 * 20 / 30, '按 20/时长 缩放');
   const old = createRun({ runId: 'y', runSeed: 1, cfg }); delete old.reinforceT; old.reinforceMin = { wei_caocao: 9 };
   assert.deepEqual(F.namedReinforce(old, 1, teams, cfg), [], '旧存档：计时从 0 开始，不补发');
   assert.equal(old.reinforceT.wei_caocao, 1);

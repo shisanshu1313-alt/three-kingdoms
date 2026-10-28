@@ -36,3 +36,10 @@ test('配置文字被改动导致取不到数 → 同步脚本报错（不会静
   const bad = structuredClone(design); bad.gacha_v06.price.formula = 'cost = 很多';
   assert.throws(() => buildV06(bad), /price\.formula/);
 });
+
+test('R3-E1：tuning.draw_points = 0.5× 平局给分（E2/E3 不进配置）', () => {
+  assert.deepEqual(v06.tuning.draw_points, { id: 'R3-E1', enabled: true, draw_mult: 0.5, loss_still_zero: true, ai_vs_ai_still_zero: true, escape_unchanged: true });
+  assert.equal(design.tuning_r3.decisions['R3-E1'].status, 'decided');
+  assert.equal(design.tuning_r3.decisions['R3-E2'].recommend, false);
+  assert.equal(design.tuning_r3.decisions['R3-E3'].recommend, false);
+});

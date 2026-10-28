@@ -77,6 +77,18 @@ test('平局：双方扣兵，推开距离与冷却来自配置', () => {
   assert.equal(o.pair_cooldown_s, balance.battle.draw_pair_cooldown_s);
 });
 
+test('R3-E1：玩家平局 applyBattleResult 入账点数，战报含「平局 +N 点」', () => {
+  const g = { lead: 50, str: 50, int: 0, cha: 50 };
+  const a = team({ id: 'player', name: '主角军', is_player: true, generals: [g] });
+  const b = team({ id: 'b', name: '敌军', faction: 'shu', generals: [g] });
+  const r = resolveCombat(a, b, balance, null, R1);
+  assert.equal(r.outcome, 'draw');
+  assert.ok(r.points > 0);
+  const o = applyBattleResult(a, b, r, balance);
+  assert.equal(o.points, r.points);
+  assert.match(o.text, new RegExp(`平局 \\+${r.points} 点`));
+});
+
 test('补充刷新：黄巾、战力≈玩家×U(power_vs_player)、兵数按公式', () => {
   const rng = mulberry32(5), nextName = createNameAllocator(balance, rng);
   const [lo, hi] = balance.spawn.power_vs_player;

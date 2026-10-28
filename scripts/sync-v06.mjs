@@ -185,6 +185,14 @@ export function buildV06(d) {
       return { id: 'U1', choice: 'B', from: Number(m[1]), to: Number(m[2]) };
     })(),
     gacha_pool_weights: poolOverrides.map(o => ({ id: 'U3', choice: 'C', path: o.path, from: o.from, to: o.to })),
+    // R3-E1（小维 2026-10-28「按推荐」）：平局给 draw_mult × 胜利点数；E2/E3 不采用
+    draw_points: (() => {
+      const e1 = d.tuning_r3?.decisions?.['R3-E1'];
+      if (!e1 || e1.status !== 'decided') return null;
+      const mult = e1.value?.draw_mult;
+      if (typeof mult !== 'number') throw new Error('tuning_r3.R3-E1.value.draw_mult 缺失');
+      return { id: 'R3-E1', enabled: true, draw_mult: mult, loss_still_zero: e1.value.loss_still_zero !== false, ai_vs_ai_still_zero: e1.value.ai_vs_ai_still_zero !== false, escape_unchanged: e1.value.escape_unchanged !== false };
+    })(),
   };
   return {
     _source: { file: 'balance_v0.6.json', version: d._meta.version, note: '由 scripts/sync-v06.mjs（npm run sync:v06）生成，勿手改' },

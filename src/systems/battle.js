@@ -34,8 +34,9 @@ export function applyBattleResult(a, b, r, balance, rng = mulberry32(0x5eed)) {
     a.soldiers -= r.a.losses;
     b.soldiers -= r.b.losses;
     applyZeroSoldierRule(a, out, balance); applyZeroSoldierRule(b, out, balance);
-    Object.assign(out, { pushback_px: r.pushback_px, pair_cooldown_s: r.pair_cooldown_s, lossA: r.a.losses, lossB: r.b.losses });
-    out.text = `${nameOf(a)} 与 ${nameOf(b)} 平局（-${r.a.losses} / -${r.b.losses}）`;
+    const pts = r.points ?? 0;
+    Object.assign(out, { pushback_px: r.pushback_px, pair_cooldown_s: r.pair_cooldown_s, lossA: r.a.losses, lossB: r.b.losses, points: pts });
+    out.text = `${nameOf(a)} 与 ${nameOf(b)} 平局（-${r.a.losses} / -${r.b.losses}）` + (pts ? ` 平局 +${pts} 点` : '');
     return out;
   }
 

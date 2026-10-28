@@ -60,7 +60,7 @@ export default class UIScene extends Phaser.Scene {
     act.on(ACTIONS.NO, () => { if (this.cityPrompt) { this.answerCity(false); return true; } });
     // v0.6 主城存放：H（主城 swap_radius_px 内、不在战斗中）
     act.on(ACTIONS.CITY, () => { if (!this.pauseUi && !this.cityPrompt) this.openCity(); });
-    // E（替换副将）在大地图上：还没有副将时提示（PM 2026-10-23，P3）；名册 / 抽卡等弹窗开着时由弹窗自己处理
+    // E（替换副将）在大地图上：没有副将 →「还没有武将」；有副将 →「调动副将要在主城里按 H」（策划 2026-10-28）；弹窗开着时由弹窗自己处理
     act.on(ACTIONS.REPLACE, () => { if (this.pauseUi || this.modalOpen()) return; const t = replaceKeyHint(this.world.player.team, balance); if (t) this.toast(t, '#ffdd55', 15); });
     const onCityPrompt = d => this.showCityPrompt(d);
     this.game.events.on('city-prompt', onCityPrompt);

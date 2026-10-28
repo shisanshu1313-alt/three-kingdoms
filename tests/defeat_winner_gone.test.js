@@ -107,3 +107,21 @@ test('QA-14：WorldScene 把 e.net 接到脱离 / 平局 / 收兵 / 全军覆没
   const src = readFileSync(new URL('../src/scenes/WorldScene.js', import.meta.url), 'utf8');
   for (const k of ['脱离了 ', '平局，各自收兵', '脱离接触，各自收兵', '全军覆没！']) assert.match(src, new RegExp(`${k}[^\\n]*\\$\\{e\\?\\.net \\?\\? ''\\}`), k);
 });
+
+test('R3-E1：玩家参与的平局 → gameState 加点，onDraw 带 points；AI 间平局 0', () => {
+  const { field, state, W, L } = setup();
+  const before = state.points;
+  let got = null;
+  field.hooks.onDraw = (a, b, e) => { got = e; };
+  // AI 间
+  field._handle({ type: 'separate', a: W.id, b: L.id, kind: 'draw' }, 0);
+  assert.equal(got.points, 0);
+  assert.equal(state.points, before);
+  // 玩家 vs AI：开战前面板 / roll 已在 body 上
+  W.team.is_player = true;
+  const pb = field.body(W.id), eb = field.body(L.id);
+  pb.roll = 1; eb.roll = 1;
+  field._handle({ type: 'separate', a: W.id, b: L.id, kind: 'draw' }, 0);
+  assert.ok(got.points > 0, `points=${got.points}`);
+  assert.equal(state.points, before + got.points);
+});

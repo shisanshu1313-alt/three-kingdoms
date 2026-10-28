@@ -74,6 +74,23 @@ export function isCapturable(general, balance) {
  * @param rng   () => [0,1)，每方独立掷 U(random_min, random_max)（先 a 后 b）
  * @param opts.rolls  [rollA, rollB] 直接指定随机系数（worked_examples / 测试用）
  */
+
+/** 胜利点数（未乘份额）：roundHalfUp((points_base + points_per_enemy_power × 敌方面板战力) × (R≥bully_ratio ? bully_mult : 1))；面板战力不乘随机，R 乘随机后 */
+export function victoryPoints(enemyPanelPower, R, balance) {
+  const rw = balance.rewards;
+  const bully = R >= rw.bully_ratio;
+  return roundHalfUp((rw.points_base + rw.points_per_enemy_power * enemyPanelPower) * (bully ? rw.bully_mult : 1));
+}
+
+/**
+ * R3-E1：平局点数 = roundHalfUp(draw_mult × points_win)；points_win 同胜利公式。
+ * 仅玩家参与时由调用方决定是否计分；AI 间 / 战败仍 0。draw_mult 默认 0.5（v06.tuning.draw_points）。
+ */
+export function drawPoints(enemyPanelPower, R, balance) {
+  const mult = balance.v06?.tuning?.draw_points?.draw_mult ?? 0.5;
+  return roundHalfUp(mult * victoryPoints(enemyPanelPower, R, balance));
+}
+
 export function resolveCombat(a, b, balance, rng = mulberry32(0x5eed), opts = {}) {
   const bt = balance.battle, rw = balance.rewards;
   const roll = () => bt.random_min + rng() * (bt.random_max - bt.random_min);
@@ -93,8 +110,12 @@ export function resolveCombat(a, b, balance, rng = mulberry32(0x5eed), opts = {}
 
   if (R < bt.draw_ratio) {
     const la = dead(a, bt.draw_loss), lb = dead(b, bt.draw_loss);
+    // R3-E1：恰好一方是玩家 → 平局给 0.5× 胜利点数（敌方面板=战前不乘随机；AI 间仍 0）
+    const playerVsAi = (!!a.is_player) !== (!!b.is_player);
+    const enemyPanel = a.is_player ? basePb : basePa;
+    const points = playerVsAi ? drawPoints(enemyPanel, R, balance) : 0;
     return {
-      ...base, outcome: 'draw', points: 0,
+      ...base, outcome: 'draw', points,
       a: { ...base.a, losses: la, survivors: a.soldiers - la },
       b: { ...base.b, losses: lb, survivors: b.soldiers - lb },
       pushback_px: bt.draw_pushback_px, pair_cooldown_s: bt.draw_pair_cooldown_s
@@ -128,7 +149,7 @@ export function resolveCombat(a, b, balance, rng = mulberry32(0x5eed), opts = {}
 
   const bully = R >= rw.bully_ratio;
   const loserPanel = aWins ? basePb : basePa; // 战前面板战力，不乘随机
-  const points = W.is_player ? roundHalfUp((rw.points_base + rw.points_per_enemy_power * loserPanel) * (bully ? rw.bully_mult : 1)) : 0;
+  const points = W.is_player ? victoryPoints(loserPanel, R, balance) : 0;
 
   const capture = {};
   for (const g of L.generals) capture[g.id] = isCapturable(g, balance) ? captureChance(W, g, R, balance) : 0;

@@ -8,7 +8,7 @@
 import { createCombatState, addBody, removeBody, makeBody, syncBodyFromTeam, step, inCombat, soldiersOf, effPower, makeCombatConfig } from './melee.js';
 import { combatIntent, newCombatMem } from './combatAI.js';
 import { applyBattleResult } from './battle.js';
-import { computePower, soldierCap, captureChance, isCapturable, itemEffect, roundHalfUp, floorEps } from './combat.js';
+import { computePower, soldierCap, captureChance, isCapturable, itemEffect, roundHalfUp, floorEps, drawPoints } from './combat.js';
 
 /**
  * 溃败奖励（纯函数）：返回 applyBattleResult 需要的结果对象 + 玩家点数
@@ -35,6 +35,20 @@ export function defeatResult(W, L, info, balance) {
     winnerSoldiersAfter: Math.min(soldierCap(W, balance), W.soldiers + recruited),
     points: 0, playerPoints: points, capture, playerKept: null
   };
+}
+
+
+/**
+ * R3-E1 平局点数（纯函数）：玩家 vs AI 才计分；敌方面板 = 开战前 power0（不乘随机）；R = 双方开战面板×roll 的 max/min。
+ * @param playerBody, enemyBody  melee 战斗体（含 N0start / stats / roll）
+ */
+export function drawResult(playerBody, enemyBody, balance) {
+  const power0 = b => (b.N0start ?? b.N0) * b.stats.M + b.stats.genTerm;
+  const rolled = b => power0(b) * (b.roll ?? 1);
+  const Ra = rolled(playerBody), Rb = rolled(enemyBody);
+  const R = Math.max(Ra, Rb) / Math.max(1e-9, Math.min(Ra, Rb));
+  const points = drawPoints(power0(enemyBody), R, balance);
+  return { outcome: 'draw', ratio: R, points, enemyPanel: power0(enemyBody) };
 }
 
 export default class FieldBattle {
@@ -151,7 +165,18 @@ export default class FieldBattle {
         if (e.kind === 'draw' || e.kind === 'apart' || e.kind === 'separated') { // separated = v0.6 无接触结束（同 apart）
           const a = P(e.a), b = P(e.b);
           for (const [x, y] of [[a, b], [b, a]]) if (x?.ai && y) { x.ai.ignore = { ...x.ai.ignore, [y.id]: nowS + this.cfg.confirmed.draw_ignore_s }; x.ai.state = 'return'; x.ai.targetId = null; x.clearPath(); }
-          if (e.kind === 'draw') H.onDraw?.(a, b, { ...e, net: this.playerNet(a, b) });
+          if (e.kind === 'draw') {
+            // R3-E1：玩家参与的平局给 0.5× 胜利点数（战报 / 飘字「平局 +N 点」）；AI 间 / 逃脱仍 0
+            let pts = 0;
+            const player = [a, b].find(x => x?.isPlayer || x?.team?.is_player);
+            const enemy = player && (player === a ? b : a);
+            const pb = player && this.body(player.id), eb = enemy && this.body(enemy.id);
+            if (pb && eb && !(enemy.isPlayer || enemy.team?.is_player)) {
+              pts = drawResult(pb, eb, this.balance).points;
+              if (pts) this.gameState.points += pts;
+            }
+            H.onDraw?.(a, b, { ...e, net: this.playerNet(a, b), points: pts });
+          }
           if (e.kind === 'separated') H.onSeparated?.(a, b, { ...e, net: this.playerNet(a, b) });
         }
         break;

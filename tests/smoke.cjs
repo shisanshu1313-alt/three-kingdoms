@@ -213,7 +213,7 @@ const OUT = ART + '/screenshot.png';
   let afterPull = await gs();
   if (afterPull.ui === 'ITEM_FULL') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
   if (afterPull.ui === 'CHOOSE_UNIT') { await page.keyboard.press('1'); await page.waitForTimeout(200); }
-  if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(300); } // 随从名额满：R 放弃新武将
+  if (afterPull.ui === 'ROSTER_FULL') { await page.keyboard.press('r'); await page.waitForTimeout(200); await page.keyboard.press('r'); await page.waitForTimeout(300); } // 随从名额满：R×2 确认流放
   afterPull = await gs();
   await page.screenshot({ path: ART + '/screenshot-gacha.png' });
   result.gachaPull = { openedByMouse: open.gacha, offerUi: offered.ui, offer: offered.offer, pointsBefore: open.points, pointsAfterOpen: offered.points, cost1, draws: afterPull.draws, result: afterPull.result, ui: afterPull.ui,
@@ -232,10 +232,11 @@ const OUT = ART + '/screenshot.png';
   await page.keyboard.press('1'); await page.waitForTimeout(400);
   const rf = await gs();
   await page.screenshot({ path: ART + '/screenshot-roster.png' });
-  // v0.6 名册流程：E 替换 → 1 选第一名随从 → R 流放（没有主城，不能存城）
+  // v0.6 名册流程：E 替换 → 1 选第一名随从 → R → R 确认流放（没有主城，不能存城）
   await page.keyboard.press('e'); await page.waitForTimeout(200);
   await page.keyboard.press('1'); await page.waitForTimeout(200);
-  await page.keyboard.press('r'); await page.waitForTimeout(400);
+  await page.keyboard.press('r'); await page.waitForTimeout(200);
+  await page.keyboard.press('r'); await page.waitForTimeout(400); // 确认流放
   const rep = await gs();
   await page.keyboard.press('Escape'); await page.waitForTimeout(300); // RESULT → 关闭
   const fin = await gs();

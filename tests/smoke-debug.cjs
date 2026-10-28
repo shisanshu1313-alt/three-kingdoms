@@ -1,5 +1,5 @@
 // F2 调试菜单冒烟（开发服务器）：F2 打开（Phaser 画，不是 DOM）→ 1 点数 / 2 立即主城 → 2 迁都弹窗 → Y / 3 填满队伍触发 T2
-// / E 没副将提示 / 4 给武将（入队 ×2、满编弹名册）/ 5 下一抽必出武将卡 / 6 最近的城城防归零（不交战）。
+// / E 没副将提示 / 有副将提示主城 H / 4 给武将（入队 ×2、满编弹名册）/ 5 下一抽必出武将卡 / 6 最近的城城防归零（不交战）。
 // 用法：node tests/smoke-debug.cjs [url]（默认 http://localhost:5182/）；截图 artifacts/v06-debug-menu.png
 const path = require('path');
 const { chromium } = require(process.env.PW_PATH || process.env.PW_CORE || '/workspace/.tools/node_modules/playwright-core');
@@ -78,15 +78,18 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await ok(k1.n === k0.n + 1 && k2.n === k0.n + 2 && !k2.roster && !(await st()).open, `4 给武将 ×2 → 作为副将入队（${JSON.stringify({ k0, k1, k2 })}）`);
   const nNo = async () => (await toasts()).filter(t => t === '还没有武将').length, nb = await nNo();
   await p.keyboard.press('e'); await sleep(p, 200);
-  await ok((await nNo()) <= nb, '有副将后 E 不再提示「还没有武将」');
+  await ok((await toasts()).includes('调动副将要在主城里按 H'), '有副将后 E →「调动副将要在主城里按 H」');
   await p.keyboard.press('F2'); await sleep(p, 150); await p.keyboard.press('4'); await sleep(p, 600);
   const k3 = await gens();
   await ok(k3.n === k2.n && k3.pend === 1 && k3.roster, `满编再给 → 待安排 1 名，名册弹窗打开（${JSON.stringify(k3)}）`);
   await p.screenshot({ path: path.join(OUT, 'v06-debug-roster.png') });
-  await p.keyboard.press('r'); await sleep(p, 300); if ((await gens()).pend) { await p.keyboard.press('r'); await sleep(p, 300); }
+  await p.keyboard.press('r'); await sleep(p, 250);
+  const conf = await W(() => __game.scene.getScene('Roster')?.flow?.ui);
+  await ok(conf === 'CONFIRM_EXILE', `R 第一次 → 确认页（${conf}）`);
+  await p.keyboard.press('r'); await sleep(p, 400);
   for (let i = 0; i < 3 && (await gens()).roster; i++) { await p.keyboard.press('Escape'); await sleep(p, 300); }
   const k4 = await gens();
-  await ok(k4.pend === 0 && !k4.roster && k4.n === k2.n, `名册里 R 流放新来的 → 处理完、弹窗关闭（${JSON.stringify(k4)}）`);
+  await ok(k4.pend === 0 && !k4.roster && k4.n === k2.n, `名册里 R×2 确认流放新来的 → 处理完、弹窗关闭（${JSON.stringify(k4)}）`);
   // F2→5 下一抽必出武将卡（开关，菜单不关）→ G 抽卡 → 4 张里有武将卡；用掉后自动关
   await W(() => { __game.scene.getScene('World').state.points += 500; });
   await p.keyboard.press('F2'); await sleep(p, 150); await p.keyboard.press('5'); await sleep(p, 200);
@@ -100,6 +103,13 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   // 选掉一张非武将卡再关窗口（不改名册）
   const idx = offer.kinds.findIndex(k => !k.startsWith('general_') && !k.startsWith('item') && k !== 'unit_order');
   await p.keyboard.press(String(idx + 1)); await sleep(p, 400);
+  for (const k of ['1', 'Escape', 'Escape']) { if (!(await W(() => __game.scene.isActive('Gacha') || __game.scene.isActive('Roster')))) break; await p.keyboard.press(k); await sleep(p, 300); }
+  // 不再按 5：第二次抽卡不强制（可能碰巧出武将，但 flag 必须仍是 false；用注入空池验证强制路径已关）
+  await W(() => { const w = __game.scene.getScene('World'); w.devNextGeneral = false; w.state.points += 200; });
+  await p.keyboard.press('g'); await sleep(p, 400); await p.keyboard.press(' '); await sleep(p, 500);
+  const offer2 = await W(() => { const w = __game.scene.getScene('World');
+    return { flag: w.devNextGeneral, kinds: (w.state.gacha?.offer?.cards ?? []).map(c => c.kind) }; });
+  await ok(offer2.flag === false, `未再按 5：第二次抽卡 flag 仍关（${JSON.stringify(offer2)}）`);
   for (const k of ['1', 'Escape', 'Escape']) { if (!(await W(() => __game.scene.isActive('Gacha') || __game.scene.isActive('Roster')))) break; await p.keyboard.press(k); await sleep(p, 300); }
   // F2→6 最近的城城防归零：不交战、守军不动；城破回复按 break_window_s 暂停
   const w6 = () => W(() => { const w = __game.scene.getScene('World'), pl = w.player, cs = Object.values(w.state.cities).filter(c => c.owner !== 'player');

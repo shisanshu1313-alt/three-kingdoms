@@ -30,10 +30,11 @@ export function replaceableIndices(team, balance) {
   return team.generals.map((g, i) => i).filter(i => !isHero(team.generals[i], balance));
 }
 
-/** 大地图上按 E（替换副将）：还没有副将时的提示（PM 2026-10-23）；有副将时返回 null（替换在抽到武将卡的名册弹窗里做） */
+/** 大地图上按 E（替换副将）：没有副将 → 「还没有武将」；有副将 → 提示去主城按 H（策划 2026-10-28：野外常驻名册是设计，副将只在主城 200px 内用 H 调动） */
 export const NO_GENERALS_TEXT = '还没有武将';
+export const FIELD_SWAP_HINT = '调动副将要在主城里按 H';
 export function replaceKeyHint(team, balance) {
-  return replaceableIndices(team, balance).length ? null : NO_GENERALS_TEXT;
+  return replaceableIndices(team, balance).length ? FIELD_SWAP_HINT : NO_GENERALS_TEXT;
 }
 
 // ---------------- v0.6 名册（roster_v06）：主角 + 2 副将；主城存放 storage_max 名；替换 / 送回主城 / 流放 ----------------
@@ -152,19 +153,25 @@ export function resolvePending(state, team, action, index, balance, opts = {}) {
 
 /**
  * 新武将弹窗的界面状态机（roster_v06.new_general_flow.ui_states，纯函数）：
- *   PENDING_GENERAL --replace--> CHOOSE_REPLACE --pick(i)--> CHOOSE_DEST --city/exile--> DONE（调用方 resolvePending + 自动存档）
- *   PENDING_GENERAL --to_city / exile--> DONE；CHOOSE_* --back--> 上一步
+ *   PENDING_GENERAL --replace--> CHOOSE_REPLACE --pick(i)--> CHOOSE_DEST --city/exile--> CONFIRM_EXILE --confirm--> DONE
+ *   PENDING_GENERAL --to_city--> DONE；--exile--> CONFIRM_EXILE（策划 2026-10-28：所有流放入口要再按 R/Enter 确认，Esc 取消）
+ *   CHOOSE_* / CONFIRM_EXILE --back--> 上一步
  * 返回新 flow；flow.resolve = [action, index, opts] 表示要提交的选择
  */
 export function rosterFlowStep(flow, input, ctx) {
   const f = { ...flow, resolve: null };
   const { canCity, replaceable } = ctx;
+  const confirmExile = (kind) => input.type === 'exile' || input.type === 'confirm'
+    ? (kind === 'exile_new'
+      ? { ...f, ui: 'DONE', confirmKind: null, resolve: ['exile', null] }
+      : { ...f, ui: 'DONE', confirmKind: null, resolve: ['replace', flow.replaceIdx, { dest: 'exile' }] })
+    : null;
   switch (flow.ui) {
     case 'PENDING_GENERAL':
       if (input.type === 'replace' && replaceable.length) return { ...f, ui: 'CHOOSE_REPLACE' };
       if (input.type === 'pick' && replaceable.includes(input.index)) return { ...f, ui: 'CHOOSE_DEST', replaceIdx: input.index }; // 直接点副将卡
       if (input.type === 'to_city' && canCity) return { ...f, ui: 'DONE', resolve: ['to_city', null] };
-      if (input.type === 'exile') return { ...f, ui: 'DONE', resolve: ['exile', null] };
+      if (input.type === 'exile') return { ...f, ui: 'CONFIRM_EXILE', confirmKind: 'exile_new' };
       return flow;
     case 'CHOOSE_REPLACE':
       if (input.type === 'pick' && replaceable.includes(input.index)) return { ...f, ui: 'CHOOSE_DEST', replaceIdx: input.index };
@@ -172,10 +179,19 @@ export function rosterFlowStep(flow, input, ctx) {
       return flow;
     case 'CHOOSE_DEST':
       if (input.type === 'to_city' && canCity) return { ...f, ui: 'DONE', resolve: ['replace', flow.replaceIdx, { dest: 'city' }] };
-      if (input.type === 'exile') return { ...f, ui: 'DONE', resolve: ['replace', flow.replaceIdx, { dest: 'exile' }] };
+      if (input.type === 'exile') return { ...f, ui: 'CONFIRM_EXILE', confirmKind: 'exile_replaced' };
       if (input.type === 'back') return { ...f, ui: 'CHOOSE_REPLACE', replaceIdx: null };
       return flow;
+    case 'CONFIRM_EXILE': {
+      const done = confirmExile(flow.confirmKind);
+      if (done) return done;
+      if (input.type === 'back') {
+        if (flow.confirmKind === 'exile_replaced') return { ...f, ui: 'CHOOSE_DEST', confirmKind: null };
+        return { ...f, ui: 'PENDING_GENERAL', confirmKind: null };
+      }
+      return flow;
+    }
     default: return flow;
   }
 }
-export const newRosterFlow = () => ({ ui: 'PENDING_GENERAL', replaceIdx: null, resolve: null });
+export const newRosterFlow = () => ({ ui: 'PENDING_GENERAL', replaceIdx: null, confirmKind: null, resolve: null });

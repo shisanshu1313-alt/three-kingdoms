@@ -60,7 +60,7 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await p.keyboard.press(String(k)); await sleep(p, 300);
   let r1 = await gs();
   if (r1.ui === 'ITEM_FULL' || r1.ui === 'CHOOSE_UNIT') { await p.keyboard.press('1'); await sleep(p, 300); r1 = await gs(); }
-  if (r1.ui === 'ROSTER_FULL') { await p.keyboard.press('r'); await sleep(p, 300); r1 = await gs(); }
+  if (r1.ui === 'ROSTER_FULL') { await p.keyboard.press('r'); await sleep(p, 200); await p.keyboard.press('r'); await sleep(p, 300); r1 = await gs(); }
   await ok(r1.ui === 'RESULT' && !r1.offer && !!r1.result?.text && typeof r1.result.after === 'number', `选第 ${k} 张 → 结果（${JSON.stringify(r1.result)}）`);
   // 第 2 抽价格上涨
   await p.keyboard.press('Space'); await sleep(p, 300);
@@ -80,7 +80,8 @@ const sleep = (p, ms) => p.waitForTimeout(ms);
   await ok(rs.roster && rs.pend === 1, `选武将卡、队伍已满 → 名册弹窗（${JSON.stringify(rs)}）`);
   await p.keyboard.press('e'); await sleep(p, 200); await p.keyboard.press('1'); await sleep(p, 200);
   const dest = await W(() => __game.scene.getScene('Roster').flow);
-  await p.keyboard.press('r'); await sleep(p, 400);
+  await p.keyboard.press('r'); await sleep(p, 250); // 去向页 → 确认页
+  await p.keyboard.press('r'); await sleep(p, 400); // 确认流放
   const rr = await W(() => { const w = __game.scene.getScene('World'); return { roster: __game.scene.isActive('Roster'), gens: w.player.team.generals.map(g => g.id), points: w.state.points, pend: w.state.pendingGenerals.length, ui: __game.scene.getScene('Gacha').uiState }; });
   await ok(!rr.roster && rr.pend === 0 && rr.gens.join() === 'hero,zhugeliang,smoke_gen' && rr.points === pts0 + ex && rr.ui === 'RESULT',
     `E → 1（换下廖化）→ R 流放：诸葛亮入队，+${ex} 点（${JSON.stringify({ dest, rr })}）`);

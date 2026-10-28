@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { computePower, soldierCap, teamSpeed, lossReduction, resolveCombat, captureChance } from '../src/systems/combat.js';
+import { computePower, soldierCap, teamSpeed, lossReduction, resolveCombat, captureChance, victoryPoints, drawPoints, roundHalfUp } from '../src/systems/combat.js';
 import { buildTeam, indexBalance, createNameAllocator, teamName } from '../src/systems/teams.js';
 import { mulberry32 } from '../src/systems/rng.js';
 
@@ -44,13 +44,43 @@ test('俘获率按该武将自身魅力计算', () => {
   near(captureChance(w, { cha: 0 }, 50, balance), balance.rewards.capture_max);
 });
 
-test('平局：R < draw_ratio，双方各自 round(N×draw_loss×(1−减免))，0 分', () => {
+test('平局：R < draw_ratio，双方各自 round(N×draw_loss×(1−减免))；非玩家对战仍 0 分', () => {
   const g = { lead: 50, str: 50, int: 0, cha: 50 };
   const r = resolveCombat(team({ id: 'a', generals: [g] }), team({ id: 'b', generals: [g] }), balance, null, { rolls: [1, 1] });
   assert.equal(r.outcome, 'draw');
   assert.equal(r.a.losses, 20);
   assert.equal(r.points, 0);
   near(r.duration_s, Math.min(8, 1.5 + 6 / 1));
+});
+
+
+test('R3-E1：玩家平局 → roundHalfUp(0.5 × points_win)；points_win 同胜利公式', () => {
+  const g = { lead: 50, str: 50, int: 0, cha: 50 };
+  const a = team({ id: 'player', is_player: true, generals: [g] });
+  const b = team({ id: 'b', generals: [g] });
+  const r = resolveCombat(a, b, balance, null, { rolls: [1, 1] });
+  assert.equal(r.outcome, 'draw');
+  const enemyPanel = r.b.power; // 战前面板
+  const expectWin = victoryPoints(enemyPanel, r.ratio, balance);
+  const expectDraw = roundHalfUp(0.5 * expectWin);
+  assert.equal(r.points, expectDraw);
+  assert.ok(r.points > 0);
+  // 对称：玩家在 b 侧
+  const r2 = resolveCombat(b, a, balance, null, { rolls: [1, 1] });
+  assert.equal(r2.outcome, 'draw');
+  assert.equal(r2.points, expectDraw);
+});
+
+test('R3-E1：AI 间平局 / 玩家战败仍 0 分；drawPoints 默认 mult=0.5', () => {
+  const g = { lead: 50, str: 50, int: 0, cha: 50 };
+  const r = resolveCombat(team({ id: 'a', generals: [g] }), team({ id: 'b', generals: [g] }), balance, null, { rolls: [1, 1] });
+  assert.equal(r.outcome, 'draw');
+  assert.equal(r.points, 0);
+  // drawPoints 无 v06 时默认 0.5
+  assert.equal(drawPoints(100, 1, balance), roundHalfUp(0.5 * victoryPoints(100, 1, balance)));
+  // 显式 draw_mult
+  const bal = { ...balance, rewards: balance.rewards, v06: { tuning: { draw_points: { draw_mult: 0.5 } } } };
+  assert.equal(drawPoints(40, 1, bal), roundHalfUp(0.5 * victoryPoints(40, 1, bal)));
 });
 
 test('每方独立掷随机：rng 被调用两次（先 a 后 b）', () => {
