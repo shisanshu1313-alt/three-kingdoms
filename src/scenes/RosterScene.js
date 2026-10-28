@@ -13,7 +13,7 @@ const W = 760, H = 460;
  *   替换副将（换下的人：回主城存放 / 流放）、送回主城（要有主城且有空位）、流放（回自由池 +20 点）。
  *   界面状态 PENDING_GENERAL → CHOOSE_REPLACE → CHOOSE_DEST → DONE（systems/roster.js rosterFlowStep），每次完成自动存档。
  * 键盘（platform/input.js 动作）：1/2 选副将（= 替换它）、E 替换副将、H 送回主城 / 回主城存放、
- *   R 流放（先到确认页，再按 R / Enter 确认；Esc 取消；A/S 级名字红字）、Esc 返回上一步。鼠标：点卡片 / 按钮。
+ *   R 流放（先到确认页，再按 R / Enter 确认；Esc 取消）；A/S 级武将名字整页用红字（含安排页与确认页）、Esc 返回上一步。鼠标：点卡片 / 按钮。
  */
 export default class RosterScene extends Phaser.Scene {
   constructor() { super('Roster'); }
@@ -74,11 +74,13 @@ export default class RosterScene extends Phaser.Scene {
     const x0 = this.ox + 24, y0 = this.oy + 16, team = this.team, g = entry.general, ui = this.flow.ui;
     const left = this.st.pendingGenerals.length - 1, ctx = this.ctx(), pv = pendingPreview(team, g, balance, computePower);
     const P = x => Math.round(x);
+    // A/S 级名字红字：与确认流放页同一色（#ff5555）；安排页新武将 / 副将卡也用
+    const nameColor = g0 => (g0?.tier === 'A' || g0?.tier === 'S') ? '#ff5555' : '#ffffff';
     add(text(this, x0, y0, `队伍已满（${balance.team_rules.max_generals} 将：主角 + ${balance.team_rules.max_generals - 1} 副将）：安排新武将${left ? `（之后还有 ${left} 名）` : ''}`, 19, '#e67e22'));
     // 新武将卡
     add(this.add.rectangle(x0, y0 + 38, 56, 70, tierColor(g)).setOrigin(0).setStrokeStyle(2, 0xffffff));
     add(text(this, x0 + 28, y0 + 73, g.tier ?? '头目', g.tier ? 24 : 13, '#000000').setOrigin(0.5));
-    add(text(this, x0 + 70, y0 + 40, `新武将：${g.name}${g.tier ? `（${g.tier}）` : g.generic ? '（黄巾头目）' : ''}`, 17));
+    add(text(this, x0 + 70, y0 + 40, `新武将：${g.name}${g.tier ? `（${g.tier}）` : g.generic ? '（黄巾头目）' : ''}`, 17, nameColor(g)));
     add(text(this, x0 + 70, y0 + 64, generalLine(g), 14, '#dddddd'));
     add(text(this, x0 + 70, y0 + 86, `来源：${entry.source === 'capture' ? `俘获自 ${entry.from ?? '敌军'}` : '抽卡'}   现在战力 ${P(pv.now)}`, 13, '#aaaaaa'));
 
@@ -94,7 +96,7 @@ export default class RosterScene extends Phaser.Scene {
           .setStrokeStyle(2, sel ? 0xf1c40f : ui === 'CHOOSE_REPLACE' ? 0xe67e22 : 0x666666));
         card.setInteractive({ useHandCursor: true }).on('pointerdown', (p, lx, ly, ev) => { ev?.stopPropagation?.(); this.input6({ type: 'pick', index: r.index }); });
         add(this.add.rectangle(cx + 10, cy + 12, 14, 14, tierColor(oldG)).setOrigin(0));
-        add(text(this, cx + 30, cy + 8, `[${k + 1}] 副将 ${generalLine(oldG)}`, 14));
+        add(text(this, cx + 30, cy + 8, `[${k + 1}] 副将 ${generalLine(oldG)}`, 14, nameColor(oldG)));
         add(text(this, cx + 30, cy + 34, `换下后战力 ${P(r.before)} → ${P(r.after)}`, 15, r.after >= r.before ? '#66ee66' : '#ff8866'));
         add(text(this, cx + 30, cy + 60, `（${g.name} 顶替 ${oldG.name}）`, 12, '#aaaaaa'));
       });
@@ -104,7 +106,6 @@ export default class RosterScene extends Phaser.Scene {
     const by = this.oy + H - 112, store = this.st.cityStore?.length ?? 0, cap = storeCap(balance);
     const cityHint = !this.st.homeCity ? '攻下一座城就能存放武将' : !ctx.canCity ? `主城已满（${store}/${cap}）` : `主城存放 ${store}/${cap}`;
     const pts = exilePoints(balance); // 设计 / 实际都是 +20；去向页标签曾被误读，只用 exilePoints
-    const nameColor = g0 => (g0?.tier === 'A' || g0?.tier === 'S') ? '#ff5555' : '#ffffff';
     if (ui === 'CONFIRM_EXILE') {
       const who = this.flow.confirmKind === 'exile_replaced' ? team.generals[this.flow.replaceIdx] : g;
       const tier = who?.tier ? `（${who.tier}）` : who?.generic ? '（黄巾头目）' : '';
