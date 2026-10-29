@@ -4,6 +4,7 @@
  */
 import { PLAYER, defMax } from './city.js';
 import { addGeneralOrQueue } from './roster.js';
+import { soldierCap } from './combat.js';
 
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 
@@ -99,4 +100,23 @@ export function fillTeamsText(r) {
   const head = `【调试】队伍 ${r.total}/${r.max}（补满新刷 ${r.added}）`;
   if (r.removed) return `${head}；T2 撤下过弱黄巾 ${r.removed} 支：${r.removedNames.join('、')}${r.replaced ? '，已补刷 1 支' : ''}`;
   return `${head}；T2 未触发：没有符合条件的黄巾队（战力低于玩家×比例、离玩家够远、不在交战）`;
+}
+
+/**
+ * F2→7 把己方兵力拉到 n（默认 500），方便目视 display_slots 的 T3 大造型。
+ * 若当前 soldierCap < n，临时抬高 team.capBonus 使上限够盖住兵力（仅调试，不改碰撞圈公式本身）。
+ * 返回 { before, after, cap }。
+ */
+export function devSetSoldiers(party, n, field) {
+  const before = party.team.soldiers;
+  const after = Math.max(1, Math.round(n));
+  party.team.soldiers = after;
+  const need = after - soldierCap(party.team, party.balance);
+  if (need > 0) party.team.capBonus = (party.team.capBonus ?? 0) + need;
+  party.refresh();
+  field?.refresh?.(party);
+  return { before, after, cap: party.cap };
+}
+export function setSoldiersText(r) {
+  return `【调试】己方兵 ${r.before}→${r.after}（上限 ${r.cap}；看 T3 大造型）`;
 }

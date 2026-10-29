@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { balance } from '../src/data/index.js';
 import { createCities, PLAYER, capture } from '../src/systems/city.js';
-import { pickDevHomeCity, applyDevHomeCity, applyDevFillTeams, fillTeamsText } from '../src/systems/devTools.js';
+import { pickDevHomeCity, applyDevHomeCity, applyDevFillTeams, fillTeamsText, devSetSoldiers, setSoldiersText } from '../src/systems/devTools.js';
 
 test('F2-2 选城：没有主城 → 最近的无主城（开局 = 有守军的洛阳）；有主城 → 最近的另一座无主城走迁都；没有无主城 → 最近的大本营临时设无主', () => {
   const cs = createCities(balance), L = cs.luoyang;
@@ -159,10 +159,11 @@ test('大地图按 E：没有副将 → 「还没有武将」；有副将 → �
   assert.match(ui, /act\.on\(ACTIONS\.REPLACE, \(\) => \{ if \(this\.pauseUi \|\| this\.modalOpen\(\)\) return; const t = replaceKeyHint/);
 });
 
-test('F2 菜单 4 / 5 / 6 接线；GachaScene 只在开发构建传 forceGeneral，用一次就关', () => {
+test('F2 菜单 4 / 5 / 6 / 7 接线；GachaScene 只在开发构建传 forceGeneral，用一次就关', () => {
   const m = readFileSync(new URL('../src/ui/DebugMenu.js', import.meta.url), 'utf8');
-  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）', '6  最近的城城防归零']) assert.ok(m.includes(s), s);
+  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）', '6  最近的城城防归零', '7  己方兵力拉到 500']) assert.ok(m.includes(s), s);
   assert.match(m, /if \(r && !r\.joined\) this\.ui\.openRoster\(\)/);
+  assert.match(m, /n === 7[\s\S]{0,120}devSetSoldiers\(world\.player, 500/);
   const g = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
   assert.match(g, /\.\.\.\(import\.meta\.env\.DEV && this\.world\.devNextGeneral \? \{ forceGeneral: true \} : \{\}\)/);
   assert.match(g, /if \(import\.meta\.env\.DEV && ctx\.forceGeneral\) this\.world\.devNextGeneral = false;/);
@@ -183,4 +184,22 @@ test('F2-5 用一次自动关：只强制带 forceGeneral 的那一抽；同种�
   assert.ok(found, '找到原本没有武将卡的种子');
   const g = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
   assert.match(g, /if \(import\.meta\.env\.DEV && ctx\.forceGeneral\) this\.world\.devNextGeneral = false;/);
+});
+
+test('F2-7 己方兵拉到 500：兵力与上限都 ≥500，提示含 T3；field.refresh 被调用', () => {
+  const party = {
+    team: { soldiers: 50, generals: [{ ...balance.hero }], items: [], capBonus: 0 },
+    balance,
+    cap: 0,
+    refresh() { this.cap = Math.max(this.team.soldiers, 1); },
+  };
+  let fieldHits = 0;
+  const field = { refresh(p) { fieldHits++; assert.equal(p, party); } };
+  const r = devSetSoldiers(party, 500, field);
+  assert.equal(r.before, 50);
+  assert.equal(r.after, 500);
+  assert.equal(party.team.soldiers, 500);
+  assert.ok(r.cap >= 500, `cap ${r.cap}`);
+  assert.equal(fieldHits, 1);
+  assert.match(setSoldiersText(r), /己方兵 50→500.*T3/);
 });
