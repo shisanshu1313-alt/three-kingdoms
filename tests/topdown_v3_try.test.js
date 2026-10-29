@@ -95,11 +95,14 @@ test('public atlas_topdown_v4 八 key + overlays_topdown_v4 扁旗就位', () =>
   }
 });
 
-test('真俯视：固定槽位序 + softTau=0（源码锁）', () => {
+test('真俯视：固定槽位序 + softTau>0（转向浅弧）', () => {
   assert.match(SRC, /compareDecorDrawOrderTopdown/);
   assert.match(SRC, /topdownSpriteDepth/);
   assert.match(SRC, /小维真俯视/);
-  assert.equal(softTauFor('soldier', -22), 0);
+  assert.doesNotMatch(SRC, /TOPDOWN_V2B_TRY\)\s*return 0/);
+  assert.ok(softTauFor('soldier', -22) > 0);
+  assert.ok(softTauFor('deputy') > 0);
+  assert.equal(softTauFor('leader'), 0);
   const fake = (ovKey, rank, idx) => ({
     y: 0,
     getData: (k) => (k === 'ovKey' ? ovKey : k === 'slotRank' ? rank : k === 'slotIndex' ? idx : undefined),

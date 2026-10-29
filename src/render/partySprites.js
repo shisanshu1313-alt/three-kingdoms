@@ -108,19 +108,17 @@ export function overlayDepthOffset(ovKey) {
 
 /**
  * 表现层软跟排（不改 melee / display_slots / 碰撞）：
- * 士兵/副将屏幕槽位向目标 offset 指数逼近，弯道时后排拖出弧；主将贴死。
- * tau 秒：约 63% 追上目标所需时间。
+ * 士兵/副将屏幕槽位向目标 offset 指数逼近，急转时外圈/后排拖出浅弧；主将贴死。
+ * 真俯视下仍开 softTau（固定槽位 depth，不回 y-sort）；tau 秒 ≈ 63% 追上目标所需时间。
  */
-export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.05, soldier: 0.10 };
+export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.08, soldier: 0.15 };
 /** 士兵越靠后（forward 越小）tau 越大，弯道弧更明显 */
 export function softTauFor(role, forward = 0) {
-  // 小维真俯视 — 转向无前后遮挡层次：关掉软跟拖影（否则转向时假 depth 堆叠）
-  if (TOPDOWN_V2B_TRY) return 0;
   const base = SOFT_FOLLOW_TAU[role] ?? SOFT_FOLLOW_TAU.soldier;
   if (role !== 'soldier' || base <= 0) return base;
-  // forward 约 -22…-6；后排多拖 ~40%
+  // forward 约 -22…-6；后排再拖 ~35%（目标 90° 急转后外圈落后约 150–250ms）
   const rear = Math.max(0, (-6 - forward) / 16);
-  return base * (1 + 0.25 * rear);
+  return base * (1 + 0.35 * rear);
 }
 /** 指数平滑一步；tau≤0 或 dt 异常 → 直接贴目标 */
 export function softFollowStep(cur, target, dt, tau) {

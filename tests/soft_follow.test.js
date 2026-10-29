@@ -9,15 +9,20 @@ import {
   TOPDOWN_V2B_TRY,
 } from '../src/render/partySprites.js';
 
-test('TOPDOWN_V2B_TRY 时 softTauFor 全 0（真俯视关软跟拖影）', () => {
+test('TOPDOWN 下 softTau：主将 0；副将/士兵非 0；后排 > 前排', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
   assert.equal(softTauFor('leader'), 0);
-  assert.equal(softTauFor('deputy'), 0);
-  assert.equal(softTauFor('soldier', -6), 0);
-  assert.equal(softTauFor('soldier', -22), 0);
-  // 侧视表仍保留，供标志关闭时回退
-  assert.ok(SOFT_FOLLOW_TAU.soldier > 0);
-  assert.ok(SOFT_FOLLOW_TAU.deputy > 0);
+  assert.equal(SOFT_FOLLOW_TAU.leader, 0);
+  assert.ok(SOFT_FOLLOW_TAU.deputy >= 0.06 && SOFT_FOLLOW_TAU.deputy <= 0.10);
+  assert.ok(SOFT_FOLLOW_TAU.soldier >= 0.12 && SOFT_FOLLOW_TAU.soldier <= 0.18);
+  const dep = softTauFor('deputy');
+  const front = softTauFor('soldier', -6);
+  const rear = softTauFor('soldier', -22);
+  assert.ok(dep > 0);
+  assert.ok(front > 0);
+  assert.ok(rear > front);
+  assert.equal(dep, SOFT_FOLLOW_TAU.deputy);
+  assert.equal(front, SOFT_FOLLOW_TAU.soldier);
 });
 
 test('softFollowStep：tau=0 贴目标；有 tau 则逼近不越过', () => {
@@ -33,7 +38,8 @@ test('PartyDecor.sync 使用 softFollowStep；melee/combat 未改 turn/accel', (
   const decor = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
   assert.match(decor, /softFollowStep/);
   assert.match(decor, /softTauFor/);
-  assert.match(decor, /TOPDOWN_V2B_TRY\)\s*return 0/);
+  assert.doesNotMatch(decor, /TOPDOWN_V2B_TRY\)\s*return 0/);
+  assert.match(decor, /SOFT_FOLLOW_TAU/);
   const melee = readFileSync(new URL('../src/systems/melee.js', import.meta.url), 'utf8');
   assert.match(melee, /turn_dps/);
   assert.match(melee, /accel_s/);
