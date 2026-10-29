@@ -29,10 +29,10 @@ import {
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
 
-test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.55', () => {
+test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.9', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(TRY_SCALE >= 1.4 && TRY_SCALE <= 1.7);
-  assert.ok(Math.abs(TRY_SCALE - 1.55) < 1e-9);
+  assert.ok(TRY_SCALE >= 1.8 && TRY_SCALE <= 2.0);
+  assert.ok(Math.abs(TRY_SCALE - 1.9) < 1e-9);
 });
 
 test('DIRS 八向顺序含对角', () => {

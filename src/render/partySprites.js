@@ -140,7 +140,7 @@ const BASE = 'assets/sprites/parties';
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
-export const TRY_SCALE = 1.55;
+export const TRY_SCALE = 1.9;
 /** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json）
  * 左右（right）与前后（forward）分开：横向缝隙已够，纵深再拉开以免前后排贴合。
  */
