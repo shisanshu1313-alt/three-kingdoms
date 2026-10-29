@@ -1,8 +1,8 @@
 /**
  * 队伍可见精灵槽位（纯函数，无 Phaser）：把兵力压进有限精灵预算，供 PartyView 画装饰精灵。
  * 策划 display_slots 终稿：generalCount = clamp(len(generals),1,3)；soldier_budget = 8 - generalCount
- * （空副将位不占预算）；士兵 W=[1,10,100,500]，超预算先 10 合 1，否则整档抬升；≥1 兵且全 0 → t0=1。
- * 不改碰撞 / 战力 / 真实兵力（HUD 仍显示精确兵数）。
+ * （空副将位不占预算）；先按位权 W=[1,10,100,500] 拆档，再超预算压缩（10 合 1 / 整档抬升）；
+ * ≥1 兵且全 0 → t0=1。不改碰撞 / 战力 / 真实兵力（HUD 仍显示精确兵数）。
  */
 
 export const SOLDIER_WEIGHTS = Object.freeze([1, 10, 100, 500]);
@@ -27,7 +27,11 @@ export function displaySlots(soldiers, generals = []) {
   const soldier_budget = TOTAL_SPRITE_SOFT_CAP - generalCount;
 
   const n = Math.max(0, Math.floor(Number(soldiers) || 0));
-  let t0 = n, t1 = 0, t2 = 0, t3 = 0;
+  let rem = n;
+  let t3 = Math.floor(rem / 500); rem %= 500;
+  let t2 = Math.floor(rem / 100); rem %= 100;
+  let t1 = Math.floor(rem / 10); rem %= 10;
+  let t0 = rem;
 
   const sum = () => t0 + t1 + t2 + t3;
   // 超预算：优先 10→1 合成，否则整档抬到上一档（略夸张）

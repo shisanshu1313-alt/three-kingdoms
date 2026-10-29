@@ -59,6 +59,20 @@ test('小兵力不压缩：5 兵 1 将 → t0=5', () => {
   assert.ok(s.t0 + s.t1 + s.t2 + s.t3 <= s.soldier_budget);
 });
 
+test('位权先拆：500/700 兵出 T3（g=1 与 g=3）', () => {
+  // N=500 g=1 → t3=1（不是 t2=5）
+  const a = displaySlots(500, g(1));
+  assert.deepEqual([a.t0, a.t1, a.t2, a.t3], [0, 0, 0, 1]);
+  // N=700 g=1 → t3=1 + t2=2
+  const b = displaySlots(700, g(1));
+  assert.deepEqual([b.t0, b.t1, b.t2, b.t3], [0, 0, 2, 1]);
+  // g=3 时 budget=5，500/700 拆后仍 ≤5，结果相同
+  const c = displaySlots(500, g(3));
+  assert.deepEqual([c.t0, c.t1, c.t2, c.t3], [0, 0, 0, 1]);
+  const d = displaySlots(700, g(3));
+  assert.deepEqual([d.t0, d.t1, d.t2, d.t3], [0, 0, 2, 1]);
+});
+
 test('超预算优先 10→1：25 兵预算 7 → 先合成再必要时抬档', () => {
   const s = displaySlots(25, g(1)); // budget 7
   assert.ok(s.t0 + s.t1 + s.t2 + s.t3 <= 7);
