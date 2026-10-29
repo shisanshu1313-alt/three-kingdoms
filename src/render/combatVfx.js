@@ -1,6 +1,6 @@
 /**
  * 战斗表现层（只画，不改 melee / radiusOf / 战力）：
- * impact/braced → 接触点火花/斩线 + 相机短 shake；
+ * impact/braced → 接触点火花/斩线（短震暂关）；
  * 持续接触 → 节流 slash；高 v → 兵脚尘土。
  */
 const SHAKE_MS = 100; // 80–120 取中
@@ -16,7 +16,7 @@ export function contactMid(a, b) {
 }
 
 /**
- * impact / braced 爆发：接触点放射短线 + 小火花点；可选相机 shake。
+ * impact / braced 爆发：接触点放射短线 + 小火花点；短震暂关；有图集时播 slash 帧。
  * @param {Phaser.Scene} scene
  * @param {{x:number,y:number}} mid
  * @param {'impact'|'braced'} type
@@ -44,9 +44,19 @@ export function burstContactFx(scene, mid, type = 'impact') {
   scene.tweens.add({
     targets: g, alpha: 0, duration: 280, onComplete: () => g.destroy(),
   });
-  // 相机短 shake（忽略小地图相机）
-  const cam = scene.cameras?.main;
-  if (cam?.shake) cam.shake(SHAKE_MS, SHAKE_INTENSITY / 1000);
+  // 短震已按小维要求暂不做（保留常量供以后开）
+  // play atlas slash once at mid if loaded
+  const slashKey = 'fx_slash';
+  if (scene.textures?.exists?.(slashKey)) {
+    const spr = scene.add.sprite(mid.x, mid.y, slashKey, 'slash_0').setDepth(15).setScale(1.2);
+    scene.minimap?.ignore(spr);
+    if (!scene.anims.exists('fx_slash_once')) {
+      scene.anims.create({ key: 'fx_slash_once', frames: [0,1,2,3].map(i => ({ key: slashKey, frame: `slash_${i}` })), frameRate: 16, repeat: 0 });
+    }
+    spr.play('fx_slash_once');
+    spr.once('animationcomplete', () => spr.destroy());
+    scene.time.delayedCall(400, () => { if (spr.active) spr.destroy(); });
+  }
 }
 
 /**
@@ -63,11 +73,20 @@ export function maybeContactSlash(scene, a, b, nowMs, lastAt = 0) {
   scene.minimap?.ignore(g);
   const ox = (Math.random() - 0.5) * 10, oy = (Math.random() - 0.5) * 10;
   const len = 8 + Math.random() * 10;
-  g.lineStyle(2, 0xfff0c0, 0.85).lineBetween(
-    mid.x + ox - Math.cos(ang) * len, mid.y + oy - Math.sin(ang) * len,
-    mid.x + ox + Math.cos(ang) * len, mid.y + oy + Math.sin(ang) * len,
-  );
-  scene.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+  const slashKey = 'fx_slash';
+  if (scene.textures?.exists?.(slashKey)) {
+    g.destroy();
+    const spr = scene.add.image(mid.x + ox, mid.y + oy, slashKey, `slash_${Math.floor(Math.random() * 4)}`)
+      .setDepth(13).setAlpha(0.9).setRotation(ang).setScale(0.8 + Math.random() * 0.4);
+    scene.minimap?.ignore(spr);
+    scene.tweens.add({ targets: spr, alpha: 0, duration: 160, onComplete: () => spr.destroy() });
+  } else {
+    g.lineStyle(2, 0xfff0c0, 0.85).lineBetween(
+      mid.x + ox - Math.cos(ang) * len, mid.y + oy - Math.sin(ang) * len,
+      mid.x + ox + Math.cos(ang) * len, mid.y + oy + Math.sin(ang) * len,
+    );
+    scene.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+  }
   return true;
 }
 
@@ -78,11 +97,18 @@ export function maybeFootDust(scene, party, body, nowMs, lastAt = 0) {
   const h = body.h ?? 0;
   const bx = party.x - Math.cos(h) * 8 + (Math.random() - 0.5) * 6;
   const by = party.y - Math.sin(h) * 8 + (Math.random() - 0.5) * 6;
-  const c = scene.add.circle(bx, by, 2 + Math.random() * 2, 0x8a7048, 0.55).setDepth(8);
-  scene.minimap?.ignore(c);
-  scene.tweens.add({
-    targets: c, alpha: 0, scale: 2.2, y: by + 4, duration: 280, onComplete: () => c.destroy(),
-  });
+  const dustKey = 'fx_dust';
+  if (scene.textures?.exists?.(dustKey)) {
+    const fr = `dust_${Math.floor(Math.random() * 3)}`;
+    const spr = scene.add.image(bx, by, dustKey, fr).setDepth(8).setAlpha(0.75).setScale(0.7 + Math.random() * 0.3);
+    spr.setOrigin(0.5, 0.85);
+    scene.minimap?.ignore(spr);
+    scene.tweens.add({ targets: spr, alpha: 0, y: by + 6, duration: 320, onComplete: () => spr.destroy() });
+  } else {
+    const c = scene.add.circle(bx, by, 2 + Math.random() * 2, 0x8a7048, 0.55).setDepth(8);
+    scene.minimap?.ignore(c);
+    scene.tweens.add({ targets: c, alpha: 0, scale: 2.2, y: by + 4, duration: 280, onComplete: () => c.destroy() });
+  }
   return true;
 }
 

@@ -7,7 +7,10 @@ import tints from '../data/factionTints.json' with { type: 'json' };
 import { displaySlots, soldierTierList } from '../systems/displaySlots.js';
 
 export const PARTY_ATLAS_KEYS = ['soldier_melee', 'soldier_bow', 'officer', 'named_base'];
-export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'crest_t1', 'banner_t2', 'crown_named'];
+export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'crest_t1', 'banner_t2', 'crown_named', 'banner_faction_player', 'banner_faction_enemy'];
+export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
+/** 方旗相对脚底上偏（美工建议 -10～-14） */
+const BANNER_LIFT = -12;
 const BASE = 'assets/sprites/parties';
 const DIRS = ['s', 'w', 'e', 'n'];
 const TIER_VIS = formation.tier_visual;
@@ -25,6 +28,9 @@ export function preloadPartyAssets(scene) {
   for (const k of PARTY_OVERLAY_KEYS) {
     scene.load.image(k, `${BASE}/overlays/${k}.png`);
   }
+  // 打击特效图集（slash / charge_dust）；缺文件时 Phaser 会报 loaderror，调用方可忽略
+  scene.load.atlas(FX_ATLAS.slash, 'assets/sprites/fx/slash.png', 'assets/sprites/fx/slash.json');
+  scene.load.atlas(FX_ATLAS.dust, 'assets/sprites/fx/charge_dust.png', 'assets/sprites/fx/charge_dust.json');
 }
 
 /** 每向 idle/walk/charge 动画（只建一次） */
@@ -111,15 +117,18 @@ export function buildPartySpritePlan(team, opts = {}) {
   const tint = tintFor(team.faction, isPlayer);
   const entries = [];
 
-  // 主将
+  // 主将（方旗：玩家 banner_faction_player / 敌方 banner_faction_enemy）
   const L = form.leader.local_offset_px;
+  const leadOv = isPlayer
+    ? [...(HERO_VIS.leader.overlays || ['ring_player', 'crown_named', 'banner_faction_player'])]
+    : ['ring_enemy', 'crown_named', 'banner_faction_enemy'];
   entries.push({
     role: 'leader',
-    atlas: isPlayer ? 'named_base' : 'named_base',
-    overlays: isPlayer ? ['ring_player', 'crown_named'] : ['ring_enemy', 'crown_named'],
+    atlas: 'named_base',
+    overlays: leadOv,
     forward: L.forward,
     right: L.right,
-    scale: HERO_VIS.leader.scale ?? 1.15,
+    scale: HERO_VIS.leader.scale ?? 1.4,
     tint: tint.tint,
   });
 
@@ -134,7 +143,7 @@ export function buildPartySpritePlan(team, opts = {}) {
       overlays: isPlayer ? ['ring_thin'] : ['ring_enemy'],
       forward: o.forward,
       right: o.right,
-      scale: HERO_VIS.deputy.scale ?? 1.05,
+      scale: HERO_VIS.deputy.scale ?? 1.25,
       tint: tint.tint,
     });
   }
@@ -206,6 +215,7 @@ export class PartyDecor {
       for (const ok of e.overlays || []) {
         if (!this.scene.textures.exists(ok)) continue;
         const im = this.scene.add.image(0, 0, ok).setOrigin(0.5, 1).setScale(e.scale);
+        im.setData('ovKey', ok);
         ovs.push(im);
         this.root.add(im);
       }
@@ -241,7 +251,8 @@ export class PartyDecor {
       // 深度：偏南（大 y）的在上
       n.sprite.setDepth(10 + off.y * 0.01);
       for (const o of n.overlays) {
-        o.setPosition(off.x, off.y);
+        const lift = String(o.getData('ovKey') || '').startsWith('banner_faction') ? BANNER_LIFT : 0;
+        o.setPosition(off.x, off.y + lift);
         o.setDepth(10 + off.y * 0.01 + 0.001);
       }
     }

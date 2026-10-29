@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "revision": "2026-10-29 比例疏密+方旗拍板（小维）：T0–T3 0.92/1.00/1.06/1.12；副将1.25/主将1.40；士兵更紧；主将+势力方旗",
   "tile_size": 32,
   "coordinate_space": {
     "origin": "party_center",
@@ -10,6 +11,7 @@
     }
   },
   "rules": {
+    "revision_note": "2026-10-29 比例疏密+方旗拍板",
     "order_front_to_back": [
       "leader",
       "deputies",
@@ -26,7 +28,8 @@
     "soldier_visible_budget": {
       "suggested_max_sprites": 8,
       "comment": "同屏可读上限建议；具体兵数公式由策划定，此处只给锚点"
-    }
+    },
+    "banner_note": "主将 overlays 含 banner_faction_player；敌方程序替换为 banner_faction_enemy。方旗建议相对脚底原点上偏 y≈-12。"
   },
   "slots": {
     "leader": {
@@ -34,15 +37,21 @@
       "atlas_hint": "named_base 或 officer",
       "overlays": [
         "ring_player",
-        "crown_named"
+        "crown_named",
+        "banner_faction_player"
+      ],
+      "overlays_enemy": [
+        "ring_enemy",
+        "crown_named",
+        "banner_faction_enemy"
       ],
       "local_offset_px": {
-        "forward": 14,
+        "forward": 19,
         "right": 0
       },
       "screen_offset_facing_s": {
         "x": 0,
-        "y": 14
+        "y": 19
       }
     },
     "deputy_0": {
@@ -53,10 +62,10 @@
       ],
       "local_offset_px": {
         "forward": 2,
-        "right": -12
+        "right": -10
       },
       "screen_offset_facing_s": {
-        "x": 12,
+        "x": 10,
         "y": 2
       }
     },
@@ -68,10 +77,10 @@
       ],
       "local_offset_px": {
         "forward": 2,
-        "right": 12
+        "right": 10
       },
       "screen_offset_facing_s": {
-        "x": -12,
+        "x": -10,
         "y": 2
       }
     },
@@ -79,96 +88,96 @@
       {
         "id": "s0",
         "local_offset_px": {
-          "forward": -10,
-          "right": -14
+          "forward": -6,
+          "right": -10
         },
         "screen_offset_facing_s": {
-          "x": 14,
-          "y": -10
+          "x": 10,
+          "y": -6
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s1",
         "local_offset_px": {
-          "forward": -10,
+          "forward": -6,
           "right": 0
         },
         "screen_offset_facing_s": {
           "x": 0,
-          "y": -10
+          "y": -6
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s2",
         "local_offset_px": {
-          "forward": -10,
-          "right": 14
+          "forward": -6,
+          "right": 10
         },
         "screen_offset_facing_s": {
-          "x": -14,
-          "y": -10
+          "x": -10,
+          "y": -6
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s3",
         "local_offset_px": {
-          "forward": -22,
-          "right": -18
+          "forward": -14,
+          "right": -12
         },
         "screen_offset_facing_s": {
-          "x": 18,
-          "y": -22
+          "x": 12,
+          "y": -14
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s4",
         "local_offset_px": {
-          "forward": -22,
-          "right": -6
+          "forward": -14,
+          "right": -4
         },
         "screen_offset_facing_s": {
-          "x": 6,
-          "y": -22
+          "x": 4,
+          "y": -14
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s5",
         "local_offset_px": {
-          "forward": -22,
-          "right": 6
+          "forward": -14,
+          "right": 4
         },
         "screen_offset_facing_s": {
-          "x": -6,
-          "y": -22
+          "x": -4,
+          "y": -14
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s6",
         "local_offset_px": {
-          "forward": -22,
-          "right": 18
+          "forward": -14,
+          "right": 12
         },
         "screen_offset_facing_s": {
-          "x": -18,
-          "y": -22
+          "x": -12,
+          "y": -14
         },
         "tier_hint": "T0-T3 any"
       },
       {
         "id": "s7",
         "local_offset_px": {
-          "forward": -34,
+          "forward": -22,
           "right": 0
         },
         "screen_offset_facing_s": {
           "x": 0,
-          "y": -34
+          "y": -22
         },
         "tier_hint": "T2/T3 preferred when sparse"
       }
@@ -180,7 +189,7 @@
       "overlays": [
         "ring_thin"
       ],
-      "scale": 1.0
+      "scale": 0.92
     },
     "T1": {
       "overlays": [
@@ -194,7 +203,7 @@
         "ring_thin",
         "banner_t2"
       ],
-      "scale": 1.25,
+      "scale": 1.06,
       "optional_keep_crest": true
     },
     "T3": {
@@ -203,7 +212,7 @@
         "crest_t1",
         "banner_t2"
       ],
-      "scale": 1.35,
+      "scale": 1.12,
       "comment": "预留更高阶；造型差仍靠挂件+缩放，不靠加人"
     }
   },
@@ -215,9 +224,11 @@
       ],
       "overlays": [
         "ring_player",
-        "crown_named"
+        "crown_named",
+        "banner_faction_player"
       ],
-      "scale": 1.15
+      "overlays_enemy_note": "敌方用 banner_faction_enemy 替换 banner_faction_player；环用 ring_enemy",
+      "scale": 1.4
     },
     "deputy": {
       "atlas": [
@@ -226,7 +237,7 @@
       "overlays": [
         "ring_thin"
       ],
-      "scale": 1.05
+      "scale": 1.25
     }
   }
 }
