@@ -128,19 +128,19 @@ export function softFollowStep(cur, target, dt, tau) {
 }
 const BASE = 'assets/sprites/parties';
 /**
- * topdown_s3c TRY（ChatGPT 战术俯视）— 回退（§5）：
- * 1) preload：改回 `atlas_topdown_s3b` / `atlas_topdown_v5` / `atlas_topdown_v4` / `atlas_topdown_v3` / `atlas_topdown_v2b`
+ * topdown_s3d TRY（ChatGPT 战术俯视 64×64）— 回退（§5）：
+ * 1) preload：改回 `atlas_topdown_s3c` / `atlas_topdown_s3b` / `atlas_topdown_v5` / `atlas_topdown_v4` / `atlas_topdown_v3` / `atlas_topdown_v2b`
  *    （或去掉 TOPDOWN_TRY_KEYS → 全部 `${BASE}/atlas/`）
  * 2) overlays：banner_* 改回 `overlays/`（侧视立杆）；HIDE_FACTION_BANNER_TRY=false 恢复画旗；HIDE_SELECTION_RING_TRY=false 恢复选中环
  * 3) DIRS + facingDir 恢复四向 ['s','w','e','n']
  * 4) TRY_SCALE = 1；TRY_FORMATION_SPACING_LATERAL/_FORWARD = 1（或去掉 draw 乘子）
  * 5) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
  * 6) TRY_ORIGIN / BANNER_LIFT / 堵 melee·bow 回退 随标志回退（0.5,1）/ -16 / 旧 atlasCandidates
- * 勿删 public/.../atlas_topdown_s3c/（及 s3b/v5/v4/v3/v2b）、overlays_topdown_v4/（旁路留作回退）
+ * 勿删 public/.../atlas_topdown_s3d/（及 s3c/s3b/v5/v4/v3/v2b）、overlays_topdown_v4/（旁路留作回退）
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
-export const TRY_SCALE = 1.9;
+export const TRY_SCALE = 2.0;
 /** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json）
  * 左右（right）与前后（forward）分开：横向缝隙已够，纵深再拉开以免前后排贴合。
  */
@@ -190,10 +190,10 @@ export function overlayKeysVisible(keys) {
   return out;
 }
 
-/** BootScene.preload：silhouette → atlas_topdown_s3c；melee/bow 仍 atlas/；banner → overlays_topdown_v4 */
+/** BootScene.preload：silhouette → atlas_topdown_s3d；melee/bow 仍 atlas/；banner → overlays_topdown_v4 */
 export function preloadPartyAssets(scene) {
   for (const k of PARTY_ATLAS_KEYS) {
-    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_s3c' : 'atlas';
+    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_s3d' : 'atlas';
     scene.load.atlas(k, `${BASE}/${folder}/${k}.png`, `${BASE}/${folder}/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
@@ -443,7 +443,7 @@ export class PartyDecor {
     for (let ei = 0; ei < plan.entries.length; ei++) {
       const e = plan.entries[ei];
       if (!this.scene.textures.exists(e.atlas)) continue;
-      const drawScale = e.scale * TRY_SCALE; // topdown_s3c try
+      const drawScale = e.scale * TRY_SCALE; // topdown_s3d try
       const slotRank = topdownSlotRank(e.role);
       const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
       const org = spriteOrigin();
