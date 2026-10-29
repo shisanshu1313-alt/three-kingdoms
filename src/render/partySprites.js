@@ -11,6 +11,27 @@ export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'cr
 export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
 /** 方旗相对脚底上偏（美工建议 -10～-14） */
 const BANNER_LIFT = -12;
+
+/**
+ * 表现层软跟排（不改 melee / display_slots / 碰撞）：
+ * 士兵/副将屏幕槽位向目标 offset 指数逼近，弯道时后排拖出弧；主将贴死。
+ * tau 秒：约 63% 追上目标所需时间。
+ */
+export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.07, soldier: 0.14 };
+/** 士兵越靠后（forward 越小）tau 越大，弯道弧更明显 */
+export function softTauFor(role, forward = 0) {
+  const base = SOFT_FOLLOW_TAU[role] ?? SOFT_FOLLOW_TAU.soldier;
+  if (role !== 'soldier' || base <= 0) return base;
+  // forward 约 -22…-6；后排多拖 ~40%
+  const rear = Math.max(0, (-6 - forward) / 16);
+  return base * (1 + 0.4 * rear);
+}
+/** 指数平滑一步；tau≤0 或 dt 异常 → 直接贴目标 */
+export function softFollowStep(cur, target, dt, tau) {
+  if (!cur || !(tau > 0) || !(dt > 0) || dt > 0.25) return { x: target.x, y: target.y };
+  const a = 1 - Math.exp(-dt / tau);
+  return { x: cur.x + (target.x - cur.x) * a, y: cur.y + (target.y - cur.y) * a };
+}
 const BASE = 'assets/sprites/parties';
 const DIRS = ['s', 'w', 'e', 'n'];
 const TIER_VIS = formation.tier_visual;
@@ -180,10 +201,11 @@ export class PartyDecor {
     this.scene = scene;
     this.model = model;
     this.root = scene.add.container(model.x, model.y).setDepth(10);
-    this.nodes = []; // { sprite, overlays: Image[] }
+    this.nodes = []; // { sprite, overlays: Image[], soft?: {x,y} }
     this._key = '';
     this._dir = 's';
     this._moving = false;
+    this._lastSoftMs = 0;
     scene.minimap?.ignore(this.root);
     ensurePartyAnims(scene);
     this.rebuild();
@@ -220,7 +242,7 @@ export class PartyDecor {
         this.root.add(im);
       }
       this.root.add(spr);
-      this.nodes.push({ sprite: spr, overlays: ovs, entry: e });
+      this.nodes.push({ sprite: spr, overlays: ovs, entry: e, soft: null });
     }
     return plan;
   }
@@ -238,9 +260,17 @@ export class PartyDecor {
       this._dir = dir;
       this._moving = moving;
     }
+    // 帧 dt（表现层用）；逻辑仍 10Hz，这里只平滑槽位
+    const nowMs = this.scene.time?.now ?? 0;
+    const dt = this._lastSoftMs ? Math.min(0.05, Math.max(0, (nowMs - this._lastSoftMs) / 1000)) : 1 / 60;
+    this._lastSoftMs = nowMs;
+
     for (const n of this.nodes) {
       const e = n.entry;
-      const off = localOffset(h, e.forward, e.right);
+      const target = localOffset(h, e.forward, e.right);
+      const tau = softTauFor(e.role, e.forward);
+      const off = softFollowStep(n.soft, target, dt, tau);
+      n.soft = off;
       n.sprite.setPosition(off.x, off.y);
       const akey = `${e.atlas}_${anim}_${dir}`;
       if (this.scene.anims.exists(akey) && n.sprite.anims.currentAnim?.key !== akey) {
@@ -248,7 +278,7 @@ export class PartyDecor {
       } else if (!this.scene.anims.exists(akey)) {
         n.sprite.setFrame(`idle_${dir}_0`);
       }
-      // 深度：偏南（大 y）的在上
+      // 深度：偏南（大 y）的在上（用软位置）
       n.sprite.setDepth(10 + off.y * 0.01);
       for (const o of n.overlays) {
         const lift = String(o.getData('ovKey') || '').startsWith('banner_faction') ? BANNER_LIFT : 0;
