@@ -23,6 +23,8 @@ import {
   buildPartySpritePlan,
   TOPDOWN_BANNER_KEYS,
   TRY_FORMATION_SPACING,
+  TRY_FORMATION_SPACING_LATERAL,
+  TRY_FORMATION_SPACING_FORWARD,
 } from '../src/render/partySprites.js';
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
@@ -160,10 +162,11 @@ test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
   assert.match(SRC, /SELECTION_RING_KEYS/);
 });
 
-test('TOPDOWN try：TRY_FORMATION_SPACING 拉开编队槽位（仅 draw）', () => {
+test('TOPDOWN try：前后×4.0 / 左右×2.8 拉开编队槽位（仅 draw）', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(TRY_FORMATION_SPACING > 1);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING - 2.8) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING_LATERAL - 2.8) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING_FORWARD - 4.0) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING - TRY_FORMATION_SPACING_LATERAL) < 1e-9);
   const team = {
     id: 'p', is_player: true, unit: 'inf', soldiers: 40, faction: 'player',
     generals: [{ id: 'h' }, { id: 'd1' }, { id: 'd2' }],
@@ -172,7 +175,8 @@ test('TOPDOWN try：TRY_FORMATION_SPACING 拉开编队槽位（仅 draw）', () 
   const lead = plan.entries.find((e) => e.role === 'leader');
   const dep = plan.entries.find((e) => e.role === 'deputy');
   // formation.json leader.forward=19, deputy_0.right=-10
-  assert.ok(Math.abs(lead.forward - 19 * TRY_FORMATION_SPACING) < 1e-9);
-  assert.ok(Math.abs(dep.right - (-10) * TRY_FORMATION_SPACING) < 1e-9);
-  assert.match(SRC, /TRY_FORMATION_SPACING/);
+  assert.ok(Math.abs(lead.forward - 19 * TRY_FORMATION_SPACING_FORWARD) < 1e-9);
+  assert.ok(Math.abs(dep.right - (-10) * TRY_FORMATION_SPACING_LATERAL) < 1e-9);
+  assert.match(SRC, /TRY_FORMATION_SPACING_FORWARD/);
+  assert.match(SRC, /TRY_FORMATION_SPACING_LATERAL/);
 });

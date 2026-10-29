@@ -134,7 +134,7 @@ const BASE = 'assets/sprites/parties';
  * 1) preload：改回 `atlas_topdown_v3` / `atlas_topdown_v2b`（或去掉 TOPDOWN_TRY_KEYS → 全部 `${BASE}/atlas/`）
  * 2) overlays：banner_* 改回 `overlays/`（侧视立杆）；HIDE_FACTION_BANNER_TRY=false 恢复画旗；HIDE_SELECTION_RING_TRY=false 恢复选中环
  * 3) DIRS + facingDir 恢复四向 ['s','w','e','n']
- * 4) TRY_SCALE = 1；TRY_FORMATION_SPACING = 1（或去掉 draw 乘子）
+ * 4) TRY_SCALE = 1；TRY_FORMATION_SPACING_LATERAL/_FORWARD = 1（或去掉 draw 乘子）
  * 5) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
  * 6) TRY_ORIGIN / BANNER_LIFT / 堵 melee·bow 回退 随标志回退（0.5,1）/ -16 / 旧 atlasCandidates
  * 勿删 public/.../atlas_topdown_v4/、overlays_topdown_v4/（v3/v2b 旁路也可留作回退）
@@ -142,8 +142,13 @@ const BASE = 'assets/sprites/parties';
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
 export const TRY_SCALE = 1.55;
-/** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json） */
-export const TRY_FORMATION_SPACING = 2.8;
+/** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json）
+ * 左右（right）与前后（forward）分开：横向缝隙已够，纵深再拉开以免前后排贴合。
+ */
+export const TRY_FORMATION_SPACING_LATERAL = 2.8;
+export const TRY_FORMATION_SPACING_FORWARD = 4.0;
+/** @deprecated 兼容旧测试/引用；等同 lateral */
+export const TRY_FORMATION_SPACING = TRY_FORMATION_SPACING_LATERAL;
 /** 真俯视锚点：平面中心；旧侧视为脚底 (0.5, 1) */
 export const TRY_ORIGIN = Object.freeze({ x: 0.5, y: 0.5 });
 export const LEGACY_ORIGIN = Object.freeze({ x: 0.5, y: 1 });
@@ -334,7 +339,8 @@ export function buildPartySpritePlan(team, opts = {}) {
   const shiftFwd = slots.deputies === 0
     ? (form.deputy_0.local_offset_px.forward - form.soldier_slots[0].local_offset_px.forward)
     : 0;
-  const sp = TOPDOWN_V2B_TRY ? TRY_FORMATION_SPACING : 1;
+  const spFwd = TOPDOWN_V2B_TRY ? TRY_FORMATION_SPACING_FORWARD : 1;
+  const spLat = TOPDOWN_V2B_TRY ? TRY_FORMATION_SPACING_LATERAL : 1;
   const tiers = soldierTierList(slots);
   const unit = team.unit || 'inf';
   const isPlayer = !!team.is_player;
@@ -352,8 +358,8 @@ export function buildPartySpritePlan(team, opts = {}) {
     unit,
     atlas: atlasFor(unit, 'leader', exists),
     overlays: leadOv,
-    forward: L.forward * sp,
-    right: L.right * sp,
+    forward: L.forward * spFwd,
+    right: L.right * spLat,
     scale: HERO_VIS.leader.scale ?? 1.4,
     tint: tint.tint,
   });
@@ -368,8 +374,8 @@ export function buildPartySpritePlan(team, opts = {}) {
       unit,
       atlas: atlasFor(unit, 'deputy', exists),
       overlays: overlayKeysVisible(isPlayer ? ['ring_thin'] : ['ring_enemy']),
-      forward: o.forward * sp,
-      right: o.right * sp,
+      forward: o.forward * spFwd,
+      right: o.right * spLat,
       scale: HERO_VIS.deputy.scale ?? 1.25,
       tint: tint.tint,
     });
@@ -390,8 +396,8 @@ export function buildPartySpritePlan(team, opts = {}) {
       tier,
       atlas,
       overlays: ov,
-      forward: (slot.local_offset_px.forward + shiftFwd) * sp,
-      right: slot.local_offset_px.right * sp,
+      forward: (slot.local_offset_px.forward + shiftFwd) * spFwd,
+      right: slot.local_offset_px.right * spLat,
       scale: tv.scale ?? 1,
       tint: tint.tint,
     });

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { displaySlots, generalCountOf, soldierTierList, SOLDIER_WEIGHTS, TOTAL_SPRITE_SOFT_CAP } from '../src/systems/displaySlots.js';
-import { buildPartySpritePlan, localOffset, facingDir, TRY_FORMATION_SPACING, TOPDOWN_V2B_TRY } from '../src/render/partySprites.js';
+import { buildPartySpritePlan, localOffset, facingDir, TRY_FORMATION_SPACING, TRY_FORMATION_SPACING_LATERAL, TOPDOWN_V2B_TRY } from '../src/render/partySprites.js';
 import formation from '../src/data/partyFormation.json' with { type: 'json' };
 
 const g = n => Array.from({ length: n }, (_, i) => ({ id: `g${i}`, name: `将${i}` }));
@@ -115,8 +115,8 @@ test('队形：0 副将士兵前移；1 副将留空位间距；2 副将都画',
   assert.equal(p1.slots.empty_deputy_slot, 1);
   assert.equal(p1.shiftFwd, 0);
   assert.equal(p1.entries.filter(e => e.role === 'deputy').length, 1);
-  // 唯一副将在 deputy_0（左），右位留空；TOPDOWN try 时乘 TRY_FORMATION_SPACING
-  const expectRight = formation.slots.deputy_0.local_offset_px.right * (TOPDOWN_V2B_TRY ? TRY_FORMATION_SPACING : 1);
+  // 唯一副将在 deputy_0（左），右位留空；TOPDOWN try 时乘 TRY_FORMATION_SPACING_LATERAL（左右）
+  const expectRight = formation.slots.deputy_0.local_offset_px.right * (TOPDOWN_V2B_TRY ? TRY_FORMATION_SPACING_LATERAL : 1);
   assert.equal(p1.entries.find(e => e.role === 'deputy').right, expectRight);
   assert.equal(p2.slots.deputies, 2);
   assert.equal(p2.entries.filter(e => e.role === 'deputy').length, 2);
