@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { balance } from '../src/data/index.js';
 import { createCities, PLAYER, capture } from '../src/systems/city.js';
-import { pickDevHomeCity, applyDevHomeCity, applyDevFillTeams, fillTeamsText, devSetSoldiers, setSoldiersText } from '../src/systems/devTools.js';
+import { pickDevHomeCity, applyDevHomeCity, applyDevFillTeams, fillTeamsText, devSetSoldiers, setSoldiersText, devForceUnit, forceUnitText } from '../src/systems/devTools.js';
 
 test('F2-2 选城：没有主城 → 最近的无主城（开局 = 有守军的洛阳）；有主城 → 最近的另一座无主城走迁都；没有无主城 → 最近的大本营临时设无主', () => {
   const cs = createCities(balance), L = cs.luoyang;
@@ -159,11 +159,12 @@ test('大地图按 E：没有副将 → 「还没有武将」；有副将 → �
   assert.match(ui, /act\.on\(ACTIONS\.REPLACE, \(\) => \{ if \(this\.pauseUi \|\| this\.modalOpen\(\)\) return; const t = replaceKeyHint/);
 });
 
-test('F2 菜单 4 / 5 / 6 / 7 接线；GachaScene 只在开发构建传 forceGeneral，用一次就关', () => {
+test('F2 菜单 4 / 5 / 6 / 7 / 8 接线；GachaScene 只在开发构建传 forceGeneral，用一次就关', () => {
   const m = readFileSync(new URL('../src/ui/DebugMenu.js', import.meta.url), 'utf8');
-  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）', '6  最近的城城防归零', '7  己方兵力拉到 500']) assert.ok(m.includes(s), s);
+  for (const s of ['4  给一名武将', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）', '6  最近的城城防归零', '7  己方兵力拉到 500', '8  强制换 unit']) assert.ok(m.includes(s), s);
   assert.match(m, /if \(r && !r\.joined\) this\.ui\.openRoster\(\)/);
   assert.match(m, /n === 7[\s\S]{0,120}devSetSoldiers\(world\.player, 500/);
+  assert.match(m, /n === 8[\s\S]{0,120}devForceUnit\(world\.player, world\.field\)/);
   const g = readFileSync(new URL('../src/scenes/GachaScene.js', import.meta.url), 'utf8');
   assert.match(g, /\.\.\.\(import\.meta\.env\.DEV && this\.world\.devNextGeneral \? \{ forceGeneral: true \} : \{\}\)/);
   assert.match(g, /if \(import\.meta\.env\.DEV && ctx\.forceGeneral\) this\.world\.devNextGeneral = false;/);
@@ -202,4 +203,27 @@ test('F2-7 己方兵拉到 500：兵力与上限都 ≥500，提示含 T3；fiel
   assert.ok(r.cap >= 500, `cap ${r.cap}`);
   assert.equal(fieldHits, 1);
   assert.match(setSoldiersText(r), /己方兵 50→500.*T3/);
+});
+
+test('F2-8 强制换 unit：按 UNIT_ORDER_UNITS 循环，操练清零，field.refresh 被调用', () => {
+  const party = {
+    team: { unit: 'inf', drill: 3, soldiers: 50, generals: [{ ...balance.hero }], items: [] },
+    balance,
+    refresh() { this.rev = (this.rev ?? 0) + 1; },
+  };
+  let fieldHits = 0;
+  const field = { refresh(p) { fieldHits++; assert.equal(p, party); } };
+  const order = ['inf', 'cav', 'arc', 'spr'];
+  for (let i = 0; i < order.length; i++) {
+    assert.equal(party.team.unit, order[i]);
+    party.team.drill = 2 + i;
+    const r = devForceUnit(party, field);
+    assert.equal(r.before, order[i]);
+    assert.equal(r.after, order[(i + 1) % order.length]);
+    assert.equal(party.team.unit, r.after);
+    assert.equal(party.team.drill, 0, 'changeUnit 清操练');
+    assert.match(forceUnitText(r), /强制换 unit/);
+  }
+  assert.equal(fieldHits, order.length);
+  assert.equal(party.team.unit, 'inf', '转一圈回到步兵');
 });

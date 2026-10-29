@@ -823,7 +823,9 @@ export default class WorldScene extends Phaser.Scene {
       const w = v.label.width, h = v.label.height;
       // QA-13：标签横向夹在地图内（地图左 / 右边缘的队伍名不再被切掉半截）；顶边放不下就放到圆下面
       const lx = labelX(v.body.x, w, this.worldW);
-      let bottom = v.body.y - v.radius - 12; // 留出兵数条 / 士气条
+      // 美工 5201：有像素编队时名字/兵力盖住主将头与方旗，再抬一截（不改碰撞/比例表）
+      const LABEL_DECOR_EXTRA_PX = 36;
+      let bottom = v.body.y - v.radius - 12 - (v.decor ? LABEL_DECOR_EXTRA_PX : 0); // 留出兵数条 / 士气条；有 decor 再避开主将旗
       for (let iter = 0; iter < 8; iter++) {
         const hit = placed.find(r => lx - w / 2 < r.right && lx + w / 2 > r.left && bottom - h < r.bottom && bottom > r.top);
         if (!hit) break;

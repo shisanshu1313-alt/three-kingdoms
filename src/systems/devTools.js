@@ -5,6 +5,8 @@
 import { PLAYER, defMax } from './city.js';
 import { addGeneralOrQueue } from './roster.js';
 import { soldierCap } from './combat.js';
+import { changeUnit, UNIT_ORDER_UNITS } from './gacha.js';
+import { UNIT_FULL_NAMES } from './units.js';
 
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 
@@ -119,4 +121,24 @@ export function devSetSoldiers(party, n, field) {
 }
 export function setSoldiersText(r) {
   return `【调试】己方兵 ${r.before}→${r.after}（上限 ${r.cap}；看 T3 大造型）`;
+}
+
+/**
+ * F2→8 强制切换己方兵种（DEV）：按 UNIT_ORDER_UNITS 循环 inf→cav→arc→spr→inf…
+ * 走 changeUnit（操练清零），无城池/点数/锁定；纯调试，瞬间生效。
+ * 返回 { before, after }。
+ */
+export function devForceUnit(party, field) {
+  const before = party.team.unit;
+  const i = UNIT_ORDER_UNITS.indexOf(before);
+  const after = UNIT_ORDER_UNITS[(i + 1) % UNIT_ORDER_UNITS.length];
+  changeUnit(party.team, after);
+  party.refresh();
+  field?.refresh?.(party);
+  return { before, after };
+}
+export function forceUnitText(r) {
+  const a = UNIT_FULL_NAMES[r.before] ?? r.before;
+  const b = UNIT_FULL_NAMES[r.after] ?? r.after;
+  return `【调试】兵种 ${a}→${b}（强制换 unit，操练清零）`;
 }

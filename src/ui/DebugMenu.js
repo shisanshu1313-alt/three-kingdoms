@@ -2,10 +2,10 @@
  * F2 调试菜单（只在开发模式：UIScene 里 if (import.meta.env.DEV) 动态 import 本文件；正式构建里整段不存在）。
  * Phaser 画的面板（不用 DOM）：1 点数 +N、2 立即主城 / 触发迁都、3 填满地图队伍（触发 T2 撤下过弱黄巾队）、
  *   4 给一名武将（按名册规则：有空位入队 / 满编弹名册）、5 下一抽必出武将卡（用一次自动关）、6 最近的城城防归零（不和守军交战）、
- *   7 己方兵力拉到 500（看 T3 大造型）；Esc / F2 关闭。
+ *   7 己方兵力拉到 500（看 T3 大造型）、8 强制换 unit（按兵种令顺序循环，操练清零）；Esc / F2 关闭。
  */
 import { ACTIONS } from '../platform/input.js';
-import { applyDevHomeCity, applyDevFillTeams, fillTeamsText, devGiveGeneral, giveGeneralText, devBreakWall, breakWallText, devSetSoldiers, setSoldiersText } from '../systems/devTools.js';
+import { applyDevHomeCity, applyDevFillTeams, fillTeamsText, devGiveGeneral, giveGeneralText, devBreakWall, breakWallText, devSetSoldiers, setSoldiersText, devForceUnit, forceUnitText } from '../systems/devTools.js';
 import { balance } from '../data/index.js';
 
 export default class DebugMenu {
@@ -15,7 +15,8 @@ export default class DebugMenu {
     const lines = ['【调试菜单 F2】（仅开发模式 · 打开时游戏暂停）', `1  点数 +${points}（菜单不关，可连按）`, '2  立即获得主城 / 已有主城时触发迁都（Y / N）（选后关闭）', `3  填满地图队伍（${maxTeams} 队）→ 触发 T2 撤下过弱黄巾队（选后关闭）`,
       '4  给一名武将（有空位入队 / 满编弹名册：换将 · 流放 · 存城）（选后关闭）', '5  下一次抽卡必出武将卡（用一次自动关，菜单不关）',
       '6  最近的城城防归零（不和守军交战；测城破回复暂停）（选后关闭）',
-      '7  己方兵力拉到 500（看 T3 大造型）（选后关闭）', 'Esc / F2  关闭'];
+      '7  己方兵力拉到 500（看 T3 大造型）（选后关闭）',
+      '8  强制换 unit（inf→cav→arc→spr 循环，操练清零）（选后关闭）', 'Esc / F2  关闭'];
     this.bg = ui.add.rectangle(0, 0, 560, 22 * lines.length + 20, 0x101830, 0.92).setOrigin(0.5).setStrokeStyle(2, 0x88ccff).setScrollFactor(0).setDepth(1000);
     this.text = ui.add.text(0, 0, lines.join('\n'), { fontFamily: 'sans-serif', fontSize: '15px', color: '#cfe8ff', lineSpacing: 6 }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
     this.setVisible(false);
@@ -56,6 +57,7 @@ export default class DebugMenu {
       return;
     } else if (n === 6) this.ui.toast(breakWallText(devBreakWall(world.state.cities, world.player, world.clock.now / 1000), balance), '#88ccff', 16);
     else if (n === 7) this.ui.toast(setSoldiersText(devSetSoldiers(world.player, 500, world.field)), '#88ccff', 16);
+    else if (n === 8) this.ui.toast(forceUnitText(devForceUnit(world.player, world.field)), '#88ccff', 16);
     else return;
     this.toggle(false);
   }
