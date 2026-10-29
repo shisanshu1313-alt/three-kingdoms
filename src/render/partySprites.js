@@ -193,12 +193,8 @@ export class PartyDecor {
     });
     if (key === this._key && this.nodes.length) return plan;
     this._key = key;
-    for (const n of this.nodes) {
-      n.sprite.destroy();
-      for (const o of n.overlays) o.destroy();
-    }
     this.nodes = [];
-    this.root.removeAll(true);
+    this.root.removeAll(true); // 一并销毁旧 sprite / overlay
 
     for (const e of plan.entries) {
       if (!this.scene.textures.exists(e.atlas)) continue;
