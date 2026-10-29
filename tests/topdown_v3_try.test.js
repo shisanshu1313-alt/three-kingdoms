@@ -17,9 +17,12 @@ import {
   spriteOrigin,
   atlasCandidates,
   HIDE_FACTION_BANNER_TRY,
+  HIDE_SELECTION_RING_TRY,
+  SELECTION_RING_KEYS,
   overlayKeysVisible,
   buildPartySpritePlan,
   TOPDOWN_BANNER_KEYS,
+  TRY_FORMATION_SPACING,
 } from '../src/render/partySprites.js';
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
@@ -118,7 +121,7 @@ test('TOPDOWN try：HIDE_FACTION_BANNER_TRY 不画势力旗/banner overlay', () 
   assert.equal(TOPDOWN_V2B_TRY, true);
   assert.deepEqual(
     overlayKeysVisible(['ring_player', 'crown_named', 'banner_faction_player', 'banner_t2']),
-    ['ring_player', 'crown_named'],
+    ['crown_named'],
   );
   for (const k of TOPDOWN_BANNER_KEYS) {
     assert.equal(overlayKeysVisible([k]).length, 0, k);
@@ -132,7 +135,44 @@ test('TOPDOWN try：HIDE_FACTION_BANNER_TRY 不画势力旗/banner overlay', () 
   for (const k of ['banner_faction_player', 'banner_faction_enemy', 'banner_t2']) {
     assert.ok(!allOv.includes(k), `plan must not include ${k}`);
   }
-  assert.ok(allOv.includes('ring_player') || allOv.includes('ring_thin') || allOv.includes('crown_named'));
+  assert.ok(allOv.includes('crown_named') || allOv.includes('crest_t1'));
   assert.match(SRC, /HIDE_FACTION_BANNER_TRY/);
   assert.match(SRC, /overlayKeysVisible/);
+});
+
+test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
+  assert.equal(HIDE_SELECTION_RING_TRY, true);
+  assert.equal(TOPDOWN_V2B_TRY, true);
+  for (const k of SELECTION_RING_KEYS) {
+    assert.equal(overlayKeysVisible([k]).length, 0, k);
+  }
+  assert.deepEqual(overlayKeysVisible(['ring_player', 'crown_named', 'crest_t1']), ['crown_named', 'crest_t1']);
+  const team = {
+    id: 'p', is_player: true, unit: 'cav', soldiers: 80, faction: 'player',
+    generals: [{ id: 'h' }, { id: 'd1' }],
+  };
+  const plan = buildPartySpritePlan(team);
+  const allOv = plan.entries.flatMap((e) => e.overlays || []);
+  for (const k of ['ring_player', 'ring_thin', 'ring_enemy']) {
+    assert.ok(!allOv.includes(k), `plan must not include ${k}`);
+  }
+  assert.match(SRC, /HIDE_SELECTION_RING_TRY/);
+  assert.match(SRC, /SELECTION_RING_KEYS/);
+});
+
+test('TOPDOWN try：TRY_FORMATION_SPACING 拉开编队槽位（仅 draw）', () => {
+  assert.equal(TOPDOWN_V2B_TRY, true);
+  assert.ok(TRY_FORMATION_SPACING > 1);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING - 1.6) < 1e-9);
+  const team = {
+    id: 'p', is_player: true, unit: 'inf', soldiers: 40, faction: 'player',
+    generals: [{ id: 'h' }, { id: 'd1' }, { id: 'd2' }],
+  };
+  const plan = buildPartySpritePlan(team);
+  const lead = plan.entries.find((e) => e.role === 'leader');
+  const dep = plan.entries.find((e) => e.role === 'deputy');
+  // formation.json leader.forward=19, deputy_0.right=-10
+  assert.ok(Math.abs(lead.forward - 19 * TRY_FORMATION_SPACING) < 1e-9);
+  assert.ok(Math.abs(dep.right - (-10) * TRY_FORMATION_SPACING) < 1e-9);
+  assert.match(SRC, /TRY_FORMATION_SPACING/);
 });
