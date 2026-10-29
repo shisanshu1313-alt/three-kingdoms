@@ -132,7 +132,7 @@ const BASE = 'assets/sprites/parties';
 /**
  * topdown_v4 TRY — 回退（§5）：
  * 1) preload：改回 `atlas_topdown_v3` / `atlas_topdown_v2b`（或去掉 TOPDOWN_TRY_KEYS → 全部 `${BASE}/atlas/`）
- * 2) overlays：banner_* 改回 `overlays/`（侧视立杆）
+ * 2) overlays：banner_* 改回 `overlays/`（侧视立杆）；HIDE_FACTION_BANNER_TRY=false 恢复画旗
  * 3) DIRS + facingDir 恢复四向 ['s','w','e','n']
  * 4) TRY_SCALE = 1（或去掉 draw 乘子）
  * 5) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
@@ -165,6 +165,15 @@ export function partyAssetsReady(scene) {
 export const TOPDOWN_BANNER_KEYS = new Set([
   'banner_faction_player', 'banner_faction_enemy', 'banner_t2',
 ]);
+/** 小维：方旗挡视线 — TOPDOWN try 下不画势力旗/banner overlay（资源仍 preload，易回退） */
+export const HIDE_FACTION_BANNER_TRY = true;
+
+/** 过滤掉 banner_*；非 try 或关旗时原样返回 */
+export function overlayKeysVisible(keys) {
+  const list = Array.isArray(keys) ? keys : [];
+  if (!(TOPDOWN_V2B_TRY && HIDE_FACTION_BANNER_TRY)) return [...list];
+  return list.filter((k) => !TOPDOWN_BANNER_KEYS.has(k) && !String(k).startsWith('banner_'));
+}
 
 /** BootScene.preload：silhouette → atlas_topdown_v4；melee/bow 仍 atlas/；banner → overlays_topdown_v4 */
 export function preloadPartyAssets(scene) {
@@ -322,9 +331,9 @@ export function buildPartySpritePlan(team, opts = {}) {
 
   // 主将（方旗：玩家 banner_faction_player / 敌方 banner_faction_enemy）
   const L = form.leader.local_offset_px;
-  const leadOv = isPlayer
+  const leadOv = overlayKeysVisible(isPlayer
     ? [...(HERO_VIS.leader.overlays || ['ring_player', 'crown_named', 'banner_faction_player'])]
-    : ['ring_enemy', 'crown_named', 'banner_faction_enemy'];
+    : ['ring_enemy', 'crown_named', 'banner_faction_enemy']);
   const exists = typeof opts.exists === 'function' ? opts.exists : undefined;
   entries.push({
     role: 'leader',
@@ -362,7 +371,7 @@ export function buildPartySpritePlan(team, opts = {}) {
     const tv = TIER_VIS[`T${tier}`] || TIER_VIS.T0;
     const overlays = [...(tv.overlays || [])];
     // 敌方士兵环换成敌环
-    const ov = overlays.map(k => (!isPlayer && k === 'ring_thin' ? 'ring_enemy' : k));
+    const ov = overlayKeysVisible(overlays.map(k => (!isPlayer && k === 'ring_thin' ? 'ring_enemy' : k)));
     entries.push({
       role: 'soldier',
       unit,
@@ -427,7 +436,7 @@ export class PartyDecor {
       const tintInt = hexToInt(e.tint);
       if (tintInt !== 0xffffff) spr.setTint(tintInt);
       const ovs = [];
-      for (const ok of e.overlays || []) {
+      for (const ok of overlayKeysVisible(e.overlays || [])) {
         if (!this.scene.textures.exists(ok)) continue;
         const im = this.scene.add.image(0, 0, ok).setOrigin(org.x, org.y);
         if (String(ok).startsWith('ring_')) {

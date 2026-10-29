@@ -16,6 +16,10 @@ import {
   BANNER_LIFT,
   spriteOrigin,
   atlasCandidates,
+  HIDE_FACTION_BANNER_TRY,
+  overlayKeysVisible,
+  buildPartySpritePlan,
+  TOPDOWN_BANNER_KEYS,
 } from '../src/render/partySprites.js';
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
@@ -107,4 +111,28 @@ test('真俯视渲染：origin 中心 + BANNER_LIFT=0 + 士兵无 melee/bow 回�
   assert.ok(!atlasCandidates('arc', 'soldier').includes('soldier_bow'));
   assert.match(SRC, /TRY_ORIGIN/);
   assert.match(SRC, /spriteOrigin/);
+});
+
+test('TOPDOWN try：HIDE_FACTION_BANNER_TRY 不画势力旗/banner overlay', () => {
+  assert.equal(HIDE_FACTION_BANNER_TRY, true);
+  assert.equal(TOPDOWN_V2B_TRY, true);
+  assert.deepEqual(
+    overlayKeysVisible(['ring_player', 'crown_named', 'banner_faction_player', 'banner_t2']),
+    ['ring_player', 'crown_named'],
+  );
+  for (const k of TOPDOWN_BANNER_KEYS) {
+    assert.equal(overlayKeysVisible([k]).length, 0, k);
+  }
+  const team = {
+    id: 'p', is_player: true, unit: 'inf', soldiers: 80, faction: 'player',
+    generals: [{ id: 'h' }, { id: 'd1' }, { id: 'd2' }],
+  };
+  const plan = buildPartySpritePlan(team);
+  const allOv = plan.entries.flatMap((e) => e.overlays || []);
+  for (const k of ['banner_faction_player', 'banner_faction_enemy', 'banner_t2']) {
+    assert.ok(!allOv.includes(k), `plan must not include ${k}`);
+  }
+  assert.ok(allOv.includes('ring_player') || allOv.includes('ring_thin') || allOv.includes('crown_named'));
+  assert.match(SRC, /HIDE_FACTION_BANNER_TRY/);
+  assert.match(SRC, /overlayKeysVisible/);
 });
