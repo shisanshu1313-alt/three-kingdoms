@@ -27,10 +27,10 @@ import {
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
 
-test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.35', () => {
+test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.55', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(TRY_SCALE >= 1.25 && TRY_SCALE <= 1.5);
-  assert.ok(Math.abs(TRY_SCALE - 1.35) < 1e-9);
+  assert.ok(TRY_SCALE >= 1.4 && TRY_SCALE <= 1.7);
+  assert.ok(Math.abs(TRY_SCALE - 1.55) < 1e-9);
 });
 
 test('DIRS 八向顺序含对角', () => {
@@ -163,7 +163,7 @@ test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
 test('TOPDOWN try：TRY_FORMATION_SPACING 拉开编队槽位（仅 draw）', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
   assert.ok(TRY_FORMATION_SPACING > 1);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING - 1.6) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING - 2.0) < 1e-9);
   const team = {
     id: 'p', is_player: true, unit: 'inf', soldiers: 40, faction: 'player',
     generals: [{ id: 'h' }, { id: 'd1' }, { id: 'd2' }],
