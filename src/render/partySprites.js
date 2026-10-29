@@ -91,7 +91,22 @@ export function softFollowStep(cur, target, dt, tau) {
   return { x: cur.x + (target.x - cur.x) * a, y: cur.y + (target.y - cur.y) * a };
 }
 const BASE = 'assets/sprites/parties';
-const DIRS = ['s', 'w', 'e', 'n'];
+/**
+ * topdown_v2b TRY — 回退（§5）：
+ * 1) preload：去掉 TOPDOWN_TRY_KEYS 分支，全部 `${BASE}/atlas/`
+ * 2) DIRS + facingDir 恢复四向 ['s','w','e','n']
+ * 3) TRY_SCALE = 1（或去掉 draw 乘子）
+ * 勿删 public/.../atlas_topdown_v2b/
+ */
+export const TOPDOWN_V2B_TRY = true;
+/** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
+export const TRY_SCALE = 1.35;
+export const TOPDOWN_TRY_KEYS = new Set([
+  'soldier_inf', 'soldier_spr', 'soldier_arc', 'soldier_cav',
+  'officer', 'officer_cav', 'named_base', 'named_cav',
+]);
+/** 八向；旧四向 atlas 缺对角帧时 ensurePartyAnims / sync 会跳过或回退 */
+export const DIRS = ['s', 'se', 'e', 'ne', 'n', 'nw', 'w', 'sw'];
 const TIER_VIS = formation.tier_visual;
 const HERO_VIS = formation.hero_visual;
 
@@ -99,10 +114,11 @@ export function partyAssetsReady(scene) {
   return !!(scene?.textures?.exists?.('soldier_melee') && scene.textures.exists('officer'));
 }
 
-/** BootScene.preload：四底模 + 挂件 */
+/** BootScene.preload：silhouette → atlas_topdown_v2b；melee/bow 仍 atlas/ */
 export function preloadPartyAssets(scene) {
   for (const k of PARTY_ATLAS_KEYS) {
-    scene.load.atlas(k, `${BASE}/atlas/${k}.png`, `${BASE}/atlas/${k}.json`);
+    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_v2b' : 'atlas';
+    scene.load.atlas(k, `${BASE}/${folder}/${k}.png`, `${BASE}/${folder}/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
     scene.load.image(k, `${BASE}/overlays/${k}.png`);
@@ -112,7 +128,17 @@ export function preloadPartyAssets(scene) {
   scene.load.atlas(FX_ATLAS.dust, 'assets/sprites/fx/charge_dust.png', 'assets/sprites/fx/charge_dust.json');
 }
 
-/** 每向 idle/walk/charge 动画（只建一次） */
+/** atlas 是否有某帧（缺帧不建 anim，避免 walk_e 等 throw） */
+function atlasHasFrame(scene, atlas, frame) {
+  try {
+    const tex = scene.textures?.get?.(atlas);
+    return !!(tex && typeof tex.has === 'function' && tex.has(frame));
+  } catch {
+    return false;
+  }
+}
+
+/** 每向 idle/walk/charge（只建有帧的；topdown_v2b walk/charge 仅南向） */
 export function ensurePartyAnims(scene) {
   if (scene.cache?.custom?.__partyAnims) return;
   if (scene.registry) {
@@ -122,11 +148,12 @@ export function ensurePartyAnims(scene) {
   for (const atlas of PARTY_ATLAS_KEYS) {
     if (!scene.textures.exists(atlas)) continue;
     for (const dir of DIRS) {
+      const idleFrame = `idle_${dir}_0`;
       const idleKey = `${atlas}_idle_${dir}`;
-      if (!scene.anims.exists(idleKey)) {
+      if (!scene.anims.exists(idleKey) && atlasHasFrame(scene, atlas, idleFrame)) {
         scene.anims.create({
           key: idleKey,
-          frames: [{ key: atlas, frame: `idle_${dir}_0` }],
+          frames: [{ key: atlas, frame: idleFrame }],
           frameRate: 1,
           repeat: -1,
         });
@@ -134,9 +161,11 @@ export function ensurePartyAnims(scene) {
       for (const anim of ['walk', 'charge']) {
         const key = `${atlas}_${anim}_${dir}`;
         if (scene.anims.exists(key)) continue;
+        const frames = [0, 1, 2, 3].map(i => `${anim}_${dir}_${i}`);
+        if (!frames.every(f => atlasHasFrame(scene, atlas, f))) continue;
         scene.anims.create({
           key,
-          frames: [0, 1, 2, 3].map(i => ({ key: atlas, frame: `${anim}_${dir}_${i}` })),
+          frames: frames.map(frame => ({ key: atlas, frame })),
           frameRate: anim === 'walk' ? 8 : 10,
           repeat: -1,
         });
@@ -145,13 +174,25 @@ export function ensurePartyAnims(scene) {
   }
 }
 
-/** 朝向角 → s/w/e/n（游戏 h：0=东，π/2=南） */
+/** 朝向角 → 八向（游戏 h：0=东，π/2=南；每 π/4 一档） */
 export function facingDir(h) {
   const a = ((Number(h) || 0) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-  if (a >= Math.PI * 7 / 4 || a < Math.PI / 4) return 'e';
-  if (a < Math.PI * 3 / 4) return 's';
-  if (a < Math.PI * 5 / 4) return 'w';
-  return 'n';
+  const dirs = ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'];
+  const i = Math.floor((a + Math.PI / 8) / (Math.PI / 4)) % 8;
+  return dirs[i];
+}
+
+/** 对角 → 旧四向 atlas 的近邻（melee/bow 无 se 等） */
+const DIAG_TO_CARD = { se: 's', sw: 's', ne: 'n', nw: 'n' };
+
+/** 选 idle 帧：优先 idle_{dir}_0，缺则压到四向，再 idle_s_0 */
+export function idleFrameFor(scene, atlas, dir) {
+  const prefer = `idle_${dir}_0`;
+  if (atlasHasFrame(scene, atlas, prefer)) return prefer;
+  const card = DIAG_TO_CARD[dir] || dir;
+  const alt = `idle_${card}_0`;
+  if (atlasHasFrame(scene, atlas, alt)) return alt;
+  return 'idle_s_0';
 }
 
 /** formation local (forward,right) → 屏幕偏移 */
@@ -319,8 +360,9 @@ export class PartyDecor {
 
     for (const e of plan.entries) {
       if (!this.scene.textures.exists(e.atlas)) continue;
-      const spr = this.scene.add.sprite(0, 0, e.atlas, `idle_${this._dir}_0`);
-      spr.setOrigin(0.5, 1).setScale(e.scale);
+      const drawScale = e.scale * TRY_SCALE; // topdown_v2b try
+      const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
+      spr.setOrigin(0.5, 1).setScale(drawScale);
       const tintInt = hexToInt(e.tint);
       if (tintInt !== 0xffffff) spr.setTint(tintInt);
       const ovs = [];
@@ -328,10 +370,10 @@ export class PartyDecor {
         if (!this.scene.textures.exists(ok)) continue;
         const im = this.scene.add.image(0, 0, ok).setOrigin(0.5, 1);
         if (String(ok).startsWith('ring_')) {
-          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, e.scale);
+          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, drawScale);
           im.setScale(lay.scaleX, lay.scaleY);
         } else {
-          im.setScale(e.scale);
+          im.setScale(drawScale);
         }
         im.setData('ovKey', ok);
         ovs.push(im);
@@ -372,15 +414,16 @@ export class PartyDecor {
       if (this.scene.anims.exists(akey) && n.sprite.anims.currentAnim?.key !== akey) {
         n.sprite.play(akey, true);
       } else if (!this.scene.anims.exists(akey)) {
-        n.sprite.setFrame(`idle_${dir}_0`);
+        n.sprite.setFrame(idleFrameFor(this.scene, e.atlas, dir));
       }
+      const drawScale = e.scale * TRY_SCALE;
       // 深度：偏南（大 y）的在上（用软位置）；ring_ 画在精灵脚下
       const spriteDepth = 10 + off.y * 0.01;
       n.sprite.setDepth(spriteDepth);
       for (const o of n.overlays) {
         const ovKey = String(o.getData('ovKey') || '');
         if (ovKey.startsWith('ring_')) {
-          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, e.scale);
+          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, drawScale);
           o.setPosition(off.x, off.y + lay.liftY);
           o.setScale(lay.scaleX, lay.scaleY);
         } else {

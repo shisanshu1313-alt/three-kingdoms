@@ -138,11 +138,15 @@ test('localOffset 面朝南时与 formation.screen_offset_facing_s 一致', () =
   assert.ok(Math.abs(o.y - s0.screen_offset_facing_s.y) < 1e-6);
 });
 
-test('facingDir 四分', () => {
+test('facingDir 八向（cardinal + diagonal）', () => {
   assert.equal(facingDir(0), 'e');
   assert.equal(facingDir(Math.PI / 2), 's');
   assert.equal(facingDir(Math.PI), 'w');
   assert.equal(facingDir(-Math.PI / 2), 'n');
+  assert.equal(facingDir(Math.PI / 4), 'se');
+  assert.equal(facingDir(Math.PI * 3 / 4), 'sw');
+  assert.equal(facingDir(Math.PI * 5 / 4), 'nw');
+  assert.equal(facingDir(Math.PI * 7 / 4), 'ne');
 });
 
 test('标签兵数不受 display_slots 压缩影响（文档约定：HUD 精确值）', () => {
