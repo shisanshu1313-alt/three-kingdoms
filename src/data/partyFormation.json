@@ -11,7 +11,7 @@
     }
   },
   "rules": {
-    "revision_note": "2026-10-29 比例疏密+方旗拍板",
+    "revision_note": "2026-10-29 小维亲口「按推荐」定稿比例；锚点疏密沿用；软跟见 party_scale_feel_params（程序侧）",
     "order_front_to_back": [
       "leader",
       "deputies",
