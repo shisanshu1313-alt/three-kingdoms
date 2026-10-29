@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   BANNER_LIFT,
+  CAV_RING_SCALE_X,
+  CAV_RING_SCALE_Y,
+  CAV_RING_LIFT_Y,
+  ringLayoutFor,
   decorDrawTier,
   compareDecorDrawOrder,
   overlayDepthOffset,
@@ -46,4 +50,29 @@ test('PartyDecor.sync 使用 compareDecorDrawOrder + overlayDepthOffset', () => 
   assert.match(src, /compareDecorDrawOrder/);
   assert.match(src, /overlayDepthOffset/);
   assert.match(src, /ring_/);
+});
+
+test('ringLayoutFor：步战同 scale；骑兵更宽更扁并下移（美工 5203）', () => {
+  assert.equal(CAV_RING_SCALE_X, 1.3);
+  assert.equal(CAV_RING_SCALE_Y, 0.7);
+  assert.equal(CAV_RING_LIFT_Y, 6);
+  const lead = 1.55;
+  const inf = ringLayoutFor('inf', lead);
+  assert.deepEqual(inf, { scaleX: lead, scaleY: lead, liftY: 0 });
+  const spr = ringLayoutFor('spr', 1);
+  assert.deepEqual(spr, { scaleX: 1, scaleY: 1, liftY: 0 });
+  const cav = ringLayoutFor('cav', lead);
+  assert.ok(Math.abs(cav.scaleX - lead * CAV_RING_SCALE_X) < 1e-9);
+  assert.ok(Math.abs(cav.scaleY - lead * CAV_RING_SCALE_Y) < 1e-9);
+  assert.equal(cav.liftY, CAV_RING_LIFT_Y);
+  assert.ok(cav.scaleX > cav.scaleY, 'cavalry ring flatter');
+  assert.ok(cav.scaleY < lead, 'cavalry ring shorter than unit scale');
+  assert.ok(cav.liftY > 0, 'cavalry ring shifted down toward hoof print');
+});
+
+test('PartyDecor rebuild/sync 对 ring_ 调用 ringLayoutFor', () => {
+  const js = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
+  assert.match(js, /ringLayoutFor/);
+  assert.match(js, /CAV_RING_SCALE_X/);
+  assert.match(js, /startsWith\('ring_'\)/);
 });

@@ -28,6 +28,28 @@ export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
 /** 方旗相对脚底上偏（美工 5202/cav：-12 仍压马背 → -16；不改骑位间距） */
 export const BANNER_LIFT = -16;
 
+/**
+ * 选中环相对精灵 scale 的兵种布局（美工 5203）：
+ * 骑兵主将体量更高，环若与本体同 scale 会竖切马肚；骑兵用更宽更扁椭圆并略下移贴蹄印。
+ * 不改骑位间距 / 比例表 / 战斗。
+ */
+export const CAV_RING_SCALE_X = 1.3;   // × baseScale → 略宽过马身
+export const CAV_RING_SCALE_Y = 0.7;   // × baseScale → 压扁，上弧不再切肚
+export const CAV_RING_LIFT_Y = 6;      // Phaser y-down：环整体下移贴蹄印
+
+/** @returns {{ scaleX: number, scaleY: number, liftY: number }} */
+export function ringLayoutFor(unit, baseScale) {
+  const s = Number(baseScale) || 1;
+  if (String(unit || '') === 'cav') {
+    return {
+      scaleX: s * CAV_RING_SCALE_X,
+      scaleY: s * CAV_RING_SCALE_Y,
+      liftY: CAV_RING_LIFT_Y,
+    };
+  }
+  return { scaleX: s, scaleY: s, liftY: 0 };
+}
+
 /** Container 同 y 绘制阶：ring（脚下）< 本体精灵 < 冠/旗等挂件 */
 export function decorDrawTier(gameObject) {
   const k = String(gameObject?.getData?.('ovKey') || '');
@@ -209,6 +231,7 @@ export function buildPartySpritePlan(team, opts = {}) {
   const exists = typeof opts.exists === 'function' ? opts.exists : undefined;
   entries.push({
     role: 'leader',
+    unit,
     atlas: atlasFor(unit, 'leader', exists),
     overlays: leadOv,
     forward: L.forward,
@@ -224,6 +247,7 @@ export function buildPartySpritePlan(team, opts = {}) {
     const o = form[key].local_offset_px;
     entries.push({
       role: 'deputy',
+      unit,
       atlas: atlasFor(unit, 'deputy', exists),
       overlays: isPlayer ? ['ring_thin'] : ['ring_enemy'],
       forward: o.forward,
@@ -244,6 +268,7 @@ export function buildPartySpritePlan(team, opts = {}) {
     const ov = overlays.map(k => (!isPlayer && k === 'ring_thin' ? 'ring_enemy' : k));
     entries.push({
       role: 'soldier',
+      unit,
       tier,
       atlas,
       overlays: ov,
@@ -301,7 +326,13 @@ export class PartyDecor {
       const ovs = [];
       for (const ok of e.overlays || []) {
         if (!this.scene.textures.exists(ok)) continue;
-        const im = this.scene.add.image(0, 0, ok).setOrigin(0.5, 1).setScale(e.scale);
+        const im = this.scene.add.image(0, 0, ok).setOrigin(0.5, 1);
+        if (String(ok).startsWith('ring_')) {
+          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, e.scale);
+          im.setScale(lay.scaleX, lay.scaleY);
+        } else {
+          im.setScale(e.scale);
+        }
         im.setData('ovKey', ok);
         ovs.push(im);
         this.root.add(im);
@@ -348,8 +379,14 @@ export class PartyDecor {
       n.sprite.setDepth(spriteDepth);
       for (const o of n.overlays) {
         const ovKey = String(o.getData('ovKey') || '');
-        const lift = ovKey.startsWith('banner_faction') ? BANNER_LIFT : 0;
-        o.setPosition(off.x, off.y + lift);
+        if (ovKey.startsWith('ring_')) {
+          const lay = ringLayoutFor(e.unit ?? this.model.team.unit, e.scale);
+          o.setPosition(off.x, off.y + lay.liftY);
+          o.setScale(lay.scaleX, lay.scaleY);
+        } else {
+          const lift = ovKey.startsWith('banner_faction') ? BANNER_LIFT : 0;
+          o.setPosition(off.x, off.y + lift);
+        }
         o.setDepth(spriteDepth + overlayDepthOffset(ovKey));
       }
     }
