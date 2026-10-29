@@ -50,7 +50,7 @@ export function ringLayoutFor(unit, baseScale) {
   return { scaleX: s, scaleY: s, liftY: 0 };
 }
 
-/** Container 同 y 绘制阶：ring（脚下）< 本体精灵 < 冠/旗等挂件 */
+/** Container 同层绘制阶：ring（脚下）< 本体精灵 < 冠/旗等挂件 */
 export function decorDrawTier(gameObject) {
   const k = String(gameObject?.getData?.('ovKey') || '');
   if (k.startsWith('ring_')) return 0;
@@ -58,11 +58,46 @@ export function decorDrawTier(gameObject) {
   return 1; // sprite：无 ovKey
 }
 
-/** 先偏南（大 y）在上；同 y 再按 decorDrawTier */
-export function compareDecorDrawOrder(a, b) {
+/**
+ * 小维真俯视 — 转向无前后遮挡层次：
+ * 槽位角色秩：士兵 < 副将 < 主将（数值大的后画、在上）。
+ * 骑兵人马是单张图集帧，无单独马身层。
+ */
+export function topdownSlotRank(role) {
+  if (role === 'leader') return 2;
+  if (role === 'deputy') return 1;
+  return 0; // soldier / default
+}
+
+/** 真俯视 depth：固定秩 + 槽位 index，不用屏幕 y */
+export function topdownSpriteDepth(entryIndex, role) {
+  const i = Number(entryIndex) || 0;
+  return 10 + topdownSlotRank(role) + i * 0.001;
+}
+
+/**
+ * 真俯视 container 排序：全体 ring 最底 → 本体按槽位秩/index → 全体冠旗最上。
+ * 不按屏幕 y（转向时不再「钻到主将身后」）。
+ */
+export function compareDecorDrawOrderTopdown(a, b) {
+  const dt = decorDrawTier(a) - decorDrawTier(b);
+  if (dt !== 0) return dt;
+  const ra = Number(a?.getData?.('slotRank') ?? 0);
+  const rb = Number(b?.getData?.('slotRank') ?? 0);
+  if (ra !== rb) return ra - rb;
+  return Number(a?.getData?.('slotIndex') ?? 0) - Number(b?.getData?.('slotIndex') ?? 0);
+}
+
+/** 旧侧视：先偏南（大 y）在上；同 y 再按 decorDrawTier */
+export function compareDecorDrawOrderY(a, b) {
   const dy = (a?.y ?? 0) - (b?.y ?? 0);
   if (dy !== 0) return dy;
   return decorDrawTier(a) - decorDrawTier(b);
+}
+
+/** TOPDOWN_V2B_TRY 时走固定槽位序；否则走旧 y-sort（易回退） */
+export function compareDecorDrawOrder(a, b) {
+  return TOPDOWN_V2B_TRY ? compareDecorDrawOrderTopdown(a, b) : compareDecorDrawOrderY(a, b);
 }
 
 /** ring 深度低于精灵；其它 overlay 略高于精灵 */
@@ -78,6 +113,8 @@ export function overlayDepthOffset(ovKey) {
 export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.05, soldier: 0.10 };
 /** 士兵越靠后（forward 越小）tau 越大，弯道弧更明显 */
 export function softTauFor(role, forward = 0) {
+  // 小维真俯视 — 转向无前后遮挡层次：关掉软跟拖影（否则转向时假 depth 堆叠）
+  if (TOPDOWN_V2B_TRY) return 0;
   const base = SOFT_FOLLOW_TAU[role] ?? SOFT_FOLLOW_TAU.soldier;
   if (role !== 'soldier' || base <= 0) return base;
   // forward 约 -22…-6；后排多拖 ~40%
@@ -96,6 +133,7 @@ const BASE = 'assets/sprites/parties';
  * 1) preload：去掉 TOPDOWN_TRY_KEYS 分支，全部 `${BASE}/atlas/`
  * 2) DIRS + facingDir 恢复四向 ['s','w','e','n']
  * 3) TRY_SCALE = 1（或去掉 draw 乘子）
+ * 4) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
  * 勿删 public/.../atlas_topdown_v2b/
  */
 export const TOPDOWN_V2B_TRY = true;
@@ -358,11 +396,15 @@ export class PartyDecor {
     this.nodes = [];
     this.root.removeAll(true); // 一并销毁旧 sprite / overlay
 
-    for (const e of plan.entries) {
+    for (let ei = 0; ei < plan.entries.length; ei++) {
+      const e = plan.entries[ei];
       if (!this.scene.textures.exists(e.atlas)) continue;
       const drawScale = e.scale * TRY_SCALE; // topdown_v2b try
+      const slotRank = topdownSlotRank(e.role);
       const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
       spr.setOrigin(0.5, 1).setScale(drawScale);
+      spr.setData('slotRank', slotRank);
+      spr.setData('slotIndex', ei);
       const tintInt = hexToInt(e.tint);
       if (tintInt !== 0xffffff) spr.setTint(tintInt);
       const ovs = [];
@@ -376,11 +418,13 @@ export class PartyDecor {
           im.setScale(drawScale);
         }
         im.setData('ovKey', ok);
+        im.setData('slotRank', slotRank);
+        im.setData('slotIndex', ei);
         ovs.push(im);
         this.root.add(im);
       }
       this.root.add(spr);
-      this.nodes.push({ sprite: spr, overlays: ovs, entry: e, soft: null });
+      this.nodes.push({ sprite: spr, overlays: ovs, entry: e, soft: null, entryIndex: ei });
     }
     return plan;
   }
@@ -417,8 +461,10 @@ export class PartyDecor {
         n.sprite.setFrame(idleFrameFor(this.scene, e.atlas, dir));
       }
       const drawScale = e.scale * TRY_SCALE;
-      // 深度：偏南（大 y）的在上（用软位置）；ring_ 画在精灵脚下
-      const spriteDepth = 10 + off.y * 0.01;
+      // 小维真俯视：depth 用固定槽位秩，不用 off.y（转向无前后遮挡）
+      const spriteDepth = TOPDOWN_V2B_TRY
+        ? topdownSpriteDepth(n.entryIndex ?? 0, e.role)
+        : 10 + off.y * 0.01;
       n.sprite.setDepth(spriteDepth);
       for (const o of n.overlays) {
         const ovKey = String(o.getData('ovKey') || '');
@@ -433,7 +479,7 @@ export class PartyDecor {
         o.setDepth(spriteDepth + overlayDepthOffset(ovKey));
       }
     }
-    // container：先 y，同槽 ring < sprite < 其它挂件（避免选中环盖住马腿）
+    // 真俯视：固定槽位序；旧侧视：y-sort。同槽 ring < sprite < 冠旗
     this.root.list.sort(compareDecorDrawOrder);
   }
 

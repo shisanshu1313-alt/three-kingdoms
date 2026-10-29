@@ -11,6 +11,8 @@ import {
   TOPDOWN_TRY_KEYS,
   TOPDOWN_V2B_TRY,
   preloadPartyAssets,
+  compareDecorDrawOrderTopdown,
+  softTauFor,
 } from '../src/render/partySprites.js';
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
@@ -67,4 +69,18 @@ test('public atlas_topdown_v2b 八 key 就位', () => {
     assert.ok(existsSync(new URL(`${k}.png`, base)), `${k}.png`);
     assert.ok(existsSync(new URL(`${k}.json`, base)), `${k}.json`);
   }
+});
+
+test('真俯视：固定槽位序 + softTau=0（源码锁）', () => {
+  assert.match(SRC, /compareDecorDrawOrderTopdown/);
+  assert.match(SRC, /topdownSpriteDepth/);
+  assert.match(SRC, /小维真俯视/);
+  assert.equal(softTauFor('soldier', -22), 0);
+  const fake = (ovKey, rank, idx) => ({
+    y: 0,
+    getData: (k) => (k === 'ovKey' ? ovKey : k === 'slotRank' ? rank : k === 'slotIndex' ? idx : undefined),
+  });
+  const ordered = [fake(undefined, 2, 0), fake(undefined, 0, 1)].sort(compareDecorDrawOrderTopdown);
+  assert.equal(ordered[0].getData('slotRank'), 0);
+  assert.equal(ordered[1].getData('slotRank'), 2);
 });
