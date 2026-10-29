@@ -902,12 +902,13 @@
       "e": 6,
       "n": 4
     },
-    "source": "Soldier-Blue.png rider + original top-down horse silhouette",
+    "source": "Soldier-Blue.png rider + original top-down horse silhouette v1.1",
     "license": "CC0 (Puny rider) + original horse placeholder",
     "author": "Shade + sanguo-art",
     "role": "cavalry soldier",
-    "note": "PLACEHOLDER horse \u2014 aldour itch download blocked; LPC horses in _candidates/lpc for future swap",
+    "note": "PLACEHOLDER horse v1.1 redraw \u2014 clearer top-down silhouette; aldour still pending",
     "placeholder_horse": true,
+    "horse_silhouette": "v1.1",
     "mounted": true
   }
 }

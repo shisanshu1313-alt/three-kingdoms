@@ -902,11 +902,12 @@
       "e": 6,
       "n": 4
     },
-    "source": "Warrior-Red.png rider + original horse",
+    "source": "Warrior-Red.png rider + original horse v1.1",
     "license": "CC0 (Puny rider) + original horse placeholder",
     "author": "Shade + sanguo-art",
     "role": "cavalry named leader base",
     "placeholder_horse": true,
+    "horse_silhouette": "v1.1",
     "mounted": true
   }
 }
