@@ -1,5 +1,5 @@
 /**
- * topdown_v2b 试玩挂载：旁路图集 + 八向 + TRY_SCALE（不推线上约定由程序侧保证）
+ * topdown_v3 试玩挂载：旁路图集 + 八向 + TRY_SCALE（不推线上约定由程序侧保证）
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { test } from 'node:test';
@@ -34,8 +34,8 @@ test('facingDir 边界落在扇区中线附近', () => {
   assert.equal(facingDir(Math.PI / 2 - 0.01), 's');
 });
 
-test('preload：silhouette → atlas_topdown_v2b；melee/bow → atlas', () => {
-  assert.match(SRC, /atlas_topdown_v2b/);
+test('preload：silhouette → atlas_topdown_v3；melee/bow → atlas', () => {
+  assert.match(SRC, /atlas_topdown_v3/);
   assert.match(SRC, /TOPDOWN_TRY_KEYS/);
   const loads = [];
   const scene = {
@@ -48,13 +48,13 @@ test('preload：silhouette → atlas_topdown_v2b；melee/bow → atlas', () => {
   const byKey = Object.fromEntries(loads.map(l => [l.k, l]));
   for (const k of TOPDOWN_TRY_KEYS) {
     assert.ok(byKey[k], k);
-    assert.match(byKey[k].png, /atlas_topdown_v2b\//);
-    assert.match(byKey[k].json, /atlas_topdown_v2b\//);
+    assert.match(byKey[k].png, /atlas_topdown_v3\//);
+    assert.match(byKey[k].json, /atlas_topdown_v3\//);
   }
   assert.match(byKey.soldier_melee.png, /\/atlas\/soldier_melee/);
   assert.match(byKey.soldier_bow.png, /\/atlas\/soldier_bow/);
-  assert.ok(!byKey.soldier_melee.png.includes('atlas_topdown_v2b'));
-  assert.ok(!byKey.soldier_bow.png.includes('atlas_topdown_v2b'));
+  assert.ok(!byKey.soldier_melee.png.includes('atlas_topdown_v3'));
+  assert.ok(!byKey.soldier_bow.png.includes('atlas_topdown_v3'));
 });
 
 test('ensurePartyAnims 缺帧跳过（源码锁）', () => {
@@ -63,8 +63,8 @@ test('ensurePartyAnims 缺帧跳过（源码锁）', () => {
   assert.match(SRC, /idleFrameFor/);
 });
 
-test('public atlas_topdown_v2b 八 key 就位', () => {
-  const base = new URL('../public/assets/sprites/parties/atlas_topdown_v2b/', import.meta.url);
+test('public atlas_topdown_v3 八 key 就位', () => {
+  const base = new URL('../public/assets/sprites/parties/atlas_topdown_v3/', import.meta.url);
   for (const k of TOPDOWN_TRY_KEYS) {
     assert.ok(existsSync(new URL(`${k}.png`, base)), `${k}.png`);
     assert.ok(existsSync(new URL(`${k}.json`, base)), `${k}.json`);

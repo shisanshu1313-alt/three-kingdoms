@@ -129,12 +129,12 @@ export function softFollowStep(cur, target, dt, tau) {
 }
 const BASE = 'assets/sprites/parties';
 /**
- * topdown_v2b TRY — 回退（§5）：
- * 1) preload：去掉 TOPDOWN_TRY_KEYS 分支，全部 `${BASE}/atlas/`
+ * topdown_v3 TRY — 回退（§5）：
+ * 1) preload：改回 `atlas_topdown_v2b`（或去掉 TOPDOWN_TRY_KEYS 分支 → 全部 `${BASE}/atlas/`）
  * 2) DIRS + facingDir 恢复四向 ['s','w','e','n']
  * 3) TRY_SCALE = 1（或去掉 draw 乘子）
  * 4) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
- * 勿删 public/.../atlas_topdown_v2b/
+ * 勿删 public/.../atlas_topdown_v3/（v2b 旁路也可留作回退）
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
@@ -152,10 +152,10 @@ export function partyAssetsReady(scene) {
   return !!(scene?.textures?.exists?.('soldier_melee') && scene.textures.exists('officer'));
 }
 
-/** BootScene.preload：silhouette → atlas_topdown_v2b；melee/bow 仍 atlas/ */
+/** BootScene.preload：silhouette → atlas_topdown_v3；melee/bow 仍 atlas/ */
 export function preloadPartyAssets(scene) {
   for (const k of PARTY_ATLAS_KEYS) {
-    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_v2b' : 'atlas';
+    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_v3' : 'atlas';
     scene.load.atlas(k, `${BASE}/${folder}/${k}.png`, `${BASE}/${folder}/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
@@ -176,7 +176,7 @@ function atlasHasFrame(scene, atlas, frame) {
   }
 }
 
-/** 每向 idle/walk/charge（只建有帧的；topdown_v2b walk/charge 仅南向） */
+/** 每向 idle/walk/charge（只建有帧的；topdown_v3 walk/charge 仅南向） */
 export function ensurePartyAnims(scene) {
   if (scene.cache?.custom?.__partyAnims) return;
   if (scene.registry) {
@@ -399,7 +399,7 @@ export class PartyDecor {
     for (let ei = 0; ei < plan.entries.length; ei++) {
       const e = plan.entries[ei];
       if (!this.scene.textures.exists(e.atlas)) continue;
-      const drawScale = e.scale * TRY_SCALE; // topdown_v2b try
+      const drawScale = e.scale * TRY_SCALE; // topdown_v3 try
       const slotRank = topdownSlotRank(e.role);
       const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
       spr.setOrigin(0.5, 1).setScale(drawScale);
