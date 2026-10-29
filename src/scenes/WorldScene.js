@@ -34,6 +34,7 @@ import { UNIT_FULL_NAMES } from '../systems/units.js';
 import GameClock from '../core/GameClock.js';
 import { getStorage } from '../platform/storage.js';
 import { getLifecycle } from '../platform/lifecycle.js';
+import { burstContactFx, contactMid, maybeContactSlash, maybeFootDust } from '../render/combatVfx.js';
 
 /** 标签中心 x：夹在地图内（宽 w 的标签不出左右边，pad 为额外半宽） */
 export const labelX = (x, w, worldW, pad = 0) => Math.max(w / 2 + pad + 2, Math.min(worldW - w / 2 - pad - 2, x));
@@ -714,8 +715,8 @@ export default class WorldScene extends Phaser.Scene {
     };
   }
 
-  /** 战斗特效：冲击 / 反冲锋 / 溃逃 / 脱离 */
-  combatEffect(type, p) {
+  /** 战斗特效：冲击 / 反冲锋 / 溃逃 / 脱离；impact/braced 加接触点火花+短 shake */
+  combatEffect(type, p, e) {
     if (!p) return;
     const map = { impact: ['冲!', '#ffdd55', 0xffdd55], braced: ['拒!', '#66ccff', 0x66ccff], rout: ['溃!', '#ff5555', 0xff5555],
       escape: ['脱离', '#88ffff', 0x88ffff], 'rout-recover': ['重整', '#aaffaa', 0xaaffaa], 'protect-cancel': ['出击', '#ffaa66', 0xffaa66],
@@ -731,6 +732,11 @@ export default class WorldScene extends Phaser.Scene {
     this.minimap.ignore([c, t]);
     this.tweens.add({ targets: c, scale: 1.8, alpha: 0, duration: 450, onComplete: () => c.destroy() });
     this.tweens.add({ targets: t, y: t.y - 24, alpha: 0, duration: 900, onComplete: () => t.destroy() });
+    if (type === 'impact' || type === 'braced') {
+      const other = e?.on != null ? this.parties.find(x => x.id === e.on) : null;
+      const mid = contactMid(p, other) || { x: p.x, y: p.y };
+      burstContactFx(this, mid, type);
+    }
     console.log(`[fx] ${type} ${p.name}`);
   }
 
@@ -876,22 +882,37 @@ export default class WorldScene extends Phaser.Scene {
     return this._env;
   }
 
-  /** 接触线 / 弓兵箭线 / 脱离倒计时 */
+  /** 接触线 / 弓兵箭线 / 脱离倒计时；接触中节流 slash；高 v 脚底尘土 */
   drawCombatFx() {
     const g = this.fx.clear(), f = this.field, cfg = f.cfg;
+    const now = this.time.now;
+    this._slashAt = this._slashAt || {};
+    this._dustAt = this._dustAt || {};
     for (const p of Object.values(f.state.pairs)) {
       const a = this.parties.find(x => x.id === p.a), b = this.parties.find(x => x.id === p.b);
       if (!a || !b) continue;
-      const va = this.views.get(a).body, vb = this.views.get(b).body;
+      const va = this.views.get(a)?.body, vb = this.views.get(b)?.body;
+      if (!va || !vb) continue;
       g.lineStyle(p.wasContact ? 4 : 2, p.wasContact ? 0xff3333 : 0xff9999, p.wasContact ? 0.9 : 0.5).lineBetween(va.x, va.y, vb.x, vb.y);
       if (p.apartT > 0) { // 脱离进度：间隙 > escape_gap_px 已持续 apartT / escape_s
         const mx = (va.x + vb.x) / 2, my = (va.y + vb.y) / 2, k = p.apartT / cfg.move.escape_s;
         g.lineStyle(4, 0x88ffff, 0.9).beginPath().arc(mx, my, 14, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2).strokePath();
       }
+      if (p.wasContact) {
+        const key = p.a < p.b ? `${p.a}|${p.b}` : `${p.b}|${p.a}`;
+        // 用插值后的 body 位置做 slash 中点
+        const pa = { x: va.x, y: va.y }, pb = { x: vb.x, y: vb.y };
+        if (maybeContactSlash(this, pa, pb, now, this._slashAt[key] ?? 0)) this._slashAt[key] = now;
+      }
     }
     for (const b of Object.values(f.state.bodies)) if (b.shooting) {
       const a = this.parties.find(x => x.id === b.id), t = this.parties.find(x => x.id === b.shooting);
       if (a && t) g.lineStyle(1, 0xffffaa, 0.8).lineBetween(this.views.get(a).body.x, this.views.get(a).body.y, this.views.get(t).body.x, this.views.get(t).body.y);
+    }
+    for (const party of this.parties) {
+      const body = f.body(party.id);
+      if (!body) continue;
+      if (maybeFootDust(this, party, body, now, this._dustAt[party.id] ?? 0)) this._dustAt[party.id] = now;
     }
   }
 
