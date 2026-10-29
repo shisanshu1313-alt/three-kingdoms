@@ -13,6 +13,9 @@ import {
   preloadPartyAssets,
   compareDecorDrawOrderTopdown,
   softTauFor,
+  BANNER_LIFT,
+  spriteOrigin,
+  atlasCandidates,
 } from '../src/render/partySprites.js';
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
@@ -83,4 +86,13 @@ test('真俯视：固定槽位序 + softTau=0（源码锁）', () => {
   const ordered = [fake(undefined, 2, 0), fake(undefined, 0, 1)].sort(compareDecorDrawOrderTopdown);
   assert.equal(ordered[0].getData('slotRank'), 0);
   assert.equal(ordered[1].getData('slotRank'), 2);
+});
+
+test('真俯视渲染：origin 中心 + BANNER_LIFT=0 + 士兵无 melee/bow 回退', () => {
+  assert.equal(BANNER_LIFT, 0);
+  assert.deepEqual(spriteOrigin(), { x: 0.5, y: 0.5 });
+  assert.deepEqual(atlasCandidates('cav', 'soldier'), ['soldier_cav']);
+  assert.ok(!atlasCandidates('arc', 'soldier').includes('soldier_bow'));
+  assert.match(SRC, /TRY_ORIGIN/);
+  assert.match(SRC, /spriteOrigin/);
 });

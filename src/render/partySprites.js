@@ -25,8 +25,8 @@ const ATLAS_FALLBACK = {
 };
 export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'crest_t1', 'banner_t2', 'crown_named', 'banner_faction_player', 'banner_faction_enemy'];
 export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
-/** 方旗相对脚底上偏（美工 5202/cav：-12 仍压马背 → -16；不改骑位间距） */
-export const BANNER_LIFT = -16;
+/** 真俯视试玩：方旗贴平面中心，不再侧视立杆上抬（旧 3/4 为 -16） */
+export const BANNER_LIFT = 0;
 
 /**
  * 选中环相对精灵 scale 的兵种布局（美工 5203）：
@@ -44,7 +44,8 @@ export function ringLayoutFor(unit, baseScale) {
     return {
       scaleX: s * CAV_RING_SCALE_X,
       scaleY: s * CAV_RING_SCALE_Y,
-      liftY: CAV_RING_LIFT_Y,
+      // 真俯视中心锚点：不再为侧视马肚下移环
+      liftY: TOPDOWN_V2B_TRY ? 0 : CAV_RING_LIFT_Y,
     };
   }
   return { scaleX: s, scaleY: s, liftY: 0 };
@@ -134,11 +135,19 @@ const BASE = 'assets/sprites/parties';
  * 2) DIRS + facingDir 恢复四向 ['s','w','e','n']
  * 3) TRY_SCALE = 1（或去掉 draw 乘子）
  * 4) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
+ * 5) TRY_ORIGIN / BANNER_LIFT / 堵 melee·bow 回退 随标志回退（0.5,1）/ -16 / 旧 atlasCandidates
  * 勿删 public/.../atlas_topdown_v3/（v2b 旁路也可留作回退）
+ * v4 图集空目录就位后：preload folder 改 atlas_topdown_v4 + overlays_topdown_v4
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
 export const TRY_SCALE = 1.35;
+/** 真俯视锚点：平面中心；旧侧视为脚底 (0.5, 1) */
+export const TRY_ORIGIN = Object.freeze({ x: 0.5, y: 0.5 });
+export const LEGACY_ORIGIN = Object.freeze({ x: 0.5, y: 1 });
+export function spriteOrigin() {
+  return TOPDOWN_V2B_TRY ? TRY_ORIGIN : LEGACY_ORIGIN;
+}
 export const TOPDOWN_TRY_KEYS = new Set([
   'soldier_inf', 'soldier_spr', 'soldier_arc', 'soldier_cav',
   'officer', 'officer_cav', 'named_base', 'named_cav',
@@ -262,7 +271,8 @@ export function atlasCandidates(unit, role = 'soldier') {
   if (role === 'deputy') {
     return [m.deputy, 'officer'].filter((k, i, a) => a.indexOf(k) === i);
   }
-  // soldier
+  // soldier：真俯视试玩禁止回退旧侧视 melee/bow（缺图宁可不画）
+  if (TOPDOWN_V2B_TRY) return [m.soldier];
   const legacy = u === 'arc' ? 'soldier_bow' : 'soldier_melee';
   return [m.soldier, legacy, 'soldier_melee'].filter((k, i, a) => a.indexOf(k) === i);
 }
@@ -274,6 +284,8 @@ export function atlasFor(unit, role = 'soldier', exists) {
   const cands = atlasCandidates(unit, role);
   if (typeof exists === 'function') {
     for (const k of cands) if (exists(k)) return k;
+    // 真俯视：不硬回退到侧视 melee/bow；返回首选（rebuild 会跳过缺图）
+    if (TOPDOWN_V2B_TRY) return cands[0];
     // 全缺：角色级硬回退
     if (role === 'deputy') return ATLAS_FALLBACK.deputy;
     if (role === 'leader') return ATLAS_FALLBACK.leader;
@@ -402,7 +414,8 @@ export class PartyDecor {
       const drawScale = e.scale * TRY_SCALE; // topdown_v3 try
       const slotRank = topdownSlotRank(e.role);
       const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
-      spr.setOrigin(0.5, 1).setScale(drawScale);
+      const org = spriteOrigin();
+      spr.setOrigin(org.x, org.y).setScale(drawScale);
       spr.setData('slotRank', slotRank);
       spr.setData('slotIndex', ei);
       const tintInt = hexToInt(e.tint);
@@ -410,7 +423,7 @@ export class PartyDecor {
       const ovs = [];
       for (const ok of e.overlays || []) {
         if (!this.scene.textures.exists(ok)) continue;
-        const im = this.scene.add.image(0, 0, ok).setOrigin(0.5, 1);
+        const im = this.scene.add.image(0, 0, ok).setOrigin(org.x, org.y);
         if (String(ok).startsWith('ring_')) {
           const lay = ringLayoutFor(e.unit ?? this.model.team.unit, drawScale);
           im.setScale(lay.scaleX, lay.scaleY);

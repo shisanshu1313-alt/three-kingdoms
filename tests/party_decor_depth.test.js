@@ -16,6 +16,8 @@ import {
   topdownSlotRank,
   topdownSpriteDepth,
   TOPDOWN_V2B_TRY,
+  spriteOrigin,
+  TRY_ORIGIN,
 } from '../src/render/partySprites.js';
 
 const fake = (y, ovKey, slotRank = 0, slotIndex = 0) => ({
@@ -28,8 +30,8 @@ const fake = (y, ovKey, slotRank = 0, slotIndex = 0) => ({
   },
 });
 
-test('BANNER_LIFT：美工 5202/cav 抬至 -16（不改骑位间距）', () => {
-  assert.equal(BANNER_LIFT, -16);
+test('BANNER_LIFT：真俯视贴平面中心（旧侧视 -16）', () => {
+  assert.equal(BANNER_LIFT, 0);
 });
 
 test('overlayDepthOffset：ring 在精灵下，其它挂件略上', () => {
@@ -125,10 +127,11 @@ test('ringLayoutFor：步战同 scale；骑兵更宽更扁并下移（美工 520
   const cav = ringLayoutFor('cav', lead);
   assert.ok(Math.abs(cav.scaleX - lead * CAV_RING_SCALE_X) < 1e-9);
   assert.ok(Math.abs(cav.scaleY - lead * CAV_RING_SCALE_Y) < 1e-9);
-  assert.equal(cav.liftY, CAV_RING_LIFT_Y);
+  // TRY 开启：中心锚点，不再为侧视马肚下移
+  assert.equal(cav.liftY, 0);
   assert.ok(cav.scaleX > cav.scaleY, 'cavalry ring flatter');
   assert.ok(cav.scaleY < lead, 'cavalry ring shorter than unit scale');
-  assert.ok(cav.liftY > 0, 'cavalry ring shifted down toward hoof print');
+  assert.equal(CAV_RING_LIFT_Y, 10); // 常量保留给回退侧视
 });
 
 test('PartyDecor rebuild/sync 对 ring_ 调用 ringLayoutFor', () => {
@@ -136,4 +139,13 @@ test('PartyDecor rebuild/sync 对 ring_ 调用 ringLayoutFor', () => {
   assert.match(js, /ringLayoutFor/);
   assert.match(js, /CAV_RING_SCALE_X/);
   assert.match(js, /startsWith\('ring_'\)/);
+});
+
+test('真俯视 spriteOrigin 平面中心 (0.5, 0.5)', () => {
+  assert.equal(TOPDOWN_V2B_TRY, true);
+  assert.deepEqual(spriteOrigin(), { x: 0.5, y: 0.5 });
+  assert.deepEqual(TRY_ORIGIN, { x: 0.5, y: 0.5 });
+  const js = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
+  assert.match(js, /spriteOrigin\(\)/);
+  assert.match(js, /setOrigin\(org\.x, org\.y\)/);
 });
