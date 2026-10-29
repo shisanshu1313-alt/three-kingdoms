@@ -25,8 +25,28 @@ const ATLAS_FALLBACK = {
 };
 export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'crest_t1', 'banner_t2', 'crown_named', 'banner_faction_player', 'banner_faction_enemy'];
 export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
-/** 方旗相对脚底上偏（美工建议 -10～-14） */
-const BANNER_LIFT = -12;
+/** 方旗相对脚底上偏（美工 5202/cav：-12 仍压马背 → -16；不改骑位间距） */
+export const BANNER_LIFT = -16;
+
+/** Container 同 y 绘制阶：ring（脚下）< 本体精灵 < 冠/旗等挂件 */
+export function decorDrawTier(gameObject) {
+  const k = String(gameObject?.getData?.('ovKey') || '');
+  if (k.startsWith('ring_')) return 0;
+  if (k) return 2;
+  return 1; // sprite：无 ovKey
+}
+
+/** 先偏南（大 y）在上；同 y 再按 decorDrawTier */
+export function compareDecorDrawOrder(a, b) {
+  const dy = (a?.y ?? 0) - (b?.y ?? 0);
+  if (dy !== 0) return dy;
+  return decorDrawTier(a) - decorDrawTier(b);
+}
+
+/** ring 深度低于精灵；其它 overlay 略高于精灵 */
+export function overlayDepthOffset(ovKey) {
+  return String(ovKey || '').startsWith('ring_') ? -0.01 : 0.001;
+}
 
 /**
  * 表现层软跟排（不改 melee / display_slots / 碰撞）：
@@ -323,16 +343,18 @@ export class PartyDecor {
       } else if (!this.scene.anims.exists(akey)) {
         n.sprite.setFrame(`idle_${dir}_0`);
       }
-      // 深度：偏南（大 y）的在上（用软位置）
-      n.sprite.setDepth(10 + off.y * 0.01);
+      // 深度：偏南（大 y）的在上（用软位置）；ring_ 画在精灵脚下
+      const spriteDepth = 10 + off.y * 0.01;
+      n.sprite.setDepth(spriteDepth);
       for (const o of n.overlays) {
-        const lift = String(o.getData('ovKey') || '').startsWith('banner_faction') ? BANNER_LIFT : 0;
+        const ovKey = String(o.getData('ovKey') || '');
+        const lift = ovKey.startsWith('banner_faction') ? BANNER_LIFT : 0;
         o.setPosition(off.x, off.y + lift);
-        o.setDepth(10 + off.y * 0.01 + 0.001);
+        o.setDepth(spriteDepth + overlayDepthOffset(ovKey));
       }
     }
-    // container 内按 y 排序
-    this.root.list.sort((a, b) => (a.y - b.y) || 0);
+    // container：先 y，同槽 ring < sprite < 其它挂件（避免选中环盖住马腿）
+    this.root.list.sort(compareDecorDrawOrder);
   }
 
   setAlpha(a) { this.root.setAlpha(a); }
