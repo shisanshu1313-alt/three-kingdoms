@@ -143,7 +143,7 @@ export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
 export const TRY_SCALE = 1.55;
 /** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json） */
-export const TRY_FORMATION_SPACING = 2.0;
+export const TRY_FORMATION_SPACING = 2.8;
 /** 真俯视锚点：平面中心；旧侧视为脚底 (0.5, 1) */
 export const TRY_ORIGIN = Object.freeze({ x: 0.5, y: 0.5 });
 export const LEGACY_ORIGIN = Object.freeze({ x: 0.5, y: 1 });

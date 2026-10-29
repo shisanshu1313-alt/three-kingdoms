@@ -163,7 +163,7 @@ test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
 test('TOPDOWN try：TRY_FORMATION_SPACING 拉开编队槽位（仅 draw）', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
   assert.ok(TRY_FORMATION_SPACING > 1);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING - 2.0) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING - 2.8) < 1e-9);
   const team = {
     id: 'p', is_player: true, unit: 'inf', soldiers: 40, faction: 'player',
     generals: [{ id: 'h' }, { id: 'd1' }, { id: 'd2' }],
