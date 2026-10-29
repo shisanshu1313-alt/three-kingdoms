@@ -6,7 +6,23 @@ import formation from '../data/partyFormation.json' with { type: 'json' };
 import tints from '../data/factionTints.json' with { type: 'json' };
 import { displaySlots, soldierTierList } from '../systems/displaySlots.js';
 
-export const PARTY_ATLAS_KEYS = ['soldier_melee', 'soldier_bow', 'officer', 'named_base'];
+/** 现有 + 兵种造型 v1 图集；缺文件时 loaderror 可忽略，atlasFor 回退旧 key */
+export const PARTY_ATLAS_KEYS = [
+  'soldier_melee', 'soldier_bow', 'officer', 'named_base',
+  'soldier_inf', 'soldier_spr', 'soldier_arc', 'soldier_cav', 'officer_cav', 'named_cav',
+];
+/** troop_silhouette_v1.atlas_matrix */
+export const ATLAS_MATRIX = {
+  inf: { soldier: 'soldier_inf', deputy: 'officer', leader: ['named_base', 'officer'] },
+  spr: { soldier: 'soldier_spr', deputy: 'officer', leader: ['named_base', 'officer'] },
+  arc: { soldier: 'soldier_arc', deputy: 'officer', leader: ['named_base', 'officer'] },
+  cav: { soldier: 'soldier_cav', deputy: 'officer_cav', leader: ['named_cav', 'officer_cav'] },
+};
+const ATLAS_FALLBACK = {
+  soldier: { arc: 'soldier_bow', default: 'soldier_melee' },
+  deputy: 'officer',
+  leader: 'named_base',
+};
 export const PARTY_OVERLAY_KEYS = ['ring_player', 'ring_thin', 'ring_enemy', 'crest_t1', 'banner_t2', 'crown_named', 'banner_faction_player', 'banner_faction_enemy'];
 export const FX_ATLAS = { slash: 'fx_slash', dust: 'fx_dust' };
 /** 方旗相对脚底上偏（美工建议 -10～-14） */
@@ -43,7 +59,11 @@ export function partyAssetsReady(scene) {
 
 /** BootScene.preload：四底模 + 挂件 */
 export function preloadPartyAssets(scene) {
+  // 新兵种图集：仅当 png+json 都已在 public 时由构建机/美工落盘；此处只 load 确定存在的 legacy，
+  // 可选 key 用 fetch 探测太重——改为「有纹理才用」：开发时把文件放进 atlas/ 后把 key 移出 optional。
+  const optionalNew = new Set(['soldier_inf', 'soldier_spr', 'soldier_arc', 'soldier_cav', 'officer_cav', 'named_cav']);
   for (const k of PARTY_ATLAS_KEYS) {
+    if (optionalNew.has(k)) continue;
     scene.load.atlas(k, `${BASE}/atlas/${k}.png`, `${BASE}/atlas/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
@@ -114,8 +134,35 @@ function hexToInt(hex) {
   return Number.isFinite(n) ? n : 0xffffff;
 }
 
-function soldierAtlas(unit) {
-  return unit === 'arc' ? 'soldier_bow' : 'soldier_melee';
+/** 候选图集：首选 → 旧图回退（缺图时用） */
+export function atlasCandidates(unit, role = 'soldier') {
+  const u = ATLAS_MATRIX[unit] ? unit : 'inf';
+  const m = ATLAS_MATRIX[u];
+  if (role === 'leader') {
+    const pref = Array.isArray(m.leader) ? m.leader : [m.leader];
+    return [...pref, 'named_base', 'officer'];
+  }
+  if (role === 'deputy') {
+    return [m.deputy, 'officer'].filter((k, i, a) => a.indexOf(k) === i);
+  }
+  // soldier
+  const legacy = u === 'arc' ? 'soldier_bow' : 'soldier_melee';
+  return [m.soldier, legacy, 'soldier_melee'].filter((k, i, a) => a.indexOf(k) === i);
+}
+
+/**
+ * 按兵种+角色选 atlas。exists(key) 有则取第一个存在的；无 exists 时返回首选（计划/单测）。
+ */
+export function atlasFor(unit, role = 'soldier', exists) {
+  const cands = atlasCandidates(unit, role);
+  if (typeof exists === 'function') {
+    for (const k of cands) if (exists(k)) return k;
+    // 全缺：角色级硬回退
+    if (role === 'deputy') return ATLAS_FALLBACK.deputy;
+    if (role === 'leader') return ATLAS_FALLBACK.leader;
+    return (ATLAS_FALLBACK.soldier[unit] || ATLAS_FALLBACK.soldier.default);
+  }
+  return cands[0];
 }
 
 /**
@@ -143,9 +190,10 @@ export function buildPartySpritePlan(team, opts = {}) {
   const leadOv = isPlayer
     ? [...(HERO_VIS.leader.overlays || ['ring_player', 'crown_named', 'banner_faction_player'])]
     : ['ring_enemy', 'crown_named', 'banner_faction_enemy'];
+  const exists = typeof opts.exists === 'function' ? opts.exists : undefined;
   entries.push({
     role: 'leader',
-    atlas: 'named_base',
+    atlas: atlasFor(unit, 'leader', exists),
     overlays: leadOv,
     forward: L.forward,
     right: L.right,
@@ -160,7 +208,7 @@ export function buildPartySpritePlan(team, opts = {}) {
     const o = form[key].local_offset_px;
     entries.push({
       role: 'deputy',
-      atlas: 'officer',
+      atlas: atlasFor(unit, 'deputy', exists),
       overlays: isPlayer ? ['ring_thin'] : ['ring_enemy'],
       forward: o.forward,
       right: o.right,
@@ -169,8 +217,8 @@ export function buildPartySpritePlan(team, opts = {}) {
     });
   }
 
-  // 士兵
-  const atlas = soldierAtlas(unit);
+  // 士兵（按兵种剪影；缺图回退 melee/bow）
+  const atlas = atlasFor(unit, 'soldier', exists);
   for (let i = 0; i < tiers.length; i++) {
     const slot = form.soldier_slots[Math.min(i, form.soldier_slots.length - 1)];
     const tier = tiers[i];
@@ -212,7 +260,8 @@ export class PartyDecor {
   }
 
   rebuild(opts = {}) {
-    const plan = buildPartySpritePlan(this.model.team, opts);
+    const exists = (k) => !!(this.scene?.textures?.exists?.(k));
+    const plan = buildPartySpritePlan(this.model.team, { ...opts, exists });
     const sol = opts.soldiers ?? this.model.team.soldiers ?? 0;
     const key = JSON.stringify({
       g: (this.model.team.generals || []).length,
