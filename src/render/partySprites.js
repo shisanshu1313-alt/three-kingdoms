@@ -130,14 +130,14 @@ export function softFollowStep(cur, target, dt, tau) {
 }
 const BASE = 'assets/sprites/parties';
 /**
- * topdown_v3 TRY — 回退（§5）：
- * 1) preload：改回 `atlas_topdown_v2b`（或去掉 TOPDOWN_TRY_KEYS 分支 → 全部 `${BASE}/atlas/`）
- * 2) DIRS + facingDir 恢复四向 ['s','w','e','n']
- * 3) TRY_SCALE = 1（或去掉 draw 乘子）
- * 4) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
- * 5) TRY_ORIGIN / BANNER_LIFT / 堵 melee·bow 回退 随标志回退（0.5,1）/ -16 / 旧 atlasCandidates
- * 勿删 public/.../atlas_topdown_v3/（v2b 旁路也可留作回退）
- * v4 图集空目录就位后：preload folder 改 atlas_topdown_v4 + overlays_topdown_v4
+ * topdown_v4 TRY — 回退（§5）：
+ * 1) preload：改回 `atlas_topdown_v3` / `atlas_topdown_v2b`（或去掉 TOPDOWN_TRY_KEYS → 全部 `${BASE}/atlas/`）
+ * 2) overlays：banner_* 改回 `overlays/`（侧视立杆）
+ * 3) DIRS + facingDir 恢复四向 ['s','w','e','n']
+ * 4) TRY_SCALE = 1（或去掉 draw 乘子）
+ * 5) 本包真俯视：compareDecorDrawOrder / softTauFor / depth 随标志回退旧 y-sort
+ * 6) TRY_ORIGIN / BANNER_LIFT / 堵 melee·bow 回退 随标志回退（0.5,1）/ -16 / 旧 atlasCandidates
+ * 勿删 public/.../atlas_topdown_v4/、overlays_topdown_v4/（v3/v2b 旁路也可留作回退）
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
@@ -161,14 +161,20 @@ export function partyAssetsReady(scene) {
   return !!(scene?.textures?.exists?.('soldier_melee') && scene.textures.exists('officer'));
 }
 
-/** BootScene.preload：silhouette → atlas_topdown_v3；melee/bow 仍 atlas/ */
+/** 真俯视扁旗旁路；其余 ring/crest/crown 仍 overlays/ */
+export const TOPDOWN_BANNER_KEYS = new Set([
+  'banner_faction_player', 'banner_faction_enemy', 'banner_t2',
+]);
+
+/** BootScene.preload：silhouette → atlas_topdown_v4；melee/bow 仍 atlas/；banner → overlays_topdown_v4 */
 export function preloadPartyAssets(scene) {
   for (const k of PARTY_ATLAS_KEYS) {
-    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_v3' : 'atlas';
+    const folder = TOPDOWN_TRY_KEYS.has(k) ? 'atlas_topdown_v4' : 'atlas';
     scene.load.atlas(k, `${BASE}/${folder}/${k}.png`, `${BASE}/${folder}/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
-    scene.load.image(k, `${BASE}/overlays/${k}.png`);
+    const folder = TOPDOWN_V2B_TRY && TOPDOWN_BANNER_KEYS.has(k) ? 'overlays_topdown_v4' : 'overlays';
+    scene.load.image(k, `${BASE}/${folder}/${k}.png`);
   }
   // 打击特效图集（slash / charge_dust）；缺文件时 Phaser 会报 loaderror，调用方可忽略
   scene.load.atlas(FX_ATLAS.slash, 'assets/sprites/fx/slash.png', 'assets/sprites/fx/slash.json');
@@ -411,7 +417,7 @@ export class PartyDecor {
     for (let ei = 0; ei < plan.entries.length; ei++) {
       const e = plan.entries[ei];
       if (!this.scene.textures.exists(e.atlas)) continue;
-      const drawScale = e.scale * TRY_SCALE; // topdown_v3 try
+      const drawScale = e.scale * TRY_SCALE; // topdown_v4 try
       const slotRank = topdownSlotRank(e.role);
       const spr = this.scene.add.sprite(0, 0, e.atlas, idleFrameFor(this.scene, e.atlas, this._dir));
       const org = spriteOrigin();
