@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "tile_size": 32,
+  "coordinate_space": {
+    "origin": "party_center",
+    "axes": {
+      "forward": "unit facing direction (leader points this way)",
+      "right": "perpendicular to facing, right-hand side",
+      "note": "Program should rotate these offsets by facing angle. Example screen deltas below assume facing South (forward = +Y on screen, right = -X)."
+    }
+  },
+  "rules": {
+    "order_front_to_back": [
+      "leader",
+      "deputies",
+      "soldiers"
+    ],
+    "max_hero_slots": 3,
+    "hero_slots": [
+      "leader",
+      "deputy_0",
+      "deputy_1"
+    ],
+    "heroes_not_in_tier_fusion": true,
+    "hero_comment": "武将单独精灵，不进 T0–T3 士兵合成；仅士兵做升阶合成",
+    "soldier_visible_budget": {
+      "suggested_max_sprites": 8,
+      "comment": "同屏可读上限建议；具体兵数公式由策划定，此处只给锚点"
+    }
+  },
+  "slots": {
+    "leader": {
+      "role": "主将",
+      "atlas_hint": "named_base 或 officer",
+      "overlays": [
+        "ring_player",
+        "crown_named"
+      ],
+      "local_offset_px": {
+        "forward": 14,
+        "right": 0
+      },
+      "screen_offset_facing_s": {
+        "x": 0,
+        "y": 14
+      }
+    },
+    "deputy_0": {
+      "role": "副将左",
+      "atlas_hint": "officer",
+      "overlays": [
+        "ring_thin"
+      ],
+      "local_offset_px": {
+        "forward": 2,
+        "right": -12
+      },
+      "screen_offset_facing_s": {
+        "x": 12,
+        "y": 2
+      }
+    },
+    "deputy_1": {
+      "role": "副将右",
+      "atlas_hint": "officer",
+      "overlays": [
+        "ring_thin"
+      ],
+      "local_offset_px": {
+        "forward": 2,
+        "right": 12
+      },
+      "screen_offset_facing_s": {
+        "x": -12,
+        "y": 2
+      }
+    },
+    "soldier_slots": [
+      {
+        "id": "s0",
+        "local_offset_px": {
+          "forward": -10,
+          "right": -14
+        },
+        "screen_offset_facing_s": {
+          "x": 14,
+          "y": -10
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s1",
+        "local_offset_px": {
+          "forward": -10,
+          "right": 0
+        },
+        "screen_offset_facing_s": {
+          "x": 0,
+          "y": -10
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s2",
+        "local_offset_px": {
+          "forward": -10,
+          "right": 14
+        },
+        "screen_offset_facing_s": {
+          "x": -14,
+          "y": -10
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s3",
+        "local_offset_px": {
+          "forward": -22,
+          "right": -18
+        },
+        "screen_offset_facing_s": {
+          "x": 18,
+          "y": -22
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s4",
+        "local_offset_px": {
+          "forward": -22,
+          "right": -6
+        },
+        "screen_offset_facing_s": {
+          "x": 6,
+          "y": -22
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s5",
+        "local_offset_px": {
+          "forward": -22,
+          "right": 6
+        },
+        "screen_offset_facing_s": {
+          "x": -6,
+          "y": -22
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s6",
+        "local_offset_px": {
+          "forward": -22,
+          "right": 18
+        },
+        "screen_offset_facing_s": {
+          "x": -18,
+          "y": -22
+        },
+        "tier_hint": "T0-T3 any"
+      },
+      {
+        "id": "s7",
+        "local_offset_px": {
+          "forward": -34,
+          "right": 0
+        },
+        "screen_offset_facing_s": {
+          "x": 0,
+          "y": -34
+        },
+        "tier_hint": "T2/T3 preferred when sparse"
+      }
+    ]
+  },
+  "tier_visual": {
+    "applies_to": "soldiers_only",
+    "T0": {
+      "overlays": [
+        "ring_thin"
+      ],
+      "scale": 1.0
+    },
+    "T1": {
+      "overlays": [
+        "ring_thin",
+        "crest_t1"
+      ],
+      "scale": 1.0
+    },
+    "T2": {
+      "overlays": [
+        "ring_thin",
+        "banner_t2"
+      ],
+      "scale": 1.25,
+      "optional_keep_crest": true
+    },
+    "T3": {
+      "overlays": [
+        "ring_thin",
+        "crest_t1",
+        "banner_t2"
+      ],
+      "scale": 1.35,
+      "comment": "预留更高阶；造型差仍靠挂件+缩放，不靠加人"
+    }
+  },
+  "hero_visual": {
+    "leader": {
+      "atlas": [
+        "named_base",
+        "officer"
+      ],
+      "overlays": [
+        "ring_player",
+        "crown_named"
+      ],
+      "scale": 1.15
+    },
+    "deputy": {
+      "atlas": [
+        "officer"
+      ],
+      "overlays": [
+        "ring_thin"
+      ],
+      "scale": 1.05
+    }
+  }
+}

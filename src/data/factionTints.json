@@ -1,0 +1,28 @@
+{
+  "player": {
+    "ring": "#f1c40f",
+    "tint": "#ffffff",
+    "outline": "#ffffff"
+  },
+  "wei": {
+    "ring": "#3498db",
+    "tint": "#5dade2"
+  },
+  "shu": {
+    "ring": "#27ae60",
+    "tint": "#58d68d"
+  },
+  "wu": {
+    "ring": "#e74c3c",
+    "tint": "#f1948a"
+  },
+  "other": {
+    "ring": "#95a5a6",
+    "tint": "#bdc3c7"
+  },
+  "enemy_generic": {
+    "ring": "#2c3e50",
+    "tint": "#7f8c8d",
+    "desaturate": 0.35
+  }
+}

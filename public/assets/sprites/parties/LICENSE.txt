@@ -1,0 +1,26 @@
+Puny Characters — License & Attribution
+========================================
+
+Source pack: Puny Characters
+Author: Shade
+License: CC0 1.0 Universal (Public Domain Dedication)
+OpenGameArt: https://opengameart.org/content/puny-characters
+Download used: https://opengameart.org/sites/default/files/puny-characters.zip
+itch.io (author): https://merchant-shade.itch.io/16x16-puny-characters
+
+CC0 summary (not legal advice; see full legal code):
+  The author has dedicated the work to the public domain by waiving all of
+  his or her rights to the work worldwide under copyright law, including all
+  related and neighboring rights, to the extent allowed by law.
+  You can copy, modify, distribute and perform the work, even for commercial
+  purposes, all without asking permission. Credit is appreciated but not required.
+
+Full CC0 legal code:
+  https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+Local path of unmodified zip:
+  /workspace/sanguo-art/parties/puny/puny-characters.zip
+
+Derived atlases / overlays in this folder are adaptations of the above CC0
+material (plus simple program-generated ring/crest overlays). Treat derived
+art as CC0 as well unless noted otherwise.
