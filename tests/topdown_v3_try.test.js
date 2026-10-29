@@ -1,5 +1,5 @@
 /**
- * topdown_v4 试玩挂载：旁路图集 + 八向 + TRY_SCALE（不推线上约定由程序侧保证）
+ * topdown_s3c 试玩挂载：旁路图集 + 八向 + TRY_SCALE（不推线上约定由程序侧保证）
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { test } from 'node:test';
@@ -46,8 +46,8 @@ test('facingDir 边界落在扇区中线附近', () => {
   assert.equal(facingDir(Math.PI / 2 - 0.01), 's');
 });
 
-test('preload：silhouette → atlas_topdown_v4；melee/bow → atlas；banner → overlays_topdown_v4', () => {
-  assert.match(SRC, /atlas_topdown_v4/);
+test('preload：silhouette → atlas_topdown_s3c；melee/bow → atlas；banner → overlays_topdown_v4', () => {
+  assert.match(SRC, /atlas_topdown_s3c/);
   assert.match(SRC, /overlays_topdown_v4/);
   assert.match(SRC, /TOPDOWN_TRY_KEYS/);
   assert.match(SRC, /TOPDOWN_BANNER_KEYS/);
@@ -63,13 +63,13 @@ test('preload：silhouette → atlas_topdown_v4；melee/bow → atlas；banner �
   const byKey = Object.fromEntries(loads.map(l => [l.k, l]));
   for (const k of TOPDOWN_TRY_KEYS) {
     assert.ok(byKey[k], k);
-    assert.match(byKey[k].png, /atlas_topdown_v4\//);
-    assert.match(byKey[k].json, /atlas_topdown_v4\//);
+    assert.match(byKey[k].png, /atlas_topdown_s3c\//);
+    assert.match(byKey[k].json, /atlas_topdown_s3c\//);
   }
   assert.match(byKey.soldier_melee.png, /\/atlas\/soldier_melee/);
   assert.match(byKey.soldier_bow.png, /\/atlas\/soldier_bow/);
-  assert.ok(!byKey.soldier_melee.png.includes('atlas_topdown_v4'));
-  assert.ok(!byKey.soldier_bow.png.includes('atlas_topdown_v4'));
+  assert.ok(!byKey.soldier_melee.png.includes('atlas_topdown_s3c'));
+  assert.ok(!byKey.soldier_bow.png.includes('atlas_topdown_s3c'));
   const byImg = Object.fromEntries(images.map(l => [l.k, l]));
   for (const k of ['banner_faction_player', 'banner_faction_enemy', 'banner_t2']) {
     assert.match(byImg[k].png, /overlays_topdown_v4\//);
@@ -83,8 +83,8 @@ test('ensurePartyAnims 缺帧跳过（源码锁）', () => {
   assert.match(SRC, /idleFrameFor/);
 });
 
-test('public atlas_topdown_v4 八 key + overlays_topdown_v4 扁旗就位', () => {
-  const base = new URL('../public/assets/sprites/parties/atlas_topdown_v4/', import.meta.url);
+test('public atlas_topdown_s3c 八 key + overlays_topdown_v4 扁旗就位', () => {
+  const base = new URL('../public/assets/sprites/parties/atlas_topdown_s3c/', import.meta.url);
   for (const k of TOPDOWN_TRY_KEYS) {
     assert.ok(existsSync(new URL(`${k}.png`, base)), `${k}.png`);
     assert.ok(existsSync(new URL(`${k}.json`, base)), `${k}.json`);
