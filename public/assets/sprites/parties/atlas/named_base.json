@@ -867,7 +867,7 @@
   },
   "meta": {
     "app": "sanguo-art-puny-packer",
-    "version": "1.0",
+    "version": "1.1",
     "image": "named_base.png",
     "format": "RGBA8888",
     "size": {
@@ -875,9 +875,6 @@
       "h": 160
     },
     "scale": "1",
-    "source": "Warrior-Red.png",
-    "license": "CC0",
-    "author": "Shade",
     "frameSize": {
       "w": 32,
       "h": 32
@@ -890,29 +887,13 @@
     ],
     "animations": {
       "idle": {
-        "frames_per_dir": 1,
-        "source_cols": [
-          0
-        ]
+        "frames_per_dir": 1
       },
       "walk": {
-        "frames_per_dir": 4,
-        "source_cols": [
-          1,
-          2,
-          3,
-          4
-        ]
+        "frames_per_dir": 4
       },
       "charge": {
-        "frames_per_dir": 4,
-        "source_cols": [
-          5,
-          6,
-          7,
-          8
-        ],
-        "note": "melee/officer from sword attack; bow from bow attack"
+        "frames_per_dir": 4
       }
     },
     "dir_rows_in_source": {
@@ -920,6 +901,11 @@
       "w": 2,
       "e": 6,
       "n": 4
-    }
+    },
+    "source": "Warrior-Red.png",
+    "license": "CC0",
+    "author": "Shade (Puny Characters)",
+    "role": "foot named leader base for inf/spr/arc",
+    "note": "polished; still on foot"
   }
 }

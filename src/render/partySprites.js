@@ -59,11 +59,7 @@ export function partyAssetsReady(scene) {
 
 /** BootScene.preload：四底模 + 挂件 */
 export function preloadPartyAssets(scene) {
-  // 新兵种图集：仅当 png+json 都已在 public 时由构建机/美工落盘；此处只 load 确定存在的 legacy，
-  // 可选 key 用 fetch 探测太重——改为「有纹理才用」：开发时把文件放进 atlas/ 后把 key 移出 optional。
-  const optionalNew = new Set(['soldier_inf', 'soldier_spr', 'soldier_arc', 'soldier_cav', 'officer_cav', 'named_cav']);
   for (const k of PARTY_ATLAS_KEYS) {
-    if (optionalNew.has(k)) continue;
     scene.load.atlas(k, `${BASE}/atlas/${k}.png`, `${BASE}/atlas/${k}.json`);
   }
   for (const k of PARTY_OVERLAY_KEYS) {
