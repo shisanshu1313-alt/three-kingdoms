@@ -17,14 +17,14 @@ const BANNER_LIFT = -12;
  * 士兵/副将屏幕槽位向目标 offset 指数逼近，弯道时后排拖出弧；主将贴死。
  * tau 秒：约 63% 追上目标所需时间。
  */
-export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.07, soldier: 0.14 };
+export const SOFT_FOLLOW_TAU = { leader: 0, deputy: 0.05, soldier: 0.10 };
 /** 士兵越靠后（forward 越小）tau 越大，弯道弧更明显 */
 export function softTauFor(role, forward = 0) {
   const base = SOFT_FOLLOW_TAU[role] ?? SOFT_FOLLOW_TAU.soldier;
   if (role !== 'soldier' || base <= 0) return base;
   // forward 约 -22…-6；后排多拖 ~40%
   const rear = Math.max(0, (-6 - forward) / 16);
-  return base * (1 + 0.4 * rear);
+  return base * (1 + 0.25 * rear);
 }
 /** 指数平滑一步；tau≤0 或 dt 异常 → 直接贴目标 */
 export function softFollowStep(cur, target, dt, tau) {

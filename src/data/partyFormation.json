@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "revision": "2026-10-29 比例疏密+方旗拍板（小维）：T0–T3 0.92/1.00/1.06/1.12；副将1.25/主将1.40；士兵更紧；主将+势力方旗",
+  "revision": "2026-10-29 小维按推荐改比例：lead1.55/deputy1.30/T0–T3 0.88/0.95/1.00/1.05；略收软跟",
   "tile_size": 32,
   "coordinate_space": {
     "origin": "party_center",
@@ -189,21 +189,21 @@
       "overlays": [
         "ring_thin"
       ],
-      "scale": 0.92
+      "scale": 0.88
     },
     "T1": {
       "overlays": [
         "ring_thin",
         "crest_t1"
       ],
-      "scale": 1.0
+      "scale": 0.95
     },
     "T2": {
       "overlays": [
         "ring_thin",
         "banner_t2"
       ],
-      "scale": 1.06,
+      "scale": 1.0,
       "optional_keep_crest": true
     },
     "T3": {
@@ -212,7 +212,7 @@
         "crest_t1",
         "banner_t2"
       ],
-      "scale": 1.12,
+      "scale": 1.05,
       "comment": "预留更高阶；造型差仍靠挂件+缩放，不靠加人"
     }
   },
@@ -228,7 +228,7 @@
         "banner_faction_player"
       ],
       "overlays_enemy_note": "敌方用 banner_faction_enemy 替换 banner_faction_player；环用 ring_enemy",
-      "scale": 1.4
+      "scale": 1.55
     },
     "deputy": {
       "atlas": [
@@ -237,7 +237,7 @@
       "overlays": [
         "ring_thin"
       ],
-      "scale": 1.25
+      "scale": 1.3
     }
   }
 }
