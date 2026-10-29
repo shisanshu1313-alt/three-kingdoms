@@ -55,7 +55,7 @@ test('PartyDecor.sync 使用 compareDecorDrawOrder + overlayDepthOffset', () => 
 test('ringLayoutFor：步战同 scale；骑兵更宽更扁并下移（美工 5203）', () => {
   assert.equal(CAV_RING_SCALE_X, 1.3);
   assert.equal(CAV_RING_SCALE_Y, 0.7);
-  assert.equal(CAV_RING_LIFT_Y, 6);
+  assert.equal(CAV_RING_LIFT_Y, 10);
   const lead = 1.55;
   const inf = ringLayoutFor('inf', lead);
   assert.deepEqual(inf, { scaleX: lead, scaleY: lead, liftY: 0 });

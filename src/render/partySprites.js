@@ -35,7 +35,7 @@ export const BANNER_LIFT = -16;
  */
 export const CAV_RING_SCALE_X = 1.3;   // × baseScale → 略宽过马身
 export const CAV_RING_SCALE_Y = 0.7;   // × baseScale → 压扁，上弧不再切肚
-export const CAV_RING_LIFT_Y = 6;      // Phaser y-down：环整体下移贴蹄印
+export const CAV_RING_LIFT_Y = 10;      // Phaser y-down：环再下移贴蹄底（美工 5204：上弧仍擦踝 → +4）
 
 /** @returns {{ scaleX: number, scaleY: number, liftY: number }} */
 export function ringLayoutFor(unit, baseScale) {
