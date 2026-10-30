@@ -29,10 +29,10 @@ import {
 
 const SRC = readFileSync(new URL('../src/render/partySprites.js', import.meta.url), 'utf8');
 
-test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.65', () => {
+test('TOPDOWN_V2B_TRY 标志与 TRY_SCALE≈1.5', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(TRY_SCALE >= 1.6 && TRY_SCALE <= 1.7);
-  assert.ok(Math.abs(TRY_SCALE - 1.65) < 1e-9);
+  assert.ok(TRY_SCALE >= 1.45 && TRY_SCALE <= 1.55);
+  assert.ok(Math.abs(TRY_SCALE - 1.5) < 1e-9);
 });
 
 test('DIRS 八向顺序含对角', () => {
@@ -165,10 +165,10 @@ test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
   assert.match(SRC, /SELECTION_RING_KEYS/);
 });
 
-test('TOPDOWN try：前后×4.8 / 左右×3.8 拉开编队槽位（仅 draw）', () => {
+test('TOPDOWN try：前后×6.2 / 左右×5.0 拉开编队槽位（仅 draw）', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING_LATERAL - 3.8) < 1e-9);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING_FORWARD - 4.8) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING_LATERAL - 5.0) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING_FORWARD - 6.2) < 1e-9);
   assert.ok(Math.abs(TRY_FORMATION_SPACING - TRY_FORMATION_SPACING_LATERAL) < 1e-9);
   const team = {
     id: 'p', is_player: true, unit: 'inf', soldiers: 40, faction: 'player',
