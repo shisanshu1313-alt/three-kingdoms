@@ -165,9 +165,9 @@ test('TOPDOWN try：HIDE_SELECTION_RING_TRY 不画选中环 ring_*', () => {
   assert.match(SRC, /SELECTION_RING_KEYS/);
 });
 
-test('TOPDOWN try：前后×6.2 / 左右×5.0 拉开编队槽位（仅 draw）', () => {
+test('TOPDOWN try：前后×6.2 / 左右×7.2 拉开编队槽位（仅 draw）', () => {
   assert.equal(TOPDOWN_V2B_TRY, true);
-  assert.ok(Math.abs(TRY_FORMATION_SPACING_LATERAL - 5.0) < 1e-9);
+  assert.ok(Math.abs(TRY_FORMATION_SPACING_LATERAL - 7.2) < 1e-9);
   assert.ok(Math.abs(TRY_FORMATION_SPACING_FORWARD - 6.2) < 1e-9);
   assert.ok(Math.abs(TRY_FORMATION_SPACING - TRY_FORMATION_SPACING_LATERAL) < 1e-9);
   const team = {
