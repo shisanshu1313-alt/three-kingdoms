@@ -140,12 +140,12 @@ const BASE = 'assets/sprites/parties';
  */
 export const TOPDOWN_V2B_TRY = true;
 /** 俯视试玩整体放大（仅 draw；不改 partyFormation.json） */
-export const TRY_SCALE = 2.0;
+export const TRY_SCALE = 1.65;
 /** 俯视试玩编队槽位间距乘子（仅 draw offset；不改碰撞 / melee / partyFormation.json）
- * 左右（right）与前后（forward）分开：横向缝隙已够，纵深再拉开以免前后排贴合。
+ * 左右（right）与前后（forward）分开：s3d@~1.65 再加大横向缝；纵深同步略拉开。
  */
-export const TRY_FORMATION_SPACING_LATERAL = 2.8;
-export const TRY_FORMATION_SPACING_FORWARD = 4.0;
+export const TRY_FORMATION_SPACING_LATERAL = 3.8;
+export const TRY_FORMATION_SPACING_FORWARD = 4.8;
 /** @deprecated 兼容旧测试/引用；等同 lateral */
 export const TRY_FORMATION_SPACING = TRY_FORMATION_SPACING_LATERAL;
 /** 真俯视锚点：平面中心；旧侧视为脚底 (0.5, 1) */
